@@ -24,6 +24,7 @@ Usage:
   dialect presets
   dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
   dialect shim install <dialect> [--name <command>] [--dir <path>]
+  dialect native install <command> [--dangerous] [--dir <path>]
   dialect proxy <dialect> <start|stop|status|logs>
   dialect doctor
 
@@ -70,6 +71,8 @@ func Run(args []string, version string) error {
 		return proxyCommand(args[1:])
 	case "shim":
 		return shimCommand(args[1:])
+	case "native":
+		return nativeCommand(args[1:])
 	case "doctor":
 		return doctor()
 	default:
@@ -313,10 +316,15 @@ func runDialect(args []string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", name)
 	}
+	claudeDir, err := ensureClaudeConfigDir(name)
+	if err != nil {
+		return err
+	}
 	env := append([]string{}, os.Environ()...)
 	if err = startProxy(name, d); err != nil {
 		return err
 	}
+	env = setEnv(env, "CLAUDE_CONFIG_DIR", claudeDir)
 	env = setEnv(env, "ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d", d.Port))
 	env = setEnv(env, "ANTHROPIC_AUTH_TOKEN", d.APIKey)
 	env = setEnv(env, "ANTHROPIC_MODEL", d.Model)
@@ -488,6 +496,61 @@ func shimCommand(args []string) error {
 		fmt.Printf("Add %s to PATH to invoke %s directly.\n", *dir, *name)
 	}
 	return nil
+}
+
+func nativeCommand(args []string) error {
+	if len(args) < 2 || args[0] != "install" {
+		return errors.New("usage: dialect native install <command> [--dangerous] [--dir <path>]")
+	}
+	name := args[1]
+	if !validName(name) || name == "claude" {
+		return errors.New("native launcher requires a valid command name other than claude")
+	}
+	fs := flag.NewFlagSet("native install", flag.ContinueOnError)
+	dangerous := fs.Bool("dangerous", false, "bypass Claude Code permission checks")
+	dir := fs.String("dir", "", "install directory")
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	if *dir == "" {
+		home, _ := os.UserHomeDir()
+		*dir = filepath.Join(home, ".local", "bin")
+	}
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		return errors.New("Claude Code not found in PATH")
+	}
+	claudePath, err = filepath.Abs(claudePath)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(*dir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(*dir, name)
+	body := nativeLauncherBody(claudePath, *dangerous)
+	if err = os.WriteFile(path, []byte(body), 0o755); err != nil {
+		return err
+	}
+	if err = os.Chmod(path, 0o755); err != nil {
+		return err
+	}
+	fmt.Println("Installed", path)
+	if alias, found := zshAlias(name); found {
+		return fmt.Errorf("zsh alias %q overrides the installed command (%s); remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, path, name)
+	}
+	if !pathContains(*dir) {
+		fmt.Printf("Add %s to PATH to invoke %s directly.\n", *dir, name)
+	}
+	return nil
+}
+
+func nativeLauncherBody(claudePath string, dangerous bool) string {
+	flag := ""
+	if dangerous {
+		flag = " --dangerously-skip-permissions"
+	}
+	return fmt.Sprintf("#!/bin/sh\nexec %q%s \"$@\"\n", claudePath, flag)
 }
 
 func zshAlias(name string) (string, bool) {

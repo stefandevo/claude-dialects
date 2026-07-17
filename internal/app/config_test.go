@@ -99,3 +99,40 @@ func TestSetEnvReplacesInheritedValue(t *testing.T) {
 		t.Fatalf("setEnv returned %q", got)
 	}
 }
+
+func TestClaudeConfigDirectoriesAreIsolatedAndPrivate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+
+	claudex, err := ensureClaudeConfigDir("claudex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kimi, err := ensureClaudeConfigDir("kimi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claudex == kimi {
+		t.Fatal("dialects share a Claude config directory")
+	}
+	if want := filepath.Join(home, "instances", "claudex", "claude"); claudex != want {
+		t.Fatalf("Claude config directory = %q, want %q", claudex, want)
+	}
+	info, err := os.Stat(claudex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("Claude config mode = %v, want private directory 0700", info.Mode())
+	}
+}
+
+func TestNativeDangerousLauncherUsesNormalClaudeConfiguration(t *testing.T) {
+	body := nativeLauncherBody("/Users/example/.local/bin/claude", true)
+	if !strings.Contains(body, `exec "/Users/example/.local/bin/claude" --dangerously-skip-permissions "$@"`) {
+		t.Fatalf("unexpected native launcher:\n%s", body)
+	}
+	if strings.Contains(body, "CLAUDE_CONFIG_DIR") || strings.Contains(body, "ANTHROPIC_BASE_URL") {
+		t.Fatalf("native launcher unexpectedly changes Claude configuration:\n%s", body)
+	}
+}

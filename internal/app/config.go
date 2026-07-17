@@ -97,6 +97,28 @@ func paths(name string) (home, configPath, proxyPath, authDir, pidPath, logPath 
 	return
 }
 
+func claudeConfigDir(name string) (string, error) {
+	home, err := homeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "instances", name, "claude"), nil
+}
+
+func ensureClaudeConfigDir(name string) (string, error) {
+	path, err := claudeConfigDir(name)
+	if err != nil {
+		return "", err
+	}
+	if err = os.MkdirAll(path, 0o700); err != nil {
+		return "", fmt.Errorf("create isolated Claude config for %q: %w", name, err)
+	}
+	if err = os.Chmod(path, 0o700); err != nil {
+		return "", fmt.Errorf("secure isolated Claude config for %q: %w", name, err)
+	}
+	return path, nil
+}
+
 func loadConfig() (*Config, error) {
 	home, path, _, _, _, _, err := paths("")
 	if err != nil {

@@ -2,12 +2,13 @@
 
 Create multiple native-feeling Claude Code commands powered by different models.
 Each generated dialect runs the real Claude Code interface with its own model,
-environment, credentials, API key, and embedded
+environment, Claude Code configuration and history, credentials, API key, and embedded
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance.
 
 The proxy is linked into the `dialect` executable through CLIProxyAPI's Go SDK.
 There is no separate proxy download, installation, container, or global
-`~/.claude/settings.json` modification.
+`~/.claude/settings.json` modification. Changes made with `/model`, `/effort`,
+or other user-level Claude Code settings stay inside the active dialect.
 
 > Current target: macOS on Apple Silicon only.
 
@@ -52,6 +53,24 @@ claudex
 kimi
 codex-work
 ```
+
+## Native Claude shortcuts
+
+Claude Dialects can also install a lightweight shortcut for the normal Claude
+Code application without starting the proxy or changing its configuration. For
+example, replace a separate `cld` launcher with:
+
+```sh
+dialect native install cld --dangerous
+cld
+```
+
+This launches the installed Claude Code executable with
+`--dangerously-skip-permissions` and passes through any additional arguments.
+It deliberately uses the regular `~/.claude` settings, authentication, and
+conversation history, so it is a shortcut for your existing Claude Max setup,
+not an isolated model dialect. Use dangerous mode only in directories you
+trust.
 
 Provider setup:
 
@@ -158,6 +177,9 @@ Use `--opus-model`, `--sonnet-model`, and `--haiku-model` to change that mapping
 `/model` also lets you adjust effort with the arrow keys, and `/effort` changes
 it immediately. We deliberately do not set `CLAUDE_CODE_EFFORT_LEVEL`, because
 that environment variable would take precedence over live `/effort` changes.
+Claude Code stores these interactive choices in the dialect's own configuration
+directory, so changing `claudex` does not change regular `claude`, `kimi`, or
+another dialect.
 CLIProxyAPI translates
 Claude's adaptive reasoning request into the upstream provider's reasoning
 format when that provider supports it.
@@ -201,11 +223,13 @@ config.json
 instances/
   claudex/
     auth/
+    claude/
     proxy.yaml
     proxy.pid
     proxy.log
   kimi/
     auth/
+    claude/
     proxy.yaml
     proxy.pid
     proxy.log
@@ -214,6 +238,17 @@ instances/
 Proxy servers bind only to `127.0.0.1`. Configuration, local API keys, and OAuth
 credentials use owner-only permissions. The CLI changes environment variables
 only for the launched Claude Code process.
+
+The `claude/` directory is supplied to Claude Code through
+`CLAUDE_CONFIG_DIR`. It contains that dialect's user settings, session history,
+plugins, commands, agents, and other Claude Code state. Project-level
+`.claude/` files in the repository you are working in continue to work normally.
+
+Existing dialects are migrated automatically: after updating and reinstalling
+`dialect`, their private `claude/` directory is created on the next launch. You
+do not need to recreate the dialect, re-authenticate its proxy, or reinstall its
+shim. Conversations previously stored in the shared `~/.claude` directory do
+not automatically appear in the new isolated history.
 
 If a Zsh alias already uses the generated command name, it takes precedence
 over the executable. Remove the alias from `~/.zshrc`, then run `unalias
