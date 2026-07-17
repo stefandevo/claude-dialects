@@ -481,10 +481,25 @@ func shimCommand(args []string) error {
 		return err
 	}
 	fmt.Println("Installed", path)
+	if alias, found := zshAlias(*name); found {
+		return fmt.Errorf("zsh alias %q overrides the installed command (%s); remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, path, *name)
+	}
 	if !pathContains(*dir) {
 		fmt.Printf("Add %s to PATH to invoke %s directly.\n", *dir, *name)
 	}
 	return nil
+}
+
+func zshAlias(name string) (string, bool) {
+	if !validName(name) {
+		return "", false
+	}
+	output, err := exec.Command("zsh", "-ic", "alias "+name).CombinedOutput()
+	if err != nil {
+		return "", false
+	}
+	alias := strings.TrimSpace(string(output))
+	return alias, alias != ""
 }
 
 func pathContains(dir string) bool {
@@ -511,6 +526,11 @@ func doctor() error {
 	}
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		fmt.Printf("✗ unsupported platform %s/%s (requires darwin/arm64)\n", runtime.GOOS, runtime.GOARCH)
+	}
+	for name := range cfg.Dialects {
+		if alias, found := zshAlias(name); found {
+			fmt.Printf("✗ %s is shadowed by %s\n", name, alias)
+		}
 	}
 	names := make([]string, 0, len(cfg.Dialects))
 	for name := range cfg.Dialects {

@@ -11,8 +11,10 @@ test:
 
 install: build
 	mkdir -p "$(PREFIX)/bin"
-	cp dist/dialect "$(PREFIX)/bin/dialect"
+	tmp="$(PREFIX)/bin/.dialect.tmp.$$$$"; \
+	cp dist/dialect "$$tmp"; \
+	chmod 755 "$$tmp"; \
+	mv -f "$$tmp" "$(PREFIX)/bin/dialect"
 
 clean:
 	rm -rf dist
-

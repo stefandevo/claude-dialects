@@ -236,6 +236,9 @@ func authenticate(name, provider string, noBrowser bool) error {
 	}
 	fmt.Println("Authenticated", provider)
 	if saved != "" {
+		if chmodErr := os.Chmod(saved, 0o600); chmodErr != nil {
+			return fmt.Errorf("secure saved credentials: %w", chmodErr)
+		}
 		fmt.Println("Credentials:", saved)
 	}
 	if proxyHealthy(dialect) {

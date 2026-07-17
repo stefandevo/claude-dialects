@@ -215,6 +215,11 @@ Proxy servers bind only to `127.0.0.1`. Configuration, local API keys, and OAuth
 credentials use owner-only permissions. The CLI changes environment variables
 only for the launched Claude Code process.
 
+If a Zsh alias already uses the generated command name, it takes precedence
+over the executable. Remove the alias from `~/.zshrc`, then run `unalias
+<name>` in terminals that were already open. Both `dialect shim install` and
+`dialect doctor` detect these collisions.
+
 ## Useful commands
 
 ```sh
