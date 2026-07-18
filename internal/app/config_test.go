@@ -289,3 +289,9 @@ func TestSuggestedShimName(t *testing.T) {
 		t.Fatalf("suggestedShimName(claudex) = %q, want claudex-dialect", got)
 	}
 }
+
+func TestUsageShowsRemoveCommand(t *testing.T) {
+	if !strings.Contains(usage, "\n  cc-dialect remove <name>\n") {
+		t.Fatal("usage does not show the remove command on its own line")
+	}
+}

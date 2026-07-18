@@ -20,7 +20,9 @@ const usage = `Claude Dialects — create native Claude Code runners for any mod
 Usage:
   cc-dialect create <name> --preset <preset> [options]
   cc-dialect run <name> [--] [claude arguments...]
-  cc-dialect list | show <name> | remove <name>
+  cc-dialect list
+  cc-dialect show <name>
+  cc-dialect remove <name>
   cc-dialect models <name>
   cc-dialect presets
   cc-dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
