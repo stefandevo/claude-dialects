@@ -20,6 +20,7 @@ type Config struct {
 }
 
 type Dialect struct {
+	Preset        string            `json:"preset,omitempty"`
 	Model         string            `json:"model"`
 	SubagentModel string            `json:"subagentModel,omitempty"`
 	Effort        bool              `json:"effort"`
@@ -262,6 +263,64 @@ func presetNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func presetForDialect(dialect Dialect) string {
+	if _, ok := presets[dialect.Preset]; ok {
+		return dialect.Preset
+	}
+	switch dialect.AuthProvider {
+	case "codex":
+		if dialect.Model == presets["codex-sol"].Model {
+			return "codex-sol"
+		}
+		return "codex"
+	case "kimi":
+		return "kimi"
+	case "antigravity":
+		return "gemini"
+	case "claude":
+		return "claude"
+	}
+	if dialect.AuthTokenEnv == "ZAI_API_KEY" ||
+		strings.Contains(strings.ToLower(dialect.BaseURL), "z.ai") ||
+		strings.Contains(strings.ToLower(dialect.BaseURL), "bigmodel.cn") {
+		return "glm"
+	}
+	switch {
+	case strings.HasPrefix(dialect.Model, "gpt-"):
+		if strings.Contains(dialect.Model, "-sol") {
+			return "codex-sol"
+		}
+		return "codex"
+	case strings.HasPrefix(dialect.Model, "kimi-"):
+		return "kimi"
+	case strings.HasPrefix(dialect.Model, "gemini-"):
+		return "gemini"
+	case strings.HasPrefix(dialect.Model, "claude-"):
+		return "claude"
+	case strings.HasPrefix(dialect.Model, "glm-"):
+		return "glm"
+	default:
+		return ""
+	}
+}
+
+func providerForDialect(dialect Dialect) string {
+	switch presetForDialect(dialect) {
+	case "codex", "codex-sol":
+		return "codex"
+	case "kimi":
+		return "kimi"
+	case "gemini":
+		return "gemini"
+	case "claude":
+		return "claude"
+	case "glm":
+		return "glm"
+	default:
+		return dialect.AuthProvider
+	}
 }
 
 func validName(name string) bool {

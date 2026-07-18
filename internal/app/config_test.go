@@ -282,6 +282,61 @@ func TestCreateNextStepsExplainAPIToken(t *testing.T) {
 	}
 }
 
+func TestPresetForDialectSupportsStoredAndLegacyConfigurations(t *testing.T) {
+	stored := presets["codex-sol"]
+	stored.Preset = "codex-sol"
+	if got := presetForDialect(stored); got != "codex-sol" {
+		t.Fatalf("stored preset = %q, want codex-sol", got)
+	}
+	legacyKimi := presets["kimi"]
+	if got := presetForDialect(legacyKimi); got != "kimi" {
+		t.Fatalf("legacy Kimi preset = %q, want kimi", got)
+	}
+	legacyGLM := Dialect{
+		Model: "glm-5", BaseURL: "https://open.bigmodel.cn/api/anthropic",
+		AuthTokenEnv: "ZAI_API_KEY",
+	}
+	if got := presetForDialect(legacyGLM); got != "glm" {
+		t.Fatalf("legacy GLM preset = %q, want glm", got)
+	}
+	if got := presetForDialect(Dialect{Model: "my-private-model"}); got != "" {
+		t.Fatalf("custom preset = %q, want empty", got)
+	}
+}
+
+func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
+	codexSol := presets["codex-sol"]
+	codexSol.Preset = "codex-sol"
+	codexSol.Port = 43170
+	codex := presets["codex"]
+	codex.Preset = "codex"
+	codex.Port = 43171
+	kimi := presets["kimi"]
+	kimi.Preset = "kimi"
+	kimi.Port = 43172
+	cfg := &Config{Dialects: map[string]Dialect{
+		"cc-codex-sol": codexSol,
+		"cc-codex":     codex,
+		"cc-kimi":      kimi,
+	}}
+	healthy := func(dialect Dialect) bool {
+		return dialect.Port == 43170 || dialect.Port == 43172
+	}
+
+	allCodex := detectDialects(cfg, "codex", false, healthy)
+	if len(allCodex) != 2 || allCodex[0].Name != "cc-codex" || allCodex[1].Name != "cc-codex-sol" {
+		t.Fatalf("Codex provider detections = %#v", allCodex)
+	}
+	runningCodex := detectDialects(cfg, "codex", true, healthy)
+	if len(runningCodex) != 1 || runningCodex[0].Name != "cc-codex-sol" || !runningCodex[0].Running {
+		t.Fatalf("running Codex detections = %#v", runningCodex)
+	}
+	exactPreset := detectDialects(cfg, "codex-sol", false, healthy)
+	if len(exactPreset) != 1 || exactPreset[0].Provider != "codex" || exactPreset[0].Preset != "codex-sol" {
+		t.Fatalf("exact preset detections = %#v", exactPreset)
+	}
+}
+
 func TestHasProviderCredentialsMatchesCredentialType(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	_, _, _, authDir, _, _, err := paths("cc-codex")
@@ -337,5 +392,11 @@ func TestSuggestedShimName(t *testing.T) {
 func TestUsageShowsRemoveCommand(t *testing.T) {
 	if !strings.Contains(usage, "\n  cc-dialect remove <name>\n") {
 		t.Fatal("usage does not show the remove command on its own line")
+	}
+}
+
+func TestUsageShowsDetectCommand(t *testing.T) {
+	if !strings.Contains(usage, "\n  cc-dialect detect [preset-or-provider] [--running] [--json] [--quiet]\n") {
+		t.Fatal("usage does not show the detect command")
 	}
 }

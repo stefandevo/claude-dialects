@@ -160,9 +160,9 @@ Ports are actively checked and allocated per dialect starting at the high range
 rejected again at startup:
 
 ```text
-claudex      gpt-5.6-sol       127.0.0.1:43170
-kimix        kimi-k3           127.0.0.1:43171
-codex-work   gpt-5.6           127.0.0.1:43172
+claudex      codex-sol    gpt-5.6-sol       embedded proxy :43170
+kimix        kimi         kimi-k3           embedded proxy :43171
+codex-work   codex        gpt-5.6           embedded proxy :43172
 ```
 
 Pass Claude Code arguments normally:
@@ -296,6 +296,43 @@ List the models actually exposed by an authenticated instance:
 ```sh
 cc-dialect models claudex
 ```
+
+## Detect configured and running dialects
+
+Every newly created dialect records the preset it came from. Older
+configurations are recognized from their saved provider and model settings, so
+they do not need to be recreated.
+
+Human-readable detection:
+
+```sh
+cc-dialect detect
+cc-dialect detect codex
+cc-dialect detect glm --running
+```
+
+`codex` matches both the `codex` and `codex-sol` presets. An exact query such as
+`codex-sol` matches only that preset. `cc-dialect doctor` also displays the
+detected preset beside every instance.
+
+For another tool, use JSON when it needs instance details:
+
+```sh
+cc-dialect detect --running --json
+cc-dialect detect kimi --running --json
+```
+
+Or use a silent exit-status check:
+
+```sh
+if cc-dialect detect glm --running --quiet; then
+  echo "A GLM Claude Code dialect is running"
+fi
+```
+
+For a preset or provider query, exit status `0` means at least one matching
+dialect was found and exit status `1` means none matched. JSON records contain
+the command name, exact preset, provider family, model, port, and running state.
 
 ## Proxy and authentication commands
 

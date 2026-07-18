@@ -23,6 +23,7 @@ Usage:
   cc-dialect list
   cc-dialect show <name>
   cc-dialect remove <name>
+  cc-dialect detect [preset-or-provider] [--running] [--json] [--quiet]
   cc-dialect models <name>
   cc-dialect presets
   cc-dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
@@ -66,6 +67,8 @@ func Run(args []string, version string) error {
 		return listModels(args[1:])
 	case "remove":
 		return removeDialect(args[1:])
+	case "detect":
+		return detectCommand(args[1:])
 	case "run":
 		return runDialect(args[1:])
 	case "auth":
@@ -137,6 +140,7 @@ func createDialect(args []string) error {
 		if !ok {
 			return fmt.Errorf("unknown preset %q (available: %s)", *preset, strings.Join(presetNames(), ", "))
 		}
+		dialect.Preset = *preset
 	}
 	if *model != "" {
 		dialect.Model = *model
@@ -311,13 +315,110 @@ func listDialects() error {
 	}
 	for _, name := range names {
 		d := cfg.Dialects[name]
+		preset := presetForDialect(d)
+		if preset == "" {
+			preset = "custom"
+		}
 		transport := fmt.Sprintf("embedded proxy :%d", d.Port)
 		if d.BaseURL != "" {
 			transport = fmt.Sprintf("embedded upstream proxy :%d", d.Port)
 		}
-		fmt.Printf("%-18s %-24s %s\n", name, d.Model, transport)
+		fmt.Printf("%-18s %-12s %-24s %s\n", name, preset, d.Model, transport)
 	}
 	return nil
+}
+
+type ExitError struct {
+	Code int
+}
+
+func (e *ExitError) Error() string {
+	return ""
+}
+
+type DialectDetection struct {
+	Name     string `json:"name"`
+	Preset   string `json:"preset"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Port     int    `json:"port"`
+	Running  bool   `json:"running"`
+}
+
+func detectCommand(args []string) error {
+	query := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		query = args[0]
+		args = args[1:]
+	}
+	fs := flag.NewFlagSet("detect", flag.ContinueOnError)
+	runningOnly := fs.Bool("running", false, "only include dialects with a healthy proxy")
+	jsonOutput := fs.Bool("json", false, "print machine-readable JSON")
+	quiet := fs.Bool("quiet", false, "print nothing and use only the exit status")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("usage: cc-dialect detect [preset-or-provider] [--running] [--json] [--quiet]")
+	}
+	if *quiet && *jsonOutput {
+		return errors.New("--quiet and --json cannot be used together")
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	detections := detectDialects(cfg, query, *runningOnly, proxyHealthy)
+	if !*quiet {
+		if *jsonOutput {
+			raw, marshalErr := json.MarshalIndent(detections, "", "  ")
+			if marshalErr != nil {
+				return marshalErr
+			}
+			fmt.Println(string(raw))
+		} else {
+			for _, detection := range detections {
+				fmt.Printf("%-18s preset=%-12s provider=%-8s model=%-24s running=%-5t port=%d\n",
+					detection.Name, detection.Preset, detection.Provider, detection.Model, detection.Running, detection.Port)
+			}
+		}
+	}
+	if query != "" && len(detections) == 0 {
+		return &ExitError{Code: 1}
+	}
+	return nil
+}
+
+func detectDialects(cfg *Config, query string, runningOnly bool, healthy func(Dialect) bool) []DialectDetection {
+	names := make([]string, 0, len(cfg.Dialects))
+	for name := range cfg.Dialects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	detections := make([]DialectDetection, 0, len(names))
+	for _, name := range names {
+		dialect := cfg.Dialects[name]
+		preset := presetForDialect(dialect)
+		provider := providerForDialect(dialect)
+		if query != "" && query != preset && query != provider {
+			continue
+		}
+		running := healthy(dialect)
+		if runningOnly && !running {
+			continue
+		}
+		if preset == "" {
+			preset = "custom"
+		}
+		if provider == "" {
+			provider = "custom"
+		}
+		detections = append(detections, DialectDetection{
+			Name: name, Preset: preset, Provider: provider,
+			Model: dialect.Model, Port: dialect.Port, Running: running,
+		})
+	}
+	return detections
 }
 
 func showDialect(args []string) error {
@@ -771,10 +872,17 @@ func doctor() error {
 			fmt.Printf("✗ %s is not authenticated (run: cc-dialect auth %s %s)\n", name, name, dialect.AuthProvider)
 		}
 		if proxyHealthy(dialect) {
-			fmt.Printf("✓ %s proxy running on 127.0.0.1:%d\n", name, dialect.Port)
+			fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d\n", name, displayPreset(dialect), dialect.Port)
 		} else {
-			fmt.Printf("○ %s proxy stopped (reserved port %d)\n", name, dialect.Port)
+			fmt.Printf("○ %s (preset %s) proxy stopped (reserved port %d)\n", name, displayPreset(dialect), dialect.Port)
 		}
 	}
 	return nil
+}
+
+func displayPreset(dialect Dialect) string {
+	if preset := presetForDialect(dialect); preset != "" {
+		return preset
+	}
+	return "custom"
 }
