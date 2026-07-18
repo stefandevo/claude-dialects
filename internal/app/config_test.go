@@ -80,6 +80,34 @@ func TestWriteProxyConfigUsesPerDialectPathsAndSecrets(t *testing.T) {
 	}
 }
 
+func TestWriteProxyConfigRoutesLatestGLMModels(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	t.Setenv("ZAI_API_KEY", "zai-secret")
+	glm := presets["glm"]
+	glm.Port = 43173
+	glm.APIKey = "local-secret"
+
+	path, err := writeProxyConfig("cc-glm", glm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		`base-url: "https://api.z.ai/api/anthropic"`,
+		`name: "glm-5.2"`,
+		`name: "glm-5-turbo"`,
+		`name: "glm-4.5-air"`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("GLM proxy config does not contain %q:\n%s", expected, text)
+		}
+	}
+}
+
 func TestLoadConfigCreatesPrivateConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
@@ -204,6 +232,22 @@ func TestGeminiPresetUsesAntigravityModelAliases(t *testing.T) {
 	}
 	if gemini.AuthProvider != "antigravity" {
 		t.Fatalf("Gemini preset auth provider = %q, want antigravity", gemini.AuthProvider)
+	}
+}
+
+func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
+	glm := presets["glm"]
+	if glm.Model != "glm-5.2" || glm.SubagentModel != "glm-5.2" || glm.OpusModel != "glm-5.2" {
+		t.Fatalf("GLM preset does not use GLM-5.2 for main, subagent, and opus: %#v", glm)
+	}
+	if glm.SonnetModel != "glm-5-turbo" || glm.HaikuModel != "glm-4.5-air" {
+		t.Fatalf("GLM preset has unexpected lower-tier model mappings: %#v", glm)
+	}
+	if glm.BaseURL != "https://api.z.ai/api/anthropic" {
+		t.Fatalf("GLM preset endpoint = %q, want current Z.ai Anthropic endpoint", glm.BaseURL)
+	}
+	if glm.AuthTokenEnv != "ZAI_API_KEY" {
+		t.Fatalf("GLM preset token environment = %q, want ZAI_API_KEY", glm.AuthTokenEnv)
 	}
 }
 

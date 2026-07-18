@@ -133,6 +133,20 @@ Provider setup:
 | Claude | Anthropic OAuth through CLIProxyAPI | `cc-dialect auth anthropicx claude` |
 | GLM | Z.ai Anthropic-compatible API through CLIProxyAPI | Set `ZAI_API_KEY` |
 
+Create a GLM runner using Z.ai's current GLM-5.2 flagship:
+
+```sh
+export ZAI_API_KEY="your_zai_api_key"
+cc-dialect create cc-glm --preset glm
+cc-dialect shim install cc-glm
+cc-glm
+```
+
+The GLM preset maps `opus` to `glm-5.2`, `sonnet` to `glm-5-turbo`, and
+`haiku` to `glm-4.5-air`. Its `auto` effort setting leaves GLM-5.2 at the
+provider default (`max`). Inside Claude Code, GLM-5.2 accepts `high` or `max`;
+the provider maps `xhigh` to `max` and maps `low` or `medium` to `high`.
+
 Create the Google runner with:
 
 ```sh
@@ -241,7 +255,8 @@ cc-dialect shim install my-model
 
 The upstream token is read only when that isolated proxy starts and is written
 to its owner-only proxy configuration. The `glm` preset uses this mode with
-`ZAI_API_KEY`, matching the behavior
+`ZAI_API_KEY` and Z.ai's current `https://api.z.ai/api/anthropic` endpoint,
+matching the behavior
 of [xqsit94/glm](https://github.com/xqsit94/glm).
 
 ## Switch model and effort inside a conversation

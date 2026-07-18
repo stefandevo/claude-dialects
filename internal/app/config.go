@@ -69,10 +69,10 @@ var presets = map[string]Dialect{
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"glm": {
-		Model: "glm-5", SubagentModel: "glm-5",
-		OpusModel: "glm-5", SonnetModel: "glm-4.7", HaikuModel: "glm-4.6",
+		Model: "glm-5.2", SubagentModel: "glm-5.2",
+		OpusModel: "glm-5.2", SonnetModel: "glm-5-turbo", HaikuModel: "glm-4.5-air",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
-		BaseURL: "https://open.bigmodel.cn/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
+		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
 	},
 }
 
