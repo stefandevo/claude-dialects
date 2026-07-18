@@ -35,6 +35,8 @@ type Dialect struct {
 	BaseURL       string            `json:"baseUrl,omitempty"`
 	AuthTokenEnv  string            `json:"authTokenEnv,omitempty"`
 	AuthProvider  string            `json:"authProvider,omitempty"`
+	Bridge        string            `json:"bridge,omitempty"`
+	BridgePort    int               `json:"bridgePort,omitempty"`
 	ExtraEnv      map[string]string `json:"extraEnv,omitempty"`
 }
 
@@ -74,6 +76,60 @@ var presets = map[string]Dialect{
 		OpusModel: "glm-5.2", SonnetModel: "glm-5-turbo", HaikuModel: "glm-4.5-air",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
+	},
+	"grok": {
+		Model: "grok-4.5", SubagentModel: "grok-4.5",
+		OpusModel: "grok-4.5", SonnetModel: "grok-4.5", HaikuModel: "grok-4.5",
+		AuthProvider: "xai",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"grok-build": {
+		Model: "grok-build-0.1", SubagentModel: "grok-build-0.1",
+		OpusModel: "grok-build-0.1", SonnetModel: "grok-build-0.1", HaikuModel: "grok-build-0.1",
+		AuthProvider: "xai",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"composer": {
+		Model: "grok-composer-2.5-fast", SubagentModel: "grok-composer-2.5-fast",
+		OpusModel: "grok-composer-2.5-fast", SonnetModel: "grok-composer-2.5-fast", HaikuModel: "grok-composer-2.5-fast",
+		AuthProvider: "xai",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"minimax": {
+		Model: "MiniMax-M2.7", SubagentModel: "MiniMax-M2.7",
+		OpusModel: "MiniMax-M2.7", SonnetModel: "MiniMax-M2.7", HaikuModel: "MiniMax-M2.7",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		BaseURL: "https://api.minimax.io/anthropic", AuthTokenEnv: "MINIMAX_API_KEY",
+	},
+	"deepseek": {
+		Model: "deepseek-v4-pro", SubagentModel: "deepseek-v4-pro",
+		OpusModel: "deepseek-v4-pro", SonnetModel: "deepseek-v4-flash", HaikuModel: "deepseek-v4-flash",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		BaseURL: "https://api.deepseek.com/anthropic", AuthTokenEnv: "DEEPSEEK_API_KEY",
+	},
+	"cursor-composer": {
+		Model: "composer-2.5", SubagentModel: "composer-2.5",
+		OpusModel: "composer-2.5-fast", SonnetModel: "composer-2.5-standard", HaikuModel: "composer-2.5-standard",
+		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"cursor-composer-fast": {
+		Model: "composer-2.5-fast", SubagentModel: "composer-2.5-fast",
+		OpusModel: "composer-2.5-fast", SonnetModel: "composer-2.5-fast", HaikuModel: "composer-2.5-fast",
+		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"cursor-auto": {
+		Model: "auto", SubagentModel: "auto",
+		OpusModel: "auto", SonnetModel: "auto", HaikuModel: "auto",
+		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"cursor-grok": {
+		Model: "grok-4.5", SubagentModel: "grok-4.5",
+		OpusModel: "grok-4.5", SonnetModel: "grok-4.5", HaikuModel: "grok-4.5",
+		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 }
 
@@ -217,6 +273,23 @@ usage-statistics-enabled: false
 			}
 		}
 	}
+	if dialect.Bridge == "cursor" {
+		models, modelsErr := fetchCursorModels(dialect)
+		if modelsErr != nil {
+			models = nil
+		}
+		models = mergeModels(models, dialectModels(dialect))
+		content += fmt.Sprintf(`openai-compatibility:
+  - name: "cursor"
+    base-url: %q
+    api-key-entries:
+      - api-key: %q
+    models:
+`, fmt.Sprintf("http://127.0.0.1:%d/v1", dialect.BridgePort), dialect.APIKey)
+		for _, model := range models {
+			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
+		}
+	}
 	if err = os.MkdirAll(home, 0o700); err != nil {
 		return "", err
 	}
@@ -235,9 +308,19 @@ func newAPIKey() (string, error) {
 }
 
 func nextPort(cfg *Config) int {
-	used := make(map[int]bool, len(cfg.Dialects))
+	return nextAvailablePort(cfg, nil)
+}
+
+func nextAvailablePort(cfg *Config, additionallyUsed map[int]bool) int {
+	used := make(map[int]bool, len(cfg.Dialects)*2+len(additionallyUsed))
 	for _, dialect := range cfg.Dialects {
 		used[dialect.Port] = true
+		if dialect.BridgePort != 0 {
+			used[dialect.BridgePort] = true
+		}
+	}
+	for port := range additionallyUsed {
+		used[port] = true
 	}
 	for port := cfg.BasePort; port < 65535; port++ {
 		if !used[port] && portAvailable(port) {
@@ -281,11 +364,42 @@ func presetForDialect(dialect Dialect) string {
 		return "gemini"
 	case "claude":
 		return "claude"
+	case "xai":
+		switch {
+		case strings.HasPrefix(dialect.Model, "grok-composer-"):
+			return "composer"
+		case strings.HasPrefix(dialect.Model, "grok-build-"):
+			return "grok-build"
+		default:
+			return "grok"
+		}
+	}
+	if dialect.Bridge == "cursor" {
+		switch dialect.Model {
+		case "composer-2.5":
+			return "cursor-composer"
+		case "composer-2.5-fast":
+			return "cursor-composer-fast"
+		case "auto":
+			return "cursor-auto"
+		case "grok-4.5":
+			return "cursor-grok"
+		default:
+			return ""
+		}
 	}
 	if dialect.AuthTokenEnv == "ZAI_API_KEY" ||
 		strings.Contains(strings.ToLower(dialect.BaseURL), "z.ai") ||
 		strings.Contains(strings.ToLower(dialect.BaseURL), "bigmodel.cn") {
 		return "glm"
+	}
+	if dialect.AuthTokenEnv == "MINIMAX_API_KEY" ||
+		strings.Contains(strings.ToLower(dialect.BaseURL), "minimax.io") {
+		return "minimax"
+	}
+	if dialect.AuthTokenEnv == "DEEPSEEK_API_KEY" ||
+		strings.Contains(strings.ToLower(dialect.BaseURL), "deepseek.com") {
+		return "deepseek"
 	}
 	switch {
 	case strings.HasPrefix(dialect.Model, "gpt-"):
@@ -301,6 +415,16 @@ func presetForDialect(dialect Dialect) string {
 		return "claude"
 	case strings.HasPrefix(dialect.Model, "glm-"):
 		return "glm"
+	case strings.HasPrefix(dialect.Model, "grok-composer-"):
+		return "composer"
+	case strings.HasPrefix(dialect.Model, "grok-build-"):
+		return "grok-build"
+	case strings.HasPrefix(dialect.Model, "grok-"):
+		return "grok"
+	case strings.HasPrefix(strings.ToLower(dialect.Model), "minimax-"):
+		return "minimax"
+	case strings.HasPrefix(dialect.Model, "deepseek-"):
+		return "deepseek"
 	default:
 		return ""
 	}
@@ -318,9 +442,46 @@ func providerForDialect(dialect Dialect) string {
 		return "claude"
 	case "glm":
 		return "glm"
+	case "grok", "grok-build", "composer":
+		return "xai"
+	case "minimax":
+		return "minimax"
+	case "deepseek":
+		return "deepseek"
+	case "cursor-composer", "cursor-composer-fast", "cursor-auto", "cursor-grok":
+		return "cursor"
 	default:
+		if dialect.Bridge == "cursor" {
+			return "cursor"
+		}
 		return dialect.AuthProvider
 	}
+}
+
+func dialectModels(dialect Dialect) []string {
+	seen := map[string]bool{}
+	var models []string
+	for _, model := range []string{dialect.Model, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel, dialect.SubagentModel} {
+		if model != "" && !seen[model] {
+			seen[model] = true
+			models = append(models, model)
+		}
+	}
+	return models
+}
+
+func mergeModels(groups ...[]string) []string {
+	seen := map[string]bool{}
+	var models []string
+	for _, group := range groups {
+		for _, model := range group {
+			if model != "" && !seen[model] {
+				seen[model] = true
+				models = append(models, model)
+			}
+		}
+	}
+	return models
 }
 
 func validName(name string) bool {

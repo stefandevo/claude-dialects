@@ -27,16 +27,17 @@ Usage:
   cc-dialect models <name>
   cc-dialect presets
   cc-dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
+  cc-dialect cursor <install|status|models>
   cc-dialect shim install <dialect> [--name <command>] [--dir <path>]
   cc-dialect native install <command> [--dangerous] [--dir <path>]
   cc-dialect proxy <dialect> <start|stop|status|logs>
   cc-dialect doctor
 
 Example:
-  cc-dialect create claudex --preset codex-sol
-  cc-dialect auth claudex codex
-  cc-dialect shim install claudex
-  claudex
+  cc-dialect create cc-codex --preset codex-sol
+  cc-dialect auth cc-codex codex
+  cc-dialect shim install cc-codex
+  cc-codex
 `
 
 func Run(args []string, version string) error {
@@ -73,6 +74,8 @@ func Run(args []string, version string) error {
 		return runDialect(args[1:])
 	case "auth":
 		return authCommand(args[1:])
+	case "cursor":
+		return cursorCommand(args[1:])
 	case "proxy":
 		return proxyCommand(args[1:])
 	case "shim":
@@ -126,6 +129,7 @@ func createDialect(args []string) error {
 	effortLevel := fs.String("effort-level", "", "initial effort: auto, low, medium, high, xhigh, or max")
 	concurrency := fs.Int("concurrency", 0, "maximum tool concurrency")
 	port := fs.Int("port", 0, "isolated proxy port (allocated automatically by default)")
+	bridgePort := fs.Int("bridge-port", 0, "isolated provider bridge port (allocated automatically by default)")
 	baseURL := fs.String("base-url", "", "Anthropic-compatible upstream URL routed through the embedded proxy")
 	tokenEnv := fs.String("token-env", "", "environment variable containing the upstream API token")
 	effort := fs.Bool("effort", true, "enable Claude Code effort")
@@ -203,6 +207,9 @@ func createDialect(args []string) error {
 	if existing, ok := cfg.Dialects[name]; ok {
 		dialect.Port = existing.Port
 		dialect.APIKey = existing.APIKey
+		if dialect.Bridge != "" && existing.Bridge == dialect.Bridge {
+			dialect.BridgePort = existing.BridgePort
+		}
 	} else {
 		dialect.Port = nextPort(cfg)
 		if dialect.Port == 0 {
@@ -218,7 +225,7 @@ func createDialect(args []string) error {
 			return errors.New("--port must be between 1024 and 65535")
 		}
 		for otherName, other := range cfg.Dialects {
-			if otherName != name && other.Port == *port {
+			if otherName != name && (other.Port == *port || other.BridgePort == *port) {
 				return fmt.Errorf("port %d is already reserved by %q", *port, otherName)
 			}
 		}
@@ -230,6 +237,37 @@ func createDialect(args []string) error {
 		if dialect.Port != *port {
 			dialect.Port = *port
 		}
+	}
+	if dialect.Bridge != "" && dialect.BridgePort == 0 {
+		dialect.BridgePort = nextAvailablePort(cfg, map[int]bool{dialect.Port: true})
+		if dialect.BridgePort == 0 {
+			return errors.New("no provider bridge ports available")
+		}
+	}
+	if *bridgePort != 0 {
+		if dialect.Bridge == "" {
+			return errors.New("--bridge-port requires a preset with a managed provider bridge")
+		}
+		if *bridgePort < 1024 || *bridgePort > 65535 {
+			return errors.New("--bridge-port must be between 1024 and 65535")
+		}
+		if *bridgePort == dialect.Port {
+			return errors.New("--bridge-port must differ from --port")
+		}
+		for otherName, other := range cfg.Dialects {
+			if otherName != name && (other.Port == *bridgePort || other.BridgePort == *bridgePort) {
+				return fmt.Errorf("bridge port %d is already reserved by %q", *bridgePort, otherName)
+			}
+		}
+		if existing, ok := cfg.Dialects[name]; !ok || existing.BridgePort != *bridgePort {
+			if !portAvailable(*bridgePort) {
+				return fmt.Errorf("bridge port %d is already in use by another process", *bridgePort)
+			}
+		}
+		dialect.BridgePort = *bridgePort
+	}
+	if dialect.BridgePort == dialect.Port {
+		return fmt.Errorf("proxy and provider bridge cannot share port %d", dialect.Port)
 	}
 	if updating {
 		_ = stopProxy(name)
@@ -248,15 +286,14 @@ func createDialect(args []string) error {
 	} else {
 		fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
 		home, _ := os.UserHomeDir()
-		target := filepath.Join(home, ".local", "bin", name)
-		suggested := suggestedShimName(name)
-		shimName := name
-		if alias, found := zshAlias(name); found {
-			fmt.Printf("Warning: command name %q is already used by %s.\n", name, alias)
-			shimName = suggested
-		} else if conflicts := commandConflicts(name, target); len(conflicts) > 0 {
-			fmt.Printf("Warning: command name %q already exists at %s.\n", name, strings.Join(conflicts, ", "))
-			shimName = suggested
+		shimName := preferredShimName(name)
+		target := filepath.Join(home, ".local", "bin", shimName)
+		if alias, found := zshAlias(shimName); found {
+			fmt.Printf("Warning: command name %q is already used by %s.\n", shimName, alias)
+			shimName = suggestedShimName(shimName)
+		} else if conflicts := commandConflicts(shimName, target); len(conflicts) > 0 {
+			fmt.Printf("Warning: command name %q already exists at %s.\n", shimName, strings.Join(conflicts, ", "))
+			shimName = suggestedShimName(shimName)
 		}
 		fmt.Println("Next:")
 		for index, step := range createNextSteps(name, shimName, dialect) {
@@ -268,11 +305,14 @@ func createDialect(args []string) error {
 
 func createNextSteps(name, shimName string, dialect Dialect) []string {
 	var steps []string
+	if dialect.Bridge == "cursor" {
+		steps = append(steps, "Install the Cursor bridge: cc-dialect cursor install")
+	}
 	if step := authenticationStep(name, dialect); step != "" {
 		steps = append(steps, step)
 	}
 	shim := fmt.Sprintf("Install the command: cc-dialect shim install %s", name)
-	if shimName != name {
+	if shimName != preferredShimName(name) {
 		shim += " --name " + shimName
 	}
 	steps = append(steps, shim, "Run: "+shimName)
@@ -310,7 +350,7 @@ func listDialects() error {
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		fmt.Println("No dialects yet. Try: cc-dialect create claudex --preset codex-sol")
+		fmt.Println("No dialects yet. Try: cc-dialect create cc-codex --preset codex-sol")
 		return nil
 	}
 	for _, name := range names {
@@ -322,6 +362,8 @@ func listDialects() error {
 		transport := fmt.Sprintf("embedded proxy :%d", d.Port)
 		if d.BaseURL != "" {
 			transport = fmt.Sprintf("embedded upstream proxy :%d", d.Port)
+		} else if d.Bridge != "" {
+			transport = fmt.Sprintf("embedded proxy :%d → %s bridge :%d", d.Port, d.Bridge, d.BridgePort)
 		}
 		fmt.Printf("%-18s %-12s %-24s %s\n", name, preset, d.Model, transport)
 	}
@@ -368,7 +410,7 @@ func detectCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	detections := detectDialects(cfg, query, *runningOnly, proxyHealthy)
+	detections := detectDialects(cfg, query, *runningOnly, dialectHealthy)
 	if !*quiet {
 		if *jsonOutput {
 			raw, marshalErr := json.MarshalIndent(detections, "", "  ")
@@ -638,8 +680,12 @@ func proxyCommand(args []string) error {
 	case "stop":
 		return stopProxy(name)
 	case "status":
-		if proxyHealthy(dialect) {
-			fmt.Printf("running (pid %d, port %d)\n", proxyPID(name), dialect.Port)
+		if dialectHealthy(dialect) {
+			fmt.Printf("running (pid %d, port %d", proxyPID(name), dialect.Port)
+			if dialect.Bridge != "" {
+				fmt.Printf(", %s bridge pid %d, port %d", dialect.Bridge, cursorBridgePID(name), dialect.BridgePort)
+			}
+			fmt.Println(")")
 		} else {
 			fmt.Println("stopped")
 		}
@@ -664,7 +710,7 @@ func shimCommand(args []string) error {
 		return fmt.Errorf("dialect %q does not exist", dialectName)
 	}
 	fs := flag.NewFlagSet("shim install", flag.ContinueOnError)
-	name := fs.String("name", dialectName, "installed command name")
+	name := fs.String("name", preferredShimName(dialectName), "installed command name")
 	dir := fs.String("dir", "", "install directory")
 	if err = fs.Parse(args[2:]); err != nil {
 		return err
@@ -830,10 +876,18 @@ func canonicalPath(path string) string {
 }
 
 func suggestedShimName(name string) string {
-	if strings.HasSuffix(name, "x") {
-		return name + "-dialect"
+	preferred := preferredShimName(name)
+	if preferred == name {
+		return preferred + "-dialect"
 	}
-	return name + "x"
+	return preferred
+}
+
+func preferredShimName(name string) string {
+	if strings.HasPrefix(name, "cc-") {
+		return name
+	}
+	return "cc-" + name
 }
 
 func doctor() error {
@@ -850,15 +904,40 @@ func doctor() error {
 	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
 		fmt.Printf("✗ unsupported platform %s/%s (requires darwin/arm64)\n", runtime.GOOS, runtime.GOARCH)
 	}
+	hasCursor := false
+	for _, dialect := range cfg.Dialects {
+		if dialect.Bridge == "cursor" {
+			hasCursor = true
+			break
+		}
+	}
+	if hasCursor {
+		if version, cursorErr := cursorRuntimeVersion(); cursorErr == nil {
+			if version == cursorSDKVersion {
+				fmt.Printf("✓ Cursor bridge runtime (@cursor/sdk %s)\n", version)
+			} else {
+				fmt.Printf("✗ Cursor bridge runtime has @cursor/sdk %s; %s is required (run: cc-dialect cursor install)\n",
+					version, cursorSDKVersion)
+			}
+		} else {
+			fmt.Println("✗ Cursor bridge runtime is not installed (run: cc-dialect cursor install)")
+		}
+		if os.Getenv("CURSOR_API_KEY") == "" {
+			fmt.Println("✗ CURSOR_API_KEY is not set")
+		} else {
+			fmt.Println("✓ CURSOR_API_KEY")
+		}
+	}
 	for name := range cfg.Dialects {
-		if alias, found := zshAlias(name); found {
-			fmt.Printf("✗ %s is shadowed by %s\n", name, alias)
+		shimName := preferredShimName(name)
+		if alias, found := zshAlias(shimName); found {
+			fmt.Printf("✗ %s is shadowed by %s\n", shimName, alias)
 		}
 		home, _ := os.UserHomeDir()
-		target := filepath.Join(home, ".local", "bin", name)
-		if conflicts := commandConflicts(name, target); len(conflicts) > 0 {
+		target := filepath.Join(home, ".local", "bin", shimName)
+		if conflicts := commandConflicts(shimName, target); len(conflicts) > 0 {
 			fmt.Printf("✗ %s conflicts with existing command(s): %s (try --name %s)\n",
-				name, strings.Join(conflicts, ", "), suggestedShimName(name))
+				shimName, strings.Join(conflicts, ", "), suggestedShimName(shimName))
 		}
 	}
 	names := make([]string, 0, len(cfg.Dialects))
@@ -871,10 +950,20 @@ func doctor() error {
 		if dialect.AuthProvider != "" && !hasProviderCredentials(name, dialect.AuthProvider) {
 			fmt.Printf("✗ %s is not authenticated (run: cc-dialect auth %s %s)\n", name, name, dialect.AuthProvider)
 		}
-		if proxyHealthy(dialect) {
-			fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d\n", name, displayPreset(dialect), dialect.Port)
+		if dialectHealthy(dialect) {
+			if dialect.Bridge == "cursor" {
+				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d, Cursor bridge on 127.0.0.1:%d\n",
+					name, displayPreset(dialect), dialect.Port, dialect.BridgePort)
+			} else {
+				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d\n", name, displayPreset(dialect), dialect.Port)
+			}
 		} else {
-			fmt.Printf("○ %s (preset %s) proxy stopped (reserved port %d)\n", name, displayPreset(dialect), dialect.Port)
+			if dialect.Bridge == "cursor" {
+				fmt.Printf("○ %s (preset %s) stopped (reserved proxy port %d, bridge port %d)\n",
+					name, displayPreset(dialect), dialect.Port, dialect.BridgePort)
+			} else {
+				fmt.Printf("○ %s (preset %s) proxy stopped (reserved port %d)\n", name, displayPreset(dialect), dialect.Port)
+			}
 		}
 	}
 	return nil

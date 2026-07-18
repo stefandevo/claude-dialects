@@ -104,6 +104,9 @@ func proxyPID(name string) int {
 }
 
 func startProxy(name string, dialect Dialect) error {
+	if err := startCursorBridge(name, dialect); err != nil {
+		return err
+	}
 	if proxyHealthy(dialect) {
 		return nil
 	}
@@ -160,15 +163,20 @@ func startProxy(name string, dialect Dialect) error {
 }
 
 func stopProxy(name string) error {
-	pid := proxyPID(name)
-	if pid == 0 {
-		return nil
-	}
 	cfg, cfgErr := loadConfig()
 	var dialect Dialect
 	var exists bool
 	if cfgErr == nil {
 		dialect, exists = cfg.Dialects[name]
+	}
+	if exists {
+		defer func() {
+			_ = stopCursorBridge(name, dialect)
+		}()
+	}
+	pid := proxyPID(name)
+	if pid == 0 {
+		return nil
 	}
 	if cfgErr != nil || !exists || !proxyHealthy(dialect) {
 		// A stale PID can refer to an unrelated process after reboot or PID reuse.
@@ -282,11 +290,30 @@ func tailLog(name string) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return err
+	printed := false
+	if file, openErr := os.Open(path); openErr == nil {
+		fmt.Println("== embedded proxy ==")
+		_, err = io.Copy(os.Stdout, file)
+		_ = file.Close()
+		if err != nil {
+			return err
+		}
+		printed = true
 	}
-	defer file.Close()
-	_, err = io.Copy(os.Stdout, file)
-	return err
+	_, cursorLog, _, cursorErr := cursorInstancePaths(name)
+	if cursorErr == nil {
+		if file, openErr := os.Open(cursorLog); openErr == nil {
+			fmt.Println("== Cursor bridge ==")
+			_, err = io.Copy(os.Stdout, file)
+			_ = file.Close()
+			if err != nil {
+				return err
+			}
+			printed = true
+		}
+	}
+	if !printed {
+		return fmt.Errorf("no logs found for %q", name)
+	}
+	return nil
 }

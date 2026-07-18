@@ -2,9 +2,12 @@ package app
 
 import (
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -20,6 +23,19 @@ func TestNextPortKeepsDialectsIsolated(t *testing.T) {
 	}
 	if got := nextPort(cfg); got != base+1 {
 		t.Fatalf("nextPort() = %d, want %d", got, base+1)
+	}
+}
+
+func TestNextPortReservesProviderBridgePorts(t *testing.T) {
+	base := availablePortRange(t, 4)
+	cfg := &Config{
+		BasePort: base,
+		Dialects: map[string]Dialect{
+			"cursorx": {Port: base, Bridge: "cursor", BridgePort: base + 1},
+		},
+	}
+	if got := nextPort(cfg); got != base+2 {
+		t.Fatalf("nextPort() = %d, want %d after proxy and bridge reservations", got, base+2)
 	}
 }
 
@@ -104,6 +120,54 @@ func TestWriteProxyConfigRoutesLatestGLMModels(t *testing.T) {
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("GLM proxy config does not contain %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestWriteProxyConfigRoutesCursorModelsThroughPrivateBridge(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	const privateKey = "cursor-bridge-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+privateKey {
+			http.Error(response, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"data":[{"id":"composer-2.5"},{"id":"composer-2.5-fast"}]}`))
+	}))
+	defer server.Close()
+	_, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgePort, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := presets["cursor-composer"]
+	cursor.Port = availablePortRange(t, 1)
+	cursor.BridgePort = bridgePort
+	cursor.APIKey = privateKey
+
+	path, err := writeProxyConfig("cc-cursor", cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		`name: "cursor"`,
+		`base-url: "http://127.0.0.1:` + portText + `/v1"`,
+		`api-key: "cursor-bridge-secret"`,
+		`name: "composer-2.5"`,
+		`name: "composer-2.5-fast"`,
+		`name: "composer-2.5-standard"`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Cursor proxy config does not contain %q:\n%s", expected, text)
 		}
 	}
 }
@@ -251,6 +315,84 @@ func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
 	}
 }
 
+func TestXAIPresetsUseDistinctModelsAndOAuth(t *testing.T) {
+	tests := map[string]string{
+		"grok":       "grok-4.5",
+		"grok-build": "grok-build-0.1",
+		"composer":   "grok-composer-2.5-fast",
+	}
+	for name, model := range tests {
+		preset := presets[name]
+		if preset.Model != model || preset.SubagentModel != model ||
+			preset.OpusModel != model || preset.SonnetModel != model || preset.HaikuModel != model {
+			t.Errorf("%s preset does not consistently use %s: %#v", name, model, preset)
+		}
+		if preset.AuthProvider != "xai" {
+			t.Errorf("%s preset auth provider = %q, want xai", name, preset.AuthProvider)
+		}
+	}
+}
+
+func TestMiniMaxPresetUsesAnthropicCompatibleEndpoint(t *testing.T) {
+	minimax := presets["minimax"]
+	if minimax.Model != "MiniMax-M2.7" || minimax.SubagentModel != "MiniMax-M2.7" {
+		t.Fatalf("MiniMax preset uses unexpected models: %#v", minimax)
+	}
+	if minimax.BaseURL != "https://api.minimax.io/anthropic" {
+		t.Fatalf("MiniMax preset endpoint = %q", minimax.BaseURL)
+	}
+	if minimax.AuthTokenEnv != "MINIMAX_API_KEY" {
+		t.Fatalf("MiniMax preset token environment = %q", minimax.AuthTokenEnv)
+	}
+}
+
+func TestDeepSeekPresetUsesProAndFlashModels(t *testing.T) {
+	deepseek := presets["deepseek"]
+	if deepseek.Model != "deepseek-v4-pro" || deepseek.SubagentModel != "deepseek-v4-pro" || deepseek.OpusModel != "deepseek-v4-pro" {
+		t.Fatalf("DeepSeek preset does not use Pro for main, subagent, and opus: %#v", deepseek)
+	}
+	if deepseek.SonnetModel != "deepseek-v4-flash" || deepseek.HaikuModel != "deepseek-v4-flash" {
+		t.Fatalf("DeepSeek preset does not use Flash for lower tiers: %#v", deepseek)
+	}
+	if deepseek.BaseURL != "https://api.deepseek.com/anthropic" || deepseek.AuthTokenEnv != "DEEPSEEK_API_KEY" {
+		t.Fatalf("DeepSeek preset has unexpected connection settings: %#v", deepseek)
+	}
+}
+
+func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
+	tests := map[string]string{
+		"cursor-composer":      "composer-2.5",
+		"cursor-composer-fast": "composer-2.5-fast",
+		"cursor-auto":          "auto",
+		"cursor-grok":          "grok-4.5",
+	}
+	for name, model := range tests {
+		preset := presets[name]
+		if preset.Model != model || preset.SubagentModel != model {
+			t.Errorf("%s preset does not use %s for main and subagent: %#v", name, model, preset)
+		}
+		if preset.Bridge != "cursor" || preset.AuthTokenEnv != "CURSOR_API_KEY" {
+			t.Errorf("%s preset does not use the Cursor API bridge: %#v", name, preset)
+		}
+		if got := providerForDialect(preset); got != "cursor" {
+			t.Errorf("%s provider = %q, want cursor", name, got)
+		}
+	}
+	composer := presets["cursor-composer"]
+	if composer.OpusModel != "composer-2.5-fast" ||
+		composer.SonnetModel != "composer-2.5-standard" ||
+		composer.HaikuModel != "composer-2.5-standard" {
+		t.Fatalf("Cursor Composer preset does not expose Fast and Standard variants: %#v", composer)
+	}
+	cursorGrok := presets["cursor-grok"]
+	if got := presetForDialect(cursorGrok); got != "cursor-grok" {
+		t.Fatalf("Cursor Grok preset detection = %q, want cursor-grok", got)
+	}
+	if got := providerForDialect(cursorGrok); got != "cursor" {
+		t.Fatalf("Cursor Grok provider = %q, want cursor", got)
+	}
+}
+
 func TestCreateNextStepsAuthenticateBeforeInstallingShim(t *testing.T) {
 	got := createNextSteps("cc-codex", "cc-codex", presets["codex-sol"])
 	want := []string{
@@ -263,12 +405,24 @@ func TestCreateNextStepsAuthenticateBeforeInstallingShim(t *testing.T) {
 	}
 }
 
-func TestCreateNextStepsUseCollisionSafeShimName(t *testing.T) {
-	got := createNextSteps("gemini", "geminix", presets["gemini"])
+func TestCreateNextStepsUsePreferredShimNameByDefault(t *testing.T) {
+	got := createNextSteps("gemini", "cc-gemini", presets["gemini"])
 	want := []string{
 		"Authenticate: cc-dialect auth gemini antigravity",
-		"Install the command: cc-dialect shim install gemini --name geminix",
-		"Run: geminix",
+		"Install the command: cc-dialect shim install gemini",
+		"Run: cc-gemini",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps() = %q, want %q", got, want)
+	}
+}
+
+func TestCreateNextStepsUseCollisionSafeShimName(t *testing.T) {
+	got := createNextSteps("gemini", "cc-gemini-dialect", presets["gemini"])
+	want := []string{
+		"Authenticate: cc-dialect auth gemini antigravity",
+		"Install the command: cc-dialect shim install gemini --name cc-gemini-dialect",
+		"Run: cc-gemini-dialect",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("createNextSteps() = %q, want %q", got, want)
@@ -279,6 +433,19 @@ func TestCreateNextStepsExplainAPIToken(t *testing.T) {
 	got := createNextSteps("glmx", "glmx", presets["glm"])
 	if len(got) == 0 || got[0] != "Set the provider token: export ZAI_API_KEY=your_token" {
 		t.Fatalf("createNextSteps() = %q, want API token instruction first", got)
+	}
+}
+
+func TestCreateNextStepsInstallCursorBridgeBeforeTokenAndShim(t *testing.T) {
+	got := createNextSteps("cc-cursor", "cc-cursor", presets["cursor-composer"])
+	want := []string{
+		"Install the Cursor bridge: cc-dialect cursor install",
+		"Set the provider token: export CURSOR_API_KEY=your_token",
+		"Install the command: cc-dialect shim install cc-cursor",
+		"Run: cc-cursor",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps() = %q, want %q", got, want)
 	}
 }
 
@@ -299,6 +466,17 @@ func TestPresetForDialectSupportsStoredAndLegacyConfigurations(t *testing.T) {
 	if got := presetForDialect(legacyGLM); got != "glm" {
 		t.Fatalf("legacy GLM preset = %q, want glm", got)
 	}
+	legacyComposer := Dialect{Model: "grok-composer-2.5-fast", AuthProvider: "xai"}
+	if got := presetForDialect(legacyComposer); got != "composer" {
+		t.Fatalf("legacy Composer preset = %q, want composer", got)
+	}
+	legacyMiniMax := Dialect{
+		Model: "MiniMax-M2.7", BaseURL: "https://api.minimax.io/anthropic",
+		AuthTokenEnv: "MINIMAX_API_KEY",
+	}
+	if got := presetForDialect(legacyMiniMax); got != "minimax" {
+		t.Fatalf("legacy MiniMax preset = %q, want minimax", got)
+	}
 	if got := presetForDialect(Dialect{Model: "my-private-model"}); got != "" {
 		t.Fatalf("custom preset = %q, want empty", got)
 	}
@@ -314,10 +492,18 @@ func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
 	kimi := presets["kimi"]
 	kimi.Preset = "kimi"
 	kimi.Port = 43172
+	grok := presets["grok"]
+	grok.Preset = "grok"
+	grok.Port = 43173
+	composer := presets["composer"]
+	composer.Preset = "composer"
+	composer.Port = 43174
 	cfg := &Config{Dialects: map[string]Dialect{
 		"cc-codex-sol": codexSol,
 		"cc-codex":     codex,
 		"cc-kimi":      kimi,
+		"cc-grok":      grok,
+		"cc-composer":  composer,
 	}}
 	healthy := func(dialect Dialect) bool {
 		return dialect.Port == 43170 || dialect.Port == 43172
@@ -334,6 +520,10 @@ func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
 	exactPreset := detectDialects(cfg, "codex-sol", false, healthy)
 	if len(exactPreset) != 1 || exactPreset[0].Provider != "codex" || exactPreset[0].Preset != "codex-sol" {
 		t.Fatalf("exact preset detections = %#v", exactPreset)
+	}
+	allXAI := detectDialects(cfg, "xai", false, healthy)
+	if len(allXAI) != 2 || allXAI[0].Name != "cc-composer" || allXAI[1].Name != "cc-grok" {
+		t.Fatalf("xAI provider detections = %#v", allXAI)
 	}
 }
 
@@ -381,11 +571,51 @@ func TestCommandConflictsFindsOtherExecutables(t *testing.T) {
 }
 
 func TestSuggestedShimName(t *testing.T) {
-	if got := suggestedShimName("gemini"); got != "geminix" {
-		t.Fatalf("suggestedShimName(gemini) = %q, want geminix", got)
+	if got := suggestedShimName("gemini"); got != "cc-gemini" {
+		t.Fatalf("suggestedShimName(gemini) = %q, want cc-gemini", got)
 	}
-	if got := suggestedShimName("claudex"); got != "claudex-dialect" {
-		t.Fatalf("suggestedShimName(claudex) = %q, want claudex-dialect", got)
+	if got := suggestedShimName("cc-gemini"); got != "cc-gemini-dialect" {
+		t.Fatalf("suggestedShimName(cc-gemini) = %q, want cc-gemini-dialect", got)
+	}
+}
+
+func TestPreferredShimName(t *testing.T) {
+	if got := preferredShimName("gemini"); got != "cc-gemini" {
+		t.Fatalf("preferredShimName(gemini) = %q, want cc-gemini", got)
+	}
+	if got := preferredShimName("cc-gemini"); got != "cc-gemini" {
+		t.Fatalf("preferredShimName(cc-gemini) = %q, want cc-gemini", got)
+	}
+}
+
+func TestParseMajorMinor(t *testing.T) {
+	major, minor, ok := parseMajorMinor("22.15.0")
+	if !ok || major != 22 || minor != 15 {
+		t.Fatalf("parseMajorMinor() = %d, %d, %t", major, minor, ok)
+	}
+	if _, _, ok = parseMajorMinor("not-a-version"); ok {
+		t.Fatal("parseMajorMinor accepted an invalid version")
+	}
+}
+
+func TestCursorBridgeEnvironmentDoesNotInheritUnrelatedSecrets(t *testing.T) {
+	t.Setenv("PATH", "/example/bin")
+	t.Setenv("HOME", "/Users/example")
+	t.Setenv("CURSOR_API_KEY", "cursor-secret")
+	t.Setenv("OPENAI_API_KEY", "must-not-leak")
+	env := strings.Join(cursorBridgeEnvironment("private-bridge-key"), "\n")
+	for _, expected := range []string{
+		"PATH=/example/bin",
+		"HOME=/Users/example",
+		"CURSOR_API_KEY=cursor-secret",
+		"CURSOR_DIALECT_BRIDGE_KEY=private-bridge-key",
+	} {
+		if !strings.Contains(env, expected) {
+			t.Fatalf("Cursor bridge environment does not contain %q: %s", expected, env)
+		}
+	}
+	if strings.Contains(env, "OPENAI_API_KEY") || strings.Contains(env, "must-not-leak") {
+		t.Fatalf("Cursor bridge inherited an unrelated secret: %s", env)
 	}
 }
 
