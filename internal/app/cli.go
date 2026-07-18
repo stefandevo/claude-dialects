@@ -193,6 +193,7 @@ func createDialect(args []string) error {
 	if err != nil {
 		return err
 	}
+	_, updating := cfg.Dialects[name]
 	if existing, ok := cfg.Dialects[name]; ok {
 		dialect.Port = existing.Port
 		dialect.APIKey = existing.APIKey
@@ -221,16 +222,23 @@ func createDialect(args []string) error {
 			}
 		}
 		if dialect.Port != *port {
-			_ = stopProxy(name)
 			dialect.Port = *port
 		}
+	}
+	if updating {
+		_ = stopProxy(name)
 	}
 	cfg.Dialects[name] = dialect
 	if err = saveConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
-	fmt.Printf("Next: dialect shim install %s\n", name)
+	if updating {
+		fmt.Printf("Updated %q to model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
+		fmt.Println("Authentication, isolated Claude Code state, and installed shims were preserved.")
+	} else {
+		fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
+		fmt.Printf("Next: dialect shim install %s\n", name)
+	}
 	return nil
 }
 

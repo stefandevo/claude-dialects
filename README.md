@@ -170,10 +170,11 @@ dialect create kimi --preset kimi
 
 This updates the models and behavior flags while preserving the dialect's port,
 local API key, OAuth credentials, isolated Claude Code configuration and
-history, and installed shim. Start a new conversation after changing the
-underlying model. In particular, Moonshot warns that switching an existing
-conversation from another model to Kimi K3 can produce unstable output because
-K3 requires its thinking history to be preserved.
+history, and installed shim. A running proxy for that dialect is stopped so its
+next launch uses the newly installed embedded proxy. Start a new conversation
+after changing the underlying model. In particular, Moonshot warns that
+switching an existing conversation from another model to Kimi K3 can produce
+unstable output because K3 requires its thinking history to be preserved.
 
 To stay on a specific model instead, use a custom model ID. It will remain
 unchanged until you run another `dialect create` command for that name:
