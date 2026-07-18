@@ -2,8 +2,9 @@
 
 ## Supported versions
 
-Security fixes are made on the latest released version and the `main` branch.
-Older versions are not maintained.
+Security fixes are made on the `main` branch. This project does not publish
+versioned binaries or GitHub releases; users should rebuild from the latest
+source after a security fix.
 
 ## Reporting a vulnerability
 

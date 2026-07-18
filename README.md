@@ -22,15 +22,18 @@ or other user-level Claude Code settings stay inside the active dialect.
 > owners. You are responsible for complying with each provider's terms,
 > subscription rules, and usage policies.
 
-## Build and install
+## Get the code, build, and install
 
 Requirements:
 
+- macOS on Apple Silicon;
 - Go 1.26.5 or newer
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
 
 ```sh
+git clone https://github.com/stefandevo/claude-dialects.git
+cd claude-dialects
 make install
 export PATH="$HOME/.local/bin:$PATH"
 ```
@@ -42,14 +45,24 @@ To make that PATH change persist across terminal restarts:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
-Tagged releases provide a signed and notarized Apple Silicon archive once the
-release signing workflow is configured. Verify a downloaded release with:
+This project does not publish prebuilt binaries or GitHub releases. Everyone
+builds the executable from the checked-out source. To create a shareable local
+Apple Silicon archive and checksum instead of installing it:
 
 ```sh
-shasum -a 256 -c SHA256SUMS
-gh attestation verify dialect_*_darwin_arm64.zip \
-  --repo stefandevo/claude-dialects
+make assets VERSION=dev
+ls artifacts/
+(cd artifacts && shasum -a 256 -c SHA256SUMS)
 ```
+
+The generated files are:
+
+- `artifacts/dialect_dev_darwin_arm64.zip`
+- `artifacts/SHA256SUMS`
+
+Set `VERSION` to any identifier you want in the filename and embedded
+`dialect --version` output. `make package` is an alias for `make assets`.
+These locally produced assets are not signed or notarized by this project.
 
 ## Create several dialects
 
