@@ -93,6 +93,10 @@ cc-dialect auth codex-work codex
 cc-dialect shim install codex-work
 ```
 
+`create` prints these required steps in order. OAuth presets will not launch or
+list models until their instance has been authenticated, and the error includes
+the exact `cc-dialect auth` command to run.
+
 You can now run all three simultaneously:
 
 ```sh

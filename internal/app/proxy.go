@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -60,6 +61,33 @@ func fetchModels(dialect Dialect) ([]string, error) {
 		}
 	}
 	return models, nil
+}
+
+func hasProviderCredentials(name, provider string) bool {
+	_, _, _, authDir, _, _, err := paths(name)
+	if err != nil {
+		return false
+	}
+	entries, err := os.ReadDir(authDir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(authDir, entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		var metadata struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(data, &metadata) == nil && strings.EqualFold(metadata.Type, provider) {
+			return true
+		}
+	}
+	return false
 }
 
 func proxyPID(name string) int {

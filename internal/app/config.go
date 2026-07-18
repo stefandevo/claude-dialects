@@ -33,6 +33,7 @@ type Dialect struct {
 	APIKey        string            `json:"apiKey"`
 	BaseURL       string            `json:"baseUrl,omitempty"`
 	AuthTokenEnv  string            `json:"authTokenEnv,omitempty"`
+	AuthProvider  string            `json:"authProvider,omitempty"`
 	ExtraEnv      map[string]string `json:"extraEnv,omitempty"`
 }
 
@@ -40,27 +41,32 @@ var presets = map[string]Dialect{
 	"codex-sol": {
 		Model: "gpt-5.6-sol", SubagentModel: "gpt-5.6-sol",
 		OpusModel: "gpt-5.6-sol", SonnetModel: "gpt-5.6-terra", HaikuModel: "gpt-5.6-luna",
-		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		AuthProvider: "codex",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"codex": {
 		Model: "gpt-5.6", SubagentModel: "gpt-5.6",
 		OpusModel: "gpt-5.6-sol", SonnetModel: "gpt-5.6-terra", HaikuModel: "gpt-5.6-luna",
-		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		AuthProvider: "codex",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"kimi": {
 		Model: "kimi-k3", SubagentModel: "kimi-k3",
 		OpusModel: "kimi-k3", SonnetModel: "kimi-k2.7-code-highspeed", HaikuModel: "kimi-k2.6",
-		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		AuthProvider: "kimi",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"gemini": {
 		Model: "gemini-pro-agent", SubagentModel: "gemini-pro-agent",
 		OpusModel: "gemini-pro-agent", SonnetModel: "gemini-3.5-flash-low", HaikuModel: "gemini-3.5-flash-extra-low",
-		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		AuthProvider: "antigravity",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"claude": {
 		Model: "claude-fable-5", SubagentModel: "claude-fable-5",
 		OpusModel: "claude-fable-5", SonnetModel: "claude-sonnet-4-6", HaikuModel: "claude-haiku-4-5",
-		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+		AuthProvider: "claude",
+		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"glm": {
 		Model: "glm-5", SubagentModel: "glm-5",

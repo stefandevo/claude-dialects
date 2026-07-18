@@ -202,6 +202,60 @@ func TestGeminiPresetUsesAntigravityModelAliases(t *testing.T) {
 	if gemini.SonnetModel != "gemini-3.5-flash-low" || gemini.HaikuModel != "gemini-3.5-flash-extra-low" {
 		t.Fatalf("Gemini preset has unsupported Antigravity Flash aliases: %#v", gemini)
 	}
+	if gemini.AuthProvider != "antigravity" {
+		t.Fatalf("Gemini preset auth provider = %q, want antigravity", gemini.AuthProvider)
+	}
+}
+
+func TestCreateNextStepsAuthenticateBeforeInstallingShim(t *testing.T) {
+	got := createNextSteps("cc-codex", "cc-codex", presets["codex-sol"])
+	want := []string{
+		"Authenticate: cc-dialect auth cc-codex codex",
+		"Install the command: cc-dialect shim install cc-codex",
+		"Run: cc-codex",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps() = %q, want %q", got, want)
+	}
+}
+
+func TestCreateNextStepsUseCollisionSafeShimName(t *testing.T) {
+	got := createNextSteps("gemini", "geminix", presets["gemini"])
+	want := []string{
+		"Authenticate: cc-dialect auth gemini antigravity",
+		"Install the command: cc-dialect shim install gemini --name geminix",
+		"Run: geminix",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps() = %q, want %q", got, want)
+	}
+}
+
+func TestCreateNextStepsExplainAPIToken(t *testing.T) {
+	got := createNextSteps("glmx", "glmx", presets["glm"])
+	if len(got) == 0 || got[0] != "Set the provider token: export ZAI_API_KEY=your_token" {
+		t.Fatalf("createNextSteps() = %q, want API token instruction first", got)
+	}
+}
+
+func TestHasProviderCredentialsMatchesCredentialType(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	_, _, _, authDir, _, _, err := paths("cc-codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(authDir, "account.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hasProviderCredentials("cc-codex", "codex") {
+		t.Fatal("Codex credentials were not detected")
+	}
+	if hasProviderCredentials("cc-codex", "kimi") {
+		t.Fatal("Codex credentials incorrectly matched Kimi")
+	}
 }
 
 func TestCommandConflictsFindsOtherExecutables(t *testing.T) {

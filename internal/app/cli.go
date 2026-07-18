@@ -235,22 +235,62 @@ func createDialect(args []string) error {
 	if updating {
 		fmt.Printf("Updated %q to model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
 		fmt.Println("Authentication, isolated Claude Code state, and installed shims were preserved.")
+		if step := missingAuthenticationStep(name, dialect); step != "" {
+			fmt.Println("Next:")
+			fmt.Println("  1.", step)
+		}
 	} else {
 		fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
 		home, _ := os.UserHomeDir()
 		target := filepath.Join(home, ".local", "bin", name)
 		suggested := suggestedShimName(name)
+		shimName := name
 		if alias, found := zshAlias(name); found {
 			fmt.Printf("Warning: command name %q is already used by %s.\n", name, alias)
-			fmt.Printf("Next: cc-dialect shim install %s --name %s\n", name, suggested)
+			shimName = suggested
 		} else if conflicts := commandConflicts(name, target); len(conflicts) > 0 {
 			fmt.Printf("Warning: command name %q already exists at %s.\n", name, strings.Join(conflicts, ", "))
-			fmt.Printf("Next: cc-dialect shim install %s --name %s\n", name, suggested)
-		} else {
-			fmt.Printf("Next: cc-dialect shim install %s\n", name)
+			shimName = suggested
+		}
+		fmt.Println("Next:")
+		for index, step := range createNextSteps(name, shimName, dialect) {
+			fmt.Printf("  %d. %s\n", index+1, step)
 		}
 	}
 	return nil
+}
+
+func createNextSteps(name, shimName string, dialect Dialect) []string {
+	var steps []string
+	if step := authenticationStep(name, dialect); step != "" {
+		steps = append(steps, step)
+	}
+	shim := fmt.Sprintf("Install the command: cc-dialect shim install %s", name)
+	if shimName != name {
+		shim += " --name " + shimName
+	}
+	steps = append(steps, shim, "Run: "+shimName)
+	return steps
+}
+
+func authenticationStep(name string, dialect Dialect) string {
+	if dialect.AuthProvider != "" {
+		return fmt.Sprintf("Authenticate: cc-dialect auth %s %s", name, dialect.AuthProvider)
+	}
+	if dialect.AuthTokenEnv != "" {
+		return fmt.Sprintf("Set the provider token: export %s=your_token", dialect.AuthTokenEnv)
+	}
+	return ""
+}
+
+func missingAuthenticationStep(name string, dialect Dialect) string {
+	if dialect.AuthProvider != "" && !hasProviderCredentials(name, dialect.AuthProvider) {
+		return authenticationStep(name, dialect)
+	}
+	if dialect.AuthTokenEnv != "" && os.Getenv(dialect.AuthTokenEnv) == "" {
+		return authenticationStep(name, dialect)
+	}
+	return ""
 }
 
 func listDialects() error {
@@ -307,6 +347,9 @@ func listModels(args []string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", args[0])
 	}
+	if dialect.AuthProvider != "" && !hasProviderCredentials(args[0], dialect.AuthProvider) {
+		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", args[0], args[0], dialect.AuthProvider)
+	}
 	if err = startProxy(args[0], dialect); err != nil {
 		return err
 	}
@@ -359,6 +402,9 @@ func runDialect(args []string) error {
 	d, ok := cfg.Dialects[name]
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", name)
+	}
+	if d.AuthProvider != "" && !hasProviderCredentials(name, d.AuthProvider) {
+		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", name, name, d.AuthProvider)
 	}
 	claudeDir, err := ensureClaudeConfigDir(name)
 	if err != nil {
@@ -447,9 +493,20 @@ func authCommand(args []string) error {
 	if !valid[args[1]] {
 		return fmt.Errorf("unsupported OAuth provider %q", args[1])
 	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	dialect, ok := cfg.Dialects[args[0]]
+	if !ok {
+		return fmt.Errorf("dialect %q does not exist", args[0])
+	}
+	if dialect.AuthProvider != "" && dialect.AuthProvider != args[1] {
+		return fmt.Errorf("dialect %q requires %s authentication, not %s", args[0], dialect.AuthProvider, args[1])
+	}
 	fs := flag.NewFlagSet("auth", flag.ContinueOnError)
 	noBrowser := fs.Bool("no-browser", false, "do not open a browser")
-	if err := fs.Parse(args[2:]); err != nil {
+	if err = fs.Parse(args[2:]); err != nil {
 		return err
 	}
 	return authenticate(args[0], args[1], *noBrowser)
@@ -708,6 +765,9 @@ func doctor() error {
 	sort.Strings(names)
 	for _, name := range names {
 		dialect := cfg.Dialects[name]
+		if dialect.AuthProvider != "" && !hasProviderCredentials(name, dialect.AuthProvider) {
+			fmt.Printf("✗ %s is not authenticated (run: cc-dialect auth %s %s)\n", name, name, dialect.AuthProvider)
+		}
 		if proxyHealthy(dialect) {
 			fmt.Printf("✓ %s proxy running on 127.0.0.1:%d\n", name, dialect.Port)
 		} else {
