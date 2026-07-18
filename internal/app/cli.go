@@ -18,21 +18,21 @@ import (
 const usage = `Claude Dialects — create native Claude Code runners for any model
 
 Usage:
-  dialect create <name> --preset <preset> [options]
-  dialect run <name> [--] [claude arguments...]
-  dialect list | show <name> | remove <name>
-  dialect models <name>
-  dialect presets
-  dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
-  dialect shim install <dialect> [--name <command>] [--dir <path>]
-  dialect native install <command> [--dangerous] [--dir <path>]
-  dialect proxy <dialect> <start|stop|status|logs>
-  dialect doctor
+  cc-dialect create <name> --preset <preset> [options]
+  cc-dialect run <name> [--] [claude arguments...]
+  cc-dialect list | show <name> | remove <name>
+  cc-dialect models <name>
+  cc-dialect presets
+  cc-dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
+  cc-dialect shim install <dialect> [--name <command>] [--dir <path>]
+  cc-dialect native install <command> [--dangerous] [--dir <path>]
+  cc-dialect proxy <dialect> <start|stop|status|logs>
+  cc-dialect doctor
 
 Example:
-  dialect create claudex --preset codex-sol
-  dialect auth claudex codex
-  dialect shim install claudex
+  cc-dialect create claudex --preset codex-sol
+  cc-dialect auth claudex codex
+  cc-dialect shim install claudex
   claudex
 `
 
@@ -51,7 +51,7 @@ func Run(args []string, version string) error {
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	case "version", "--version":
-		fmt.Printf("dialect %s (embedded CLIProxyAPI %s)\n", version, embeddedProxyVersion())
+		fmt.Printf("cc-dialect %s (embedded CLIProxyAPI %s)\n", version, embeddedProxyVersion())
 	case "presets":
 		fmt.Println(strings.Join(presetNames(), "\n"))
 	case "create":
@@ -242,12 +242,12 @@ func createDialect(args []string) error {
 		suggested := suggestedShimName(name)
 		if alias, found := zshAlias(name); found {
 			fmt.Printf("Warning: command name %q is already used by %s.\n", name, alias)
-			fmt.Printf("Next: dialect shim install %s --name %s\n", name, suggested)
+			fmt.Printf("Next: cc-dialect shim install %s --name %s\n", name, suggested)
 		} else if conflicts := commandConflicts(name, target); len(conflicts) > 0 {
 			fmt.Printf("Warning: command name %q already exists at %s.\n", name, strings.Join(conflicts, ", "))
-			fmt.Printf("Next: dialect shim install %s --name %s\n", name, suggested)
+			fmt.Printf("Next: cc-dialect shim install %s --name %s\n", name, suggested)
 		} else {
-			fmt.Printf("Next: dialect shim install %s\n", name)
+			fmt.Printf("Next: cc-dialect shim install %s\n", name)
 		}
 	}
 	return nil
@@ -264,7 +264,7 @@ func listDialects() error {
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		fmt.Println("No dialects yet. Try: dialect create claudex --preset codex-sol")
+		fmt.Println("No dialects yet. Try: cc-dialect create claudex --preset codex-sol")
 		return nil
 	}
 	for _, name := range names {
@@ -441,7 +441,7 @@ func boolNumber(value bool) string {
 
 func authCommand(args []string) error {
 	if len(args) < 2 {
-		return errors.New("auth requires a dialect and provider: dialect auth <dialect> <provider>")
+		return errors.New("auth requires a dialect and provider: cc-dialect auth <dialect> <provider>")
 	}
 	valid := map[string]bool{"codex": true, "claude": true, "kimi": true, "antigravity": true, "xai": true}
 	if !valid[args[1]] {
@@ -457,7 +457,7 @@ func authCommand(args []string) error {
 
 func proxyCommand(args []string) error {
 	if len(args) != 2 {
-		return errors.New("proxy requires a dialect and action: dialect proxy <dialect> <start|stop|status|logs>")
+		return errors.New("proxy requires a dialect and action: cc-dialect proxy <dialect> <start|stop|status|logs>")
 	}
 	cfg, err := loadConfig()
 	if err != nil {
@@ -493,7 +493,7 @@ func proxyCommand(args []string) error {
 
 func shimCommand(args []string) error {
 	if len(args) < 2 || args[0] != "install" {
-		return errors.New("usage: dialect shim install <dialect> [--name <command>] [--dir <path>]")
+		return errors.New("usage: cc-dialect shim install <dialect> [--name <command>] [--dir <path>]")
 	}
 	dialectName := args[1]
 	cfg, err := loadConfig()
@@ -520,6 +520,9 @@ func shimCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	if resolved, resolveErr := filepath.EvalSymlinks(exe); resolveErr == nil {
+		exe = resolved
+	}
 	if err = os.MkdirAll(*dir, 0o755); err != nil {
 		return err
 	}
@@ -528,7 +531,7 @@ func shimCommand(args []string) error {
 		return fmt.Errorf("zsh alias %q would override the installed command; remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, *name)
 	}
 	if conflicts := commandConflicts(*name, path); len(conflicts) > 0 {
-		return fmt.Errorf("command %q already exists at %s; choose another name, for example: dialect shim install %s --name %s",
+		return fmt.Errorf("command %q already exists at %s; choose another name, for example: cc-dialect shim install %s --name %s",
 			*name, strings.Join(conflicts, ", "), dialectName, suggestedShimName(*name))
 	}
 	body := fmt.Sprintf("#!/bin/sh\nexec %q run %q -- \"$@\"\n", exe, dialectName)
@@ -547,7 +550,7 @@ func shimCommand(args []string) error {
 
 func nativeCommand(args []string) error {
 	if len(args) < 2 || args[0] != "install" {
-		return errors.New("usage: dialect native install <command> [--dangerous] [--dir <path>]")
+		return errors.New("usage: cc-dialect native install <command> [--dangerous] [--dir <path>]")
 	}
 	name := args[1]
 	if !validName(name) || name == "claude" {

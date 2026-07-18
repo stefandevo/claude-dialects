@@ -81,7 +81,7 @@ func startProxy(name string, dialect Dialect) error {
 	}
 	if pid := proxyPID(name); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.Port) {
-			return fmt.Errorf("proxy process %d is alive but not responding on port %d; see `dialect proxy %s logs`", pid, dialect.Port, name)
+			return fmt.Errorf("proxy process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`", pid, dialect.Port, name)
 		}
 		// The PID was reused by an unrelated process. Never signal it.
 		_, _, _, _, pidPath, _, _ := paths(name)

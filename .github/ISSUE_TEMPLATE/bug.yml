@@ -13,8 +13,8 @@ body:
     id: version
     attributes:
       label: Dialect version
-      description: Output from `dialect --version`
-      placeholder: dialect v0.1.0 (embedded CLIProxyAPI v7.x.x)
+      description: Output from `cc-dialect --version`
+      placeholder: cc-dialect v0.1.0 (embedded CLIProxyAPI v7.x.x)
     validations:
       required: true
   - type: input
@@ -47,7 +47,7 @@ body:
     attributes:
       label: Sanitized diagnostics
       description: |
-        Include relevant output from `dialect doctor`. Remove email addresses,
+        Include relevant output from `cc-dialect doctor`. Remove email addresses,
         paths you consider private, tokens, and credentials.
       render: shell
   - type: dropdown
