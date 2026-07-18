@@ -237,7 +237,18 @@ func createDialect(args []string) error {
 		fmt.Println("Authentication, isolated Claude Code state, and installed shims were preserved.")
 	} else {
 		fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
-		fmt.Printf("Next: dialect shim install %s\n", name)
+		home, _ := os.UserHomeDir()
+		target := filepath.Join(home, ".local", "bin", name)
+		suggested := suggestedShimName(name)
+		if alias, found := zshAlias(name); found {
+			fmt.Printf("Warning: command name %q is already used by %s.\n", name, alias)
+			fmt.Printf("Next: dialect shim install %s --name %s\n", name, suggested)
+		} else if conflicts := commandConflicts(name, target); len(conflicts) > 0 {
+			fmt.Printf("Warning: command name %q already exists at %s.\n", name, strings.Join(conflicts, ", "))
+			fmt.Printf("Next: dialect shim install %s --name %s\n", name, suggested)
+		} else {
+			fmt.Printf("Next: dialect shim install %s\n", name)
+		}
 	}
 	return nil
 }
@@ -513,8 +524,14 @@ func shimCommand(args []string) error {
 		return err
 	}
 	path := filepath.Join(*dir, *name)
-	var body string
-	body = fmt.Sprintf("#!/bin/sh\nexec %q run %q -- \"$@\"\n", exe, dialectName)
+	if alias, found := zshAlias(*name); found {
+		return fmt.Errorf("zsh alias %q would override the installed command; remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, *name)
+	}
+	if conflicts := commandConflicts(*name, path); len(conflicts) > 0 {
+		return fmt.Errorf("command %q already exists at %s; choose another name, for example: dialect shim install %s --name %s",
+			*name, strings.Join(conflicts, ", "), dialectName, suggestedShimName(*name))
+	}
+	body := fmt.Sprintf("#!/bin/sh\nexec %q run %q -- \"$@\"\n", exe, dialectName)
 	if err = os.WriteFile(path, []byte(body), 0o755); err != nil {
 		return err
 	}
@@ -522,9 +539,6 @@ func shimCommand(args []string) error {
 		return err
 	}
 	fmt.Println("Installed", path)
-	if alias, found := zshAlias(*name); found {
-		return fmt.Errorf("zsh alias %q overrides the installed command (%s); remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, path, *name)
-	}
 	if !pathContains(*dir) {
 		fmt.Printf("Add %s to PATH to invoke %s directly.\n", *dir, *name)
 	}
@@ -561,6 +575,13 @@ func nativeCommand(args []string) error {
 		return err
 	}
 	path := filepath.Join(*dir, name)
+	if alias, found := zshAlias(name); found {
+		return fmt.Errorf("zsh alias %q would override the installed command; remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, name)
+	}
+	if conflicts := commandConflicts(name, path); len(conflicts) > 0 {
+		return fmt.Errorf("command %q already exists at %s; remove it or choose another launcher name",
+			name, strings.Join(conflicts, ", "))
+	}
 	body := nativeLauncherBody(claudePath, *dangerous)
 	if err = os.WriteFile(path, []byte(body), 0o755); err != nil {
 		return err
@@ -569,9 +590,6 @@ func nativeCommand(args []string) error {
 		return err
 	}
 	fmt.Println("Installed", path)
-	if alias, found := zshAlias(name); found {
-		return fmt.Errorf("zsh alias %q overrides the installed command (%s); remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, path, name)
-	}
 	if !pathContains(*dir) {
 		fmt.Printf("Add %s to PATH to invoke %s directly.\n", *dir, name)
 	}
@@ -609,6 +627,52 @@ func pathContains(dir string) bool {
 	return false
 }
 
+func commandConflicts(name, target string) []string {
+	target = canonicalPath(target)
+	seen := map[string]bool{}
+	var conflicts []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		displayPath, err := filepath.Abs(candidate)
+		if err != nil {
+			displayPath = candidate
+		}
+		canonical := canonicalPath(candidate)
+		if canonical == target || seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
+		conflicts = append(conflicts, filepath.Clean(displayPath))
+	}
+	sort.Strings(conflicts)
+	return conflicts
+}
+
+func canonicalPath(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err == nil {
+		path = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
+}
+
+func suggestedShimName(name string) string {
+	if strings.HasSuffix(name, "x") {
+		return name + "-dialect"
+	}
+	return name + "x"
+}
+
 func doctor() error {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -626,6 +690,12 @@ func doctor() error {
 	for name := range cfg.Dialects {
 		if alias, found := zshAlias(name); found {
 			fmt.Printf("✗ %s is shadowed by %s\n", name, alias)
+		}
+		home, _ := os.UserHomeDir()
+		target := filepath.Join(home, ".local", "bin", name)
+		if conflicts := commandConflicts(name, target); len(conflicts) > 0 {
+			fmt.Printf("✗ %s conflicts with existing command(s): %s (try --name %s)\n",
+				name, strings.Join(conflicts, ", "), suggestedShimName(name))
 		}
 	}
 	names := make([]string, 0, len(cfg.Dialects))

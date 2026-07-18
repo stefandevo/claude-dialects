@@ -53,8 +53,8 @@ var presets = map[string]Dialect{
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"gemini": {
-		Model: "gemini-3.1-pro-preview", SubagentModel: "gemini-3.1-pro-preview",
-		OpusModel: "gemini-3.1-pro-preview", SonnetModel: "gemini-3.5-flash", HaikuModel: "gemini-3.5-flash-low",
+		Model: "gemini-pro-agent", SubagentModel: "gemini-pro-agent",
+		OpusModel: "gemini-pro-agent", SonnetModel: "gemini-3.5-flash-low", HaikuModel: "gemini-3.5-flash-extra-low",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"claude": {

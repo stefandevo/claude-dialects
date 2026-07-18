@@ -72,10 +72,10 @@ dialect create claudex --preset codex-sol
 dialect auth claudex codex
 dialect shim install claudex
 
-# Kimi, fully isolated from claudex
-dialect create kimi --preset kimi
-dialect auth kimi kimi
-dialect shim install kimi
+# Kimi, fully isolated from claudex and named kimix to avoid Kimi CLI
+dialect create kimix --preset kimi
+dialect auth kimix kimi
+dialect shim install kimix
 
 # A second Codex setup gets another port and credential store
 dialect create codex-work --preset codex
@@ -87,7 +87,7 @@ You can now run all three simultaneously:
 
 ```sh
 claudex
-kimi
+kimix
 codex-work
 ```
 
@@ -114,17 +114,17 @@ Provider setup:
 | Dialect | Connection | Setup |
 | --- | --- | --- |
 | OpenAI GPT / Codex | ChatGPT OAuth through CLIProxyAPI | `dialect auth claudex codex` |
-| Kimi | Kimi OAuth through CLIProxyAPI | `dialect auth kimi kimi` |
-| Google Gemini | Antigravity Google OAuth through CLIProxyAPI | `dialect auth gemini antigravity` |
-| Claude | Anthropic OAuth through CLIProxyAPI | `dialect auth claude claude` |
+| Kimi | Kimi OAuth through CLIProxyAPI | `dialect auth kimix kimi` |
+| Google Gemini | Antigravity Google OAuth through CLIProxyAPI | `dialect auth geminix antigravity` |
+| Claude | Anthropic OAuth through CLIProxyAPI | `dialect auth anthropicx claude` |
 | GLM | Z.ai Anthropic-compatible API through CLIProxyAPI | Set `ZAI_API_KEY` |
 
 Create the Google runner with:
 
 ```sh
-dialect create gemini --preset gemini
-dialect auth gemini antigravity
-dialect shim install gemini
+dialect create geminix --preset gemini
+dialect auth geminix antigravity
+dialect shim install geminix
 ```
 
 Ports are actively checked and allocated per dialect starting at the high range
@@ -133,7 +133,7 @@ rejected again at startup:
 
 ```text
 claudex      gpt-5.6-sol       127.0.0.1:43170
-kimi         kimi-k3           127.0.0.1:43171
+kimix        kimi-k3           127.0.0.1:43171
 codex-work   gpt-5.6           127.0.0.1:43172
 ```
 
@@ -141,7 +141,7 @@ Pass Claude Code arguments normally:
 
 ```sh
 claudex --permission-mode plan
-kimi --allowedTools "Bash,Read"
+kimix --allowedTools "Bash,Read"
 ```
 
 ## Presets and custom dialects
@@ -159,13 +159,24 @@ dialect presets
 - `claude`
 - `glm`
 
+Preset names describe providers; dialect names become shell commands. Prefer
+names that do not replace the providers' existing CLIs:
+
+| Preset | Recommended dialect command |
+| --- | --- |
+| `codex-sol` / `codex` | `claudex` |
+| `kimi` | `kimix` |
+| `gemini` | `geminix` |
+| `claude` | `anthropicx` |
+| `glm` | `glmx` |
+
 Provider-named presets such as `kimi` are rolling defaults for newly created
 dialects. Updating and reinstalling the `dialect` executable does not silently
 change an existing dialect. Apply the latest preset explicitly:
 
 ```sh
 make install
-dialect create kimi --preset kimi
+dialect create kimix --preset kimi
 ```
 
 This updates the models and behavior flags while preserving the dialect's port,
@@ -273,7 +284,7 @@ available for later sessions. OAuth credentials are scoped to that dialect:
 
 ```sh
 dialect auth claudex codex
-dialect auth kimi kimi
+dialect auth kimix kimi
 dialect auth another claude
 ```
 
@@ -294,7 +305,7 @@ instances/
     proxy.yaml
     proxy.pid
     proxy.log
-  kimi/
+  kimix/
     auth/
     claude/
     proxy.yaml
@@ -321,6 +332,17 @@ If a Zsh alias already uses the generated command name, it takes precedence
 over the executable. Remove the alias from `~/.zshrc`, then run `unalias
 <name>` in terminals that were already open. Both `dialect shim install` and
 `dialect doctor` detect these collisions.
+
+The same applies to existing executables. `dialect create` warns immediately
+when the requested name is already an alias or executable, and recommends an
+unambiguous shim name. Shim installation refuses the ambiguous name and lists
+the conflicting paths. For example, keep Google's Gemini CLI and a previously
+created dialect named `gemini` by choosing a distinct shim:
+
+```sh
+dialect shim install gemini --name geminix
+geminix
+```
 
 ## Useful commands
 

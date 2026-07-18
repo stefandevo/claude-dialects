@@ -10,16 +10,35 @@ import (
 )
 
 func TestNextPortKeepsDialectsIsolated(t *testing.T) {
+	base := availablePortRange(t, 3)
 	cfg := &Config{
-		BasePort: 43170,
+		BasePort: base,
 		Dialects: map[string]Dialect{
-			"claudex": {Port: 43170},
-			"kimi":    {Port: 43172},
+			"claudex": {Port: base},
+			"kimi":    {Port: base + 2},
 		},
 	}
-	if got := nextPort(cfg); got != 43171 {
-		t.Fatalf("nextPort() = %d, want 43171", got)
+	if got := nextPort(cfg); got != base+1 {
+		t.Fatalf("nextPort() = %d, want %d", got, base+1)
 	}
+}
+
+func availablePortRange(t *testing.T, count int) int {
+	t.Helper()
+	for base := 45000; base+count < 65535; base += count {
+		available := true
+		for port := base; port < base+count; port++ {
+			if !portAvailable(port) {
+				available = false
+				break
+			}
+		}
+		if available {
+			return base
+		}
+	}
+	t.Fatal("no available local port range")
+	return 0
 }
 
 func TestWriteProxyConfigUsesPerDialectPathsAndSecrets(t *testing.T) {
@@ -172,5 +191,47 @@ func TestKimiPresetUsesK3(t *testing.T) {
 	}
 	if kimi.EffortLevel != "auto" {
 		t.Fatalf("Kimi preset effort = %q, want auto so the provider can use K3's supported default", kimi.EffortLevel)
+	}
+}
+
+func TestGeminiPresetUsesAntigravityModelAliases(t *testing.T) {
+	gemini := presets["gemini"]
+	if gemini.Model != "gemini-pro-agent" || gemini.SubagentModel != "gemini-pro-agent" || gemini.OpusModel != "gemini-pro-agent" {
+		t.Fatalf("Gemini preset does not use the Antigravity Pro alias: %#v", gemini)
+	}
+	if gemini.SonnetModel != "gemini-3.5-flash-low" || gemini.HaikuModel != "gemini-3.5-flash-extra-low" {
+		t.Fatalf("Gemini preset has unsupported Antigravity Flash aliases: %#v", gemini)
+	}
+}
+
+func TestCommandConflictsFindsOtherExecutables(t *testing.T) {
+	targetDir := t.TempDir()
+	otherDir := t.TempDir()
+	target := filepath.Join(targetDir, "gemini")
+	other := filepath.Join(otherDir, "gemini")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", strings.Join([]string{targetDir, otherDir, otherDir}, string(os.PathListSeparator)))
+
+	conflicts := commandConflicts("gemini", target)
+	expected, err := filepath.Abs(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 1 || conflicts[0] != expected {
+		t.Fatalf("commandConflicts() = %q, want [%q]", conflicts, expected)
+	}
+}
+
+func TestSuggestedShimName(t *testing.T) {
+	if got := suggestedShimName("gemini"); got != "geminix" {
+		t.Fatalf("suggestedShimName(gemini) = %q, want geminix", got)
+	}
+	if got := suggestedShimName("claudex"); got != "claudex-dialect" {
+		t.Fatalf("suggestedShimName(claudex) = %q, want claudex-dialect", got)
 	}
 }
