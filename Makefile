@@ -26,7 +26,7 @@ install: build
 	cp dist/cc-dialect "$$tmp"; \
 	chmod 755 "$$tmp"; \
 	mv -f "$$tmp" "$(PREFIX)/bin/cc-dialect"; \
-	ln -sfn "cc-dialect" "$(PREFIX)/bin/dialect"
+	rm -f "$(PREFIX)/bin/dialect"
 
 assets: build notices
 	rm -rf "artifacts/$(ASSET_NAME)"
