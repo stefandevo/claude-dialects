@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,7 +51,7 @@ func Run(args []string, version string) error {
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 	case "version", "--version":
-		fmt.Printf("dialect %s (embedded CLIProxyAPI v7.2.86)\n", version)
+		fmt.Printf("dialect %s (embedded CLIProxyAPI %s)\n", version, embeddedProxyVersion())
 	case "presets":
 		fmt.Println(strings.Join(presetNames(), "\n"))
 	case "create":
@@ -79,6 +80,30 @@ func Run(args []string, version string) error {
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}
 	return nil
+}
+
+func embeddedProxyVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	return proxyVersionFromBuildInfo(info)
+}
+
+func proxyVersionFromBuildInfo(info *debug.BuildInfo) string {
+	const module = "github.com/router-for-me/CLIProxyAPI/v7"
+	for _, dependency := range info.Deps {
+		if dependency.Path != module {
+			continue
+		}
+		if dependency.Replace != nil && dependency.Replace.Version != "" {
+			return dependency.Replace.Version
+		}
+		if dependency.Version != "" {
+			return dependency.Version
+		}
+	}
+	return "unknown"
 }
 
 func createDialect(args []string) error {

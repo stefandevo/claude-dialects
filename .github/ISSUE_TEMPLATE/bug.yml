@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible problem with Claude Dialects
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, OAuth credentials, tokens, or private proxy
+        configuration. Security vulnerabilities must be reported privately.
+  - type: input
+    id: version
+    attributes:
+      label: Dialect version
+      description: Output from `dialect --version`
+      placeholder: dialect v0.1.0 (embedded CLIProxyAPI v7.x.x)
+    validations:
+      required: true
+  - type: input
+    id: claude-version
+    attributes:
+      label: Claude Code version
+      description: Output from `claude --version`
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest sequence that reliably reproduces it.
+      placeholder: |
+        1. Create ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: |
+        Include relevant output from `dialect doctor`. Remove email addresses,
+        paths you consider private, tokens, and credentials.
+      render: shell
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Hardware
+      options:
+        - Apple Silicon
+        - Other (unsupported)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed credentials and private configuration.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

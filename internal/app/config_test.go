@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -134,5 +135,32 @@ func TestNativeDangerousLauncherUsesNormalClaudeConfiguration(t *testing.T) {
 	}
 	if strings.Contains(body, "CLAUDE_CONFIG_DIR") || strings.Contains(body, "ANTHROPIC_BASE_URL") {
 		t.Fatalf("native launcher unexpectedly changes Claude configuration:\n%s", body)
+	}
+}
+
+func TestProxyVersionComesFromBuildMetadata(t *testing.T) {
+	info := &debug.BuildInfo{
+		Deps: []*debug.Module{
+			{Path: "example.com/other", Version: "v1.0.0"},
+			{Path: "github.com/router-for-me/CLIProxyAPI/v7", Version: "v7.2.86"},
+		},
+	}
+	if got := proxyVersionFromBuildInfo(info); got != "v7.2.86" {
+		t.Fatalf("proxy version = %q, want v7.2.86", got)
+	}
+}
+
+func TestProxyVersionUsesReplacementMetadata(t *testing.T) {
+	info := &debug.BuildInfo{
+		Deps: []*debug.Module{
+			{
+				Path:    "github.com/router-for-me/CLIProxyAPI/v7",
+				Version: "v7.2.86",
+				Replace: &debug.Module{Path: "example.com/fork", Version: "v7.3.0-fork"},
+			},
+		},
+	}
+	if got := proxyVersionFromBuildInfo(info); got != "v7.3.0-fork" {
+		t.Fatalf("proxy replacement version = %q, want v7.3.0-fork", got)
 	}
 }

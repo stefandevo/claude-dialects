@@ -1,6 +1,6 @@
 module github.com/stefandevo/claude-dialects
 
-go 1.26.0
+go 1.26.5
 
 require github.com/router-for-me/CLIProxyAPI/v7 v7.2.86
 

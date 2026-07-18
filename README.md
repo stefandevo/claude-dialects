@@ -1,5 +1,8 @@
 # Claude Dialects
 
+[![CI](https://github.com/stefandevo/claude-dialects/actions/workflows/ci.yml/badge.svg)](https://github.com/stefandevo/claude-dialects/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Create multiple native-feeling Claude Code commands powered by different models.
 Each generated dialect runs the real Claude Code interface with its own model,
 environment, Claude Code configuration and history, credentials, API key, and embedded
@@ -12,11 +15,18 @@ or other user-level Claude Code settings stay inside the active dialect.
 
 > Current target: macOS on Apple Silicon only.
 
+> [!IMPORTANT]
+> This is an independent, unofficial project. It is not affiliated with or
+> endorsed by Anthropic, OpenAI, Google, Moonshot AI, Z.ai, or the CLIProxyAPI
+> maintainers. Product and company names are trademarks of their respective
+> owners. You are responsible for complying with each provider's terms,
+> subscription rules, and usage policies.
+
 ## Build and install
 
 Requirements:
 
-- Go 1.26 or newer
+- Go 1.26.5 or newer
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
 
@@ -26,6 +36,20 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 This produces one static executable at `~/.local/bin/dialect`.
+To make that PATH change persist across terminal restarts:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+Tagged releases provide a signed and notarized Apple Silicon archive once the
+release signing workflow is configured. Verify a downloaded release with:
+
+```sh
+shasum -a 256 -c SHA256SUMS
+gh attestation verify dialect_*_darwin_arm64.zip \
+  --repo stefandevo/claude-dialects
+```
 
 ## Create several dialects
 
@@ -267,7 +291,25 @@ dialect --version
 
 CLIProxyAPI is pinned as a Go dependency so a new upstream release cannot alter
 an already-built executable. Its MIT license permits embedding and
-redistribution; its required notice is included in `THIRD_PARTY_NOTICES.md`.
+redistribution. Licenses and notices for all modules compiled into the binary
+are included in `THIRD_PARTY_NOTICES.md` and regenerated after dependency
+updates.
+
+## Contributing and security
+
+Discuss changes in an issue before opening a pull request. External pull
+requests must link an issue carrying the `status:accepted` label; unsolicited
+pull requests are closed automatically. AI-assisted contributions must be
+disclosed and fully understood, reviewed, and tested by the contributor. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+Report vulnerabilities privately through
+[GitHub Security Advisories](https://github.com/stefandevo/claude-dialects/security/advisories/new),
+not through public issues. See [SECURITY.md](SECURITY.md).
+
+## License
+
+Claude Dialects is available under the [MIT License](LICENSE).
 
 ## Sources used for the integration
 

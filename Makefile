@@ -1,4 +1,4 @@
-.PHONY: build test install clean
+.PHONY: build test verify notices install clean
 
 VERSION ?= dev
 PREFIX ?= $(HOME)/.local
@@ -8,6 +8,16 @@ build:
 
 test:
 	go test ./...
+
+verify:
+	test -z "$$(gofmt -l .)"
+	go mod verify
+	go test ./...
+	go vet ./...
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
+
+notices:
+	./scripts/generate-third-party-notices.sh
 
 install: build
 	mkdir -p "$(PREFIX)/bin"

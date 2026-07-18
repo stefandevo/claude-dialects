@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a focused improvement before implementing it
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What concrete workflow is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest change that solves the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What can users do today, and why is that insufficient?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Explicitly out of scope
+      description: What should this request deliberately not add?
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution policy
+      options:
+        - label: I will wait for the `status:accepted` label before opening a pull request.
+          required: true

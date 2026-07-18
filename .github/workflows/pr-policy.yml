@@ -1,0 +1,84 @@
+name: Contribution policy
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write
+
+jobs:
+  accepted-issue:
+    name: accepted issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      github.actor != 'stefandevo' &&
+      github.actor != 'dependabot[bot]'
+
+    steps:
+      - name: Close pull requests without an accepted issue
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pull = context.payload.pull_request;
+            const body = pull.body || "";
+            const issueNumbers = [
+              ...body.matchAll(
+                /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi
+              ),
+            ].map((match) => Number(match[1]));
+
+            let acceptedIssue = null;
+            for (const issue_number of [...new Set(issueNumbers)]) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number,
+                });
+                if (
+                  !issue.pull_request &&
+                  issue.labels.some((label) => label.name === "status:accepted")
+                ) {
+                  acceptedIssue = issue_number;
+                  break;
+                }
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            if (acceptedIssue !== null) {
+              core.info(`Pull request links accepted issue #${acceptedIssue}.`);
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pull.number,
+              body: [
+                "Thanks for the proposal. This repository requires an issue",
+                "with the `status:accepted` label before an external pull",
+                "request is opened. Please read `CONTRIBUTING.md`, discuss the",
+                "change in an issue, and reopen a focused pull request after",
+                "the maintainer accepts that scope.",
+              ].join(" "),
+            });
+            await github.rest.pulls.update({
+              owner,
+              repo,
+              pull_number: pull.number,
+              state: "closed",
+            });
