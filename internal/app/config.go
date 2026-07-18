@@ -48,8 +48,8 @@ var presets = map[string]Dialect{
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"kimi": {
-		Model: "kimi-k2.7-code", SubagentModel: "kimi-k2.7-code",
-		OpusModel: "kimi-k2.7-code", SonnetModel: "kimi-k2.7-code-highspeed", HaikuModel: "kimi-k2.6",
+		Model: "kimi-k3", SubagentModel: "kimi-k3",
+		OpusModel: "kimi-k3", SonnetModel: "kimi-k2.7-code-highspeed", HaikuModel: "kimi-k2.6",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"gemini": {

@@ -133,7 +133,7 @@ rejected again at startup:
 
 ```text
 claudex      gpt-5.6-sol       127.0.0.1:43170
-kimi         kimi-k2.7-code    127.0.0.1:43171
+kimi         kimi-k3           127.0.0.1:43171
 codex-work   gpt-5.6           127.0.0.1:43172
 ```
 
@@ -158,6 +158,31 @@ dialect presets
 - `gemini`
 - `claude`
 - `glm`
+
+Provider-named presets such as `kimi` are rolling defaults for newly created
+dialects. Updating and reinstalling the `dialect` executable does not silently
+change an existing dialect. Apply the latest preset explicitly:
+
+```sh
+make install
+dialect create kimi --preset kimi
+```
+
+This updates the models and behavior flags while preserving the dialect's port,
+local API key, OAuth credentials, isolated Claude Code configuration and
+history, and installed shim. Start a new conversation after changing the
+underlying model. In particular, Moonshot warns that switching an existing
+conversation from another model to Kimi K3 can produce unstable output because
+K3 requires its thinking history to be preserved.
+
+To stay on a specific model instead, use a custom model ID. It will remain
+unchanged until you run another `dialect create` command for that name:
+
+```sh
+dialect create kimi-code --model kimi-k2.7-code
+dialect auth kimi-code kimi
+dialect shim install kimi-code
+```
 
 Override the important parameters while creating or updating a dialect:
 
@@ -220,6 +245,10 @@ another dialect.
 CLIProxyAPI translates
 Claude's adaptive reasoning request into the upstream provider's reasoning
 format when that provider supports it.
+
+Kimi K3 currently uses `max` effort by default; Moonshot says lower effort
+levels will arrive in later updates. Keep its preset at `auto` so the provider
+selects the supported default.
 
 List the models actually exposed by an authenticated instance:
 
@@ -330,3 +359,4 @@ Claude Dialects is available under the [MIT License](LICENSE).
 - [CLIProxyAPI provider and model overview](https://help.router-for.me/introduction/what-is-cliproxyapi)
 - [CLIProxyAPI Codex setup](https://help.router-for.me/agent-client/codex)
 - [Claude Code model and effort configuration](https://code.claude.com/docs/en/model-config)
+- [Kimi K3 model, API identifier, effort, and compatibility notes](https://www.kimi.com/blog/kimi-k3)

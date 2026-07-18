@@ -164,3 +164,13 @@ func TestProxyVersionUsesReplacementMetadata(t *testing.T) {
 		t.Fatalf("proxy replacement version = %q, want v7.3.0-fork", got)
 	}
 }
+
+func TestKimiPresetUsesK3(t *testing.T) {
+	kimi := presets["kimi"]
+	if kimi.Model != "kimi-k3" || kimi.SubagentModel != "kimi-k3" || kimi.OpusModel != "kimi-k3" {
+		t.Fatalf("Kimi preset does not use K3 for main, subagent, and opus: %#v", kimi)
+	}
+	if kimi.EffortLevel != "auto" {
+		t.Fatalf("Kimi preset effort = %q, want auto so the provider can use K3's supported default", kimi.EffortLevel)
+	}
+}
