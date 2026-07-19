@@ -131,6 +131,36 @@ var presets = map[string]Dialect{
 		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
+	"copilot-auto": {
+		Model: "auto", SubagentModel: "auto",
+		OpusModel: "auto", SonnetModel: "auto", HaikuModel: "auto",
+		Bridge: "copilot",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"copilot-mai": {
+		Model: "mai-code-1-flash", SubagentModel: "mai-code-1-flash",
+		OpusModel: "mai-code-1-flash", SonnetModel: "mai-code-1-flash", HaikuModel: "mai-code-1-flash",
+		Bridge: "copilot",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"copilot-codex": {
+		Model: "gpt-5.3-codex", SubagentModel: "gpt-5.3-codex",
+		OpusModel: "gpt-5.3-codex", SonnetModel: "gpt-5.3-codex", HaikuModel: "gpt-5.3-codex",
+		Bridge: "copilot",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"copilot-claude": {
+		Model: "claude-sonnet-4.6", SubagentModel: "claude-sonnet-4.6",
+		OpusModel: "claude-sonnet-4.6", SonnetModel: "claude-sonnet-4.6", HaikuModel: "claude-haiku-4.5",
+		Bridge: "copilot",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"copilot-gemini": {
+		Model: "gemini-3.1-pro-preview", SubagentModel: "gemini-3.1-pro-preview",
+		OpusModel: "gemini-3.1-pro-preview", SonnetModel: "gemini-3.5-flash", HaikuModel: "gemini-3.5-flash",
+		Bridge: "copilot",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
 }
 
 func homeDir() (string, error) {
@@ -273,19 +303,19 @@ usage-statistics-enabled: false
 			}
 		}
 	}
-	if dialect.Bridge == "cursor" {
-		models, modelsErr := fetchCursorModels(dialect)
+	if dialect.Bridge != "" {
+		models, modelsErr := fetchBridgeModels(dialect)
 		if modelsErr != nil {
 			models = nil
 		}
 		models = mergeModels(models, dialectModels(dialect))
 		content += fmt.Sprintf(`openai-compatibility:
-  - name: "cursor"
+  - name: %q
     base-url: %q
     api-key-entries:
       - api-key: %q
     models:
-`, fmt.Sprintf("http://127.0.0.1:%d/v1", dialect.BridgePort), dialect.APIKey)
+`, dialect.Bridge, fmt.Sprintf("http://127.0.0.1:%d/v1", dialect.BridgePort), dialect.APIKey)
 		for _, model := range models {
 			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
 		}
@@ -388,6 +418,22 @@ func presetForDialect(dialect Dialect) string {
 			return ""
 		}
 	}
+	if dialect.Bridge == "copilot" {
+		switch dialect.Model {
+		case "auto":
+			return "copilot-auto"
+		case "mai-code-1-flash":
+			return "copilot-mai"
+		case "gpt-5.3-codex":
+			return "copilot-codex"
+		case "claude-sonnet-4.6":
+			return "copilot-claude"
+		case "gemini-3.1-pro-preview":
+			return "copilot-gemini"
+		default:
+			return ""
+		}
+	}
 	if dialect.AuthTokenEnv == "ZAI_API_KEY" ||
 		strings.Contains(strings.ToLower(dialect.BaseURL), "z.ai") ||
 		strings.Contains(strings.ToLower(dialect.BaseURL), "bigmodel.cn") {
@@ -450,9 +496,14 @@ func providerForDialect(dialect Dialect) string {
 		return "deepseek"
 	case "cursor-composer", "cursor-composer-fast", "cursor-auto", "cursor-grok":
 		return "cursor"
+	case "copilot-auto", "copilot-mai", "copilot-codex", "copilot-claude", "copilot-gemini":
+		return "copilot"
 	default:
 		if dialect.Bridge == "cursor" {
 			return "cursor"
+		}
+		if dialect.Bridge == "copilot" {
+			return "copilot"
 		}
 		return dialect.AuthProvider
 	}

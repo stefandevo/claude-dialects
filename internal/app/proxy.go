@@ -63,6 +63,35 @@ func fetchModels(dialect Dialect) ([]string, error) {
 	return models, nil
 }
 
+func fetchBridgeModels(dialect Dialect) ([]string, error) {
+	client := &http.Client{Timeout: 12 * time.Second}
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/v1/models", dialect.BridgePort), nil)
+	req.Header.Set("Authorization", "Bearer "+dialect.APIKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s model endpoint returned %s", dialect.Bridge, resp.Status)
+	}
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(body.Data))
+	for _, model := range body.Data {
+		if model.ID != "" {
+			models = append(models, model.ID)
+		}
+	}
+	return models, nil
+}
+
 func hasProviderCredentials(name, provider string) bool {
 	_, _, _, authDir, _, _, err := paths(name)
 	if err != nil {
@@ -104,7 +133,7 @@ func proxyPID(name string) int {
 }
 
 func startProxy(name string, dialect Dialect) error {
-	if err := startCursorBridge(name, dialect); err != nil {
+	if err := startManagedBridge(name, dialect); err != nil {
 		return err
 	}
 	if proxyHealthy(dialect) {
@@ -171,7 +200,7 @@ func stopProxy(name string) error {
 	}
 	if exists {
 		defer func() {
-			_ = stopCursorBridge(name, dialect)
+			_ = stopManagedBridge(name, dialect)
 		}()
 	}
 	pid := proxyPID(name)
@@ -301,9 +330,21 @@ func tailLog(name string) error {
 		printed = true
 	}
 	_, cursorLog, _, cursorErr := cursorInstancePaths(name)
-	if cursorErr == nil {
+	if cursorErr == nil && fileExists(cursorLog) {
 		if file, openErr := os.Open(cursorLog); openErr == nil {
 			fmt.Println("== Cursor bridge ==")
+			_, err = io.Copy(os.Stdout, file)
+			_ = file.Close()
+			if err != nil {
+				return err
+			}
+			printed = true
+		}
+	}
+	_, copilotLog, _, copilotErr := copilotInstancePaths(name)
+	if copilotErr == nil && fileExists(copilotLog) {
+		if file, openErr := os.Open(copilotLog); openErr == nil {
+			fmt.Println("== Copilot bridge ==")
 			_, err = io.Copy(os.Stdout, file)
 			_ = file.Close()
 			if err != nil {
@@ -316,4 +357,59 @@ func tailLog(name string) error {
 		return fmt.Errorf("no logs found for %q", name)
 	}
 	return nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func startManagedBridge(name string, dialect Dialect) error {
+	switch dialect.Bridge {
+	case "":
+		return nil
+	case "cursor":
+		return startCursorBridge(name, dialect)
+	case "copilot":
+		return startCopilotBridge(name, dialect)
+	default:
+		return fmt.Errorf("unsupported managed bridge %q", dialect.Bridge)
+	}
+}
+
+func stopManagedBridge(name string, dialect Dialect) error {
+	switch dialect.Bridge {
+	case "":
+		return nil
+	case "cursor":
+		return stopCursorBridge(name, dialect)
+	case "copilot":
+		return stopCopilotBridge(name, dialect)
+	default:
+		return nil
+	}
+}
+
+func managedBridgeHealthy(dialect Dialect) bool {
+	switch dialect.Bridge {
+	case "":
+		return true
+	case "cursor":
+		return cursorBridgeHealthy(dialect)
+	case "copilot":
+		return copilotBridgeHealthy(dialect)
+	default:
+		return false
+	}
+}
+
+func managedBridgePID(name string, dialect Dialect) int {
+	switch dialect.Bridge {
+	case "cursor":
+		return cursorBridgePID(name)
+	case "copilot":
+		return copilotBridgePID(name)
+	default:
+		return 0
+	}
 }

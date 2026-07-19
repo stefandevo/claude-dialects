@@ -251,36 +251,6 @@ func cursorBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func fetchCursorModels(dialect Dialect) ([]string, error) {
-	client := &http.Client{Timeout: 12 * time.Second}
-	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/v1/models", dialect.BridgePort), nil)
-	req.Header.Set("Authorization", "Bearer "+dialect.APIKey)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Cursor model endpoint returned %s", resp.Status)
-	}
-	var body struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, err
-	}
-	models := make([]string, 0, len(body.Data))
-	for _, model := range body.Data {
-		if model.ID != "" {
-			models = append(models, model.ID)
-		}
-	}
-	sort.Strings(models)
-	return models, nil
-}
-
 func startCursorBridge(name string, dialect Dialect) error {
 	if dialect.Bridge != "cursor" {
 		return nil
@@ -423,5 +393,5 @@ func dialectHealthy(dialect Dialect) bool {
 	if !proxyHealthy(dialect) {
 		return false
 	}
-	return dialect.Bridge == "" || cursorBridgeHealthy(dialect)
+	return managedBridgeHealthy(dialect)
 }

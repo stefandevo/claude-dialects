@@ -172,6 +172,53 @@ func TestWriteProxyConfigRoutesCursorModelsThroughPrivateBridge(t *testing.T) {
 	}
 }
 
+func TestWriteProxyConfigRoutesCopilotModelsThroughPrivateBridge(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	const privateKey = "copilot-bridge-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+privateKey {
+			http.Error(response, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"data":[{"id":"mai-code-1-flash"},{"id":"gpt-5.3-codex"}]}`))
+	}))
+	defer server.Close()
+	_, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgePort, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copilot := presets["copilot-mai"]
+	copilot.Port = availablePortRange(t, 1)
+	copilot.BridgePort = bridgePort
+	copilot.APIKey = privateKey
+
+	path, err := writeProxyConfig("cc-copilot-mai", copilot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, expected := range []string{
+		`name: "copilot"`,
+		`base-url: "http://127.0.0.1:` + portText + `/v1"`,
+		`api-key: "copilot-bridge-secret"`,
+		`name: "mai-code-1-flash"`,
+		`name: "gpt-5.3-codex"`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Copilot proxy config does not contain %q:\n%s", expected, text)
+		}
+	}
+}
+
 func TestLoadConfigCreatesPrivateConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
@@ -393,6 +440,31 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 	}
 }
 
+func TestCopilotPresetsUseOfficialSDKBridge(t *testing.T) {
+	tests := map[string]string{
+		"copilot-auto":   "auto",
+		"copilot-mai":    "mai-code-1-flash",
+		"copilot-codex":  "gpt-5.3-codex",
+		"copilot-claude": "claude-sonnet-4.6",
+		"copilot-gemini": "gemini-3.1-pro-preview",
+	}
+	for name, model := range tests {
+		preset := presets[name]
+		if preset.Model != model || preset.SubagentModel != model {
+			t.Errorf("%s preset does not use %s for main and subagent: %#v", name, model, preset)
+		}
+		if preset.Bridge != "copilot" || preset.AuthTokenEnv != "" {
+			t.Errorf("%s preset does not use Copilot CLI authentication: %#v", name, preset)
+		}
+		if got := providerForDialect(preset); got != "copilot" {
+			t.Errorf("%s provider = %q, want copilot", name, got)
+		}
+		if got := presetForDialect(preset); got != name {
+			t.Errorf("%s preset detection = %q", name, got)
+		}
+	}
+}
+
 func TestCreateNextStepsAuthenticateBeforeInstallingShim(t *testing.T) {
 	got := createNextSteps("cc-codex", "cc-codex", presets["codex-sol"])
 	want := []string{
@@ -443,6 +515,19 @@ func TestCreateNextStepsInstallCursorBridgeBeforeTokenAndShim(t *testing.T) {
 		"Set the provider token: export CURSOR_API_KEY=your_token",
 		"Install the command: cc-dialect shim install cc-cursor",
 		"Run: cc-cursor",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps() = %q, want %q", got, want)
+	}
+}
+
+func TestCreateNextStepsInstallAndAuthenticateCopilotBridge(t *testing.T) {
+	got := createNextSteps("cc-copilot-mai", "cc-copilot-mai", presets["copilot-mai"])
+	want := []string{
+		"Install the Copilot bridge: cc-dialect copilot install",
+		"Authenticate with GitHub Copilot: cc-dialect copilot login",
+		"Install the command: cc-dialect shim install cc-copilot-mai",
+		"Run: cc-copilot-mai",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("createNextSteps() = %q, want %q", got, want)
@@ -616,6 +701,43 @@ func TestCursorBridgeEnvironmentDoesNotInheritUnrelatedSecrets(t *testing.T) {
 	}
 	if strings.Contains(env, "OPENAI_API_KEY") || strings.Contains(env, "must-not-leak") {
 		t.Fatalf("Cursor bridge inherited an unrelated secret: %s", env)
+	}
+}
+
+func TestCopilotBridgeEnvironmentDoesNotInheritUnrelatedSecrets(t *testing.T) {
+	t.Setenv("PATH", "/example/bin")
+	t.Setenv("HOME", "/Users/example")
+	t.Setenv("COPILOT_GITHUB_TOKEN", "copilot-token")
+	t.Setenv("OPENAI_API_KEY", "must-not-leak")
+	env := strings.Join(copilotBridgeEnvironment("private-bridge-key", "/private/copilot-home"), "\n")
+	for _, expected := range []string{
+		"PATH=/example/bin",
+		"HOME=/Users/example",
+		"COPILOT_GITHUB_TOKEN=copilot-token",
+		"COPILOT_DIALECT_BRIDGE_KEY=private-bridge-key",
+		"COPILOT_DIALECT_HOME=/private/copilot-home",
+	} {
+		if !strings.Contains(env, expected) {
+			t.Fatalf("Copilot bridge environment does not contain %q: %s", expected, env)
+		}
+	}
+	if strings.Contains(env, "OPENAI_API_KEY") || strings.Contains(env, "must-not-leak") {
+		t.Fatalf("Copilot bridge inherited an unrelated secret: %s", env)
+	}
+}
+
+func TestEmbeddedCopilotBridgeUsesOfficialSDKAndExternalTools(t *testing.T) {
+	text := string(copilotBridgeSource)
+	for _, expected := range []string{
+		`from "@github/copilot-sdk"`,
+		`mode: "empty"`,
+		`availableTools: ["custom:*"]`,
+		`event.type === "external_tool.requested"`,
+		`capabilities?.supports?.reasoningEffort`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedded Copilot bridge does not contain %q", expected)
+		}
 	}
 }
 

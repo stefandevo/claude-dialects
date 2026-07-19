@@ -18,9 +18,10 @@ or other user-level Claude Code settings stay inside the active dialect.
 > [!IMPORTANT]
 > This is an independent, unofficial project. It is not affiliated with or
 > endorsed by Anthropic, OpenAI, Google, Moonshot AI, Z.ai, xAI, Cursor,
-> MiniMax, DeepSeek, or the CLIProxyAPI maintainers. Product and company names
-> are trademarks of their respective owners. You are responsible for complying
-> with each provider's terms, subscription rules, and usage policies.
+> GitHub, Microsoft, MiniMax, DeepSeek, or the CLIProxyAPI maintainers. Product
+> and company names are trademarks of their respective owners. You are
+> responsible for complying with each provider's terms, subscription rules,
+> and usage policies.
 
 ## Get the code, build, and install
 
@@ -30,7 +31,7 @@ Requirements:
 - Go 1.26.5 or newer
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
-- optionally, Node.js 22.13 or newer and npm for Cursor SDK dialects
+- optionally, Node.js 22.13 or newer and npm for Cursor and GitHub Copilot SDK dialects
 
 ```sh
 git clone https://github.com/stefandevo/claude-dialects.git
@@ -134,6 +135,7 @@ Provider setup:
 | Claude | Anthropic OAuth through CLIProxyAPI | `cc-dialect auth cc-claude claude` |
 | xAI Grok / Grok Build / Composer | xAI OAuth through CLIProxyAPI | `cc-dialect auth cc-grok xai` |
 | Cursor Composer / Grok / Auto | Official Cursor SDK bridge | Install the bridge and set `CURSOR_API_KEY` |
+| GitHub Copilot / MAI-Code / hosted models | Official GitHub Copilot SDK bridge | Install the bridge and sign in with GitHub Copilot |
 | GLM | Z.ai Anthropic-compatible API through CLIProxyAPI | Set `ZAI_API_KEY` |
 | MiniMax | MiniMax Anthropic-compatible API through CLIProxyAPI | Set `MINIMAX_API_KEY` |
 | DeepSeek | DeepSeek Anthropic-compatible API through CLIProxyAPI | Set `DEEPSEEK_API_KEY` |
@@ -234,6 +236,69 @@ uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.5 effort
 settings through its live SDK catalog when supported, so the bridge maps
 Claude Code's `/effort` choice onto the advertised variant.
 
+### GitHub Copilot through the official SDK
+
+GitHub Copilot dialects use the official `@github/copilot-sdk` and its bundled
+Copilot CLI runtime. Install it and authenticate once:
+
+```sh
+cc-dialect copilot install
+cc-dialect copilot login
+cc-dialect copilot status
+cc-dialect copilot models
+```
+
+Create a dialect for Microsoft's Copilot-native MAI-Code-1-Flash model:
+
+```sh
+cc-dialect create cc-copilot-mai --preset copilot-mai
+cc-dialect shim install cc-copilot-mai
+cc-copilot-mai
+```
+
+Available Copilot presets are:
+
+- `copilot-auto` — Copilot chooses from the models enabled for the account
+- `copilot-mai` — Microsoft MAI-Code-1-Flash (`mai-code-1-flash`)
+- `copilot-codex` — GPT-5.3-Codex
+- `copilot-claude` — Claude Sonnet 4.6 with Claude Haiku 4.5 for the Haiku tier
+- `copilot-gemini` — Gemini 3.1 Pro Preview with Gemini 3.5 Flash for lower tiers
+
+The live SDK catalog remains authoritative. GitHub model availability depends
+on the Copilot plan and organization policy, and models may be added, replaced,
+or retired. Use any currently enabled model without waiting for a new preset:
+
+```sh
+cc-dialect copilot models
+cc-dialect create cc-copilot-custom \
+  --preset copilot-auto \
+  --model model-id-from-the-list
+```
+
+Authentication and SDK authorization are separate checks.
+`cc-dialect copilot status` can show a valid GitHub login while
+`cc-dialect copilot models` or a model request returns
+`not authorized to use this Copilot feature`. That response comes from GitHub
+and means the Copilot SDK/CLI feature or selected model is not enabled for the
+account or its organization policy; it is not a local proxy or port failure.
+
+The bridge runs the SDK in an empty host mode with only Claude Code's declared
+tools. Copilot's own filesystem, shell, MCP, and agent tools are not exposed.
+Tool calls are returned to Claude Code for its normal permission and execution
+flow. Each dialect has a private bridge port and `COPILOT_HOME`; the GitHub
+account login can come from Copilot's system credential, `COPILOT_GITHUB_TOKEN`,
+`GH_TOKEN`, or `GITHUB_TOKEN`.
+
+Reasoning effort is forwarded only when the live model metadata advertises it.
+MAI-Code-1-Flash currently uses its adaptive provider behavior and does not
+advertise configurable reasoning levels.
+
+`@github/copilot-sdk` is pinned for reproducible installation. Re-run
+`cc-dialect copilot install` after updating `cc-dialect` when the pinned SDK
+version changes. It remains a separately installed GitHub dependency under
+GitHub's terms. Copilot prompts consume the account's normal Copilot usage
+allowance.
+
 Create MiniMax and DeepSeek runners with provider API keys:
 
 ```sh
@@ -298,6 +363,11 @@ cc-dialect presets
 - `cursor-composer-fast`
 - `cursor-grok`
 - `cursor-auto`
+- `copilot-auto`
+- `copilot-mai`
+- `copilot-codex`
+- `copilot-claude`
+- `copilot-gemini`
 
 Preset names describe providers; dialect names become shell commands. Prefer
 the `cc-<provider>` convention so generated commands are clearly Claude Code
@@ -320,6 +390,11 @@ existing legacy names remain supported:
 | `cursor-composer-fast` | `cc-cursor-fast` |
 | `cursor-grok` | `cc-cursor-grok` |
 | `cursor-auto` | `cc-cursor-auto` |
+| `copilot-auto` | `cc-copilot` |
+| `copilot-mai` | `cc-copilot-mai` |
+| `copilot-codex` | `cc-copilot-codex` |
+| `copilot-claude` | `cc-copilot-claude` |
+| `copilot-gemini` | `cc-copilot-gemini` |
 
 Provider-named presets such as `kimi` are rolling defaults for newly created
 dialects. Updating and reinstalling the `cc-dialect` executable does not silently
@@ -510,9 +585,20 @@ instances/
     proxy.yaml
     proxy.pid
     proxy.log
+  cc-copilot-mai/
+    claude/
+    copilot-home/
+    copilot-bridge.pid
+    copilot-bridge.log
+    proxy.yaml
+    proxy.pid
+    proxy.log
 cursor-runtime/
   cursor_bridge.mjs
   node_modules/@cursor/sdk/
+copilot-runtime/
+  copilot_bridge.mjs
+  node_modules/@github/copilot-sdk/
 ```
 
 Proxy servers bind only to `127.0.0.1`. Configuration, local API keys, and OAuth
@@ -523,6 +609,11 @@ The optional Cursor bridge also binds only to `127.0.0.1`, authenticates every
 request with the dialect's private local key, and keeps its SDK workspace and
 metadata separate per dialect. `CURSOR_API_KEY` is read from the environment at
 startup and is not written into `config.json`.
+
+The optional Copilot bridge follows the same localhost and private-key
+boundaries. Its per-dialect `copilot-home/` isolates SDK state, while the
+GitHub login may be read from the system credential store or standard Copilot
+token environment variables. Tokens are never copied into `config.json`.
 
 The `claude/` directory is supplied to Claude Code through
 `CLAUDE_CONFIG_DIR`. It contains that dialect's user settings, session history,
@@ -621,5 +712,10 @@ Claude Dialects is available under the [MIT License](LICENSE).
 - [Cursor SDK custom tools and stores](https://cursor.com/changelog/sdk-updates-jun-2026)
 - [Cursor Composer 2.5 variants and pricing](https://cursor.com/changelog/composer-2-5)
 - [Cursor Grok 4.5 SDK availability](https://cursor.com/blog/grok-4-5)
+- [Official GitHub Copilot SDK](https://github.com/github/copilot-sdk)
+- [GitHub Copilot SDK authentication](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate)
+- [GitHub Copilot CLI model identifiers](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
+- [GitHub Copilot supported models](https://docs.github.com/en/copilot/reference/ai-models/supported-models)
+- [MAI-Code-1-Flash announcement](https://github.blog/changelog/2026-06-02-mai-code-1-flash-is-now-available-for-github-copilot/)
 - [MiniMax Anthropic-compatible API](https://platform.minimax.io/docs/api-reference/text-anthropic-api)
 - [DeepSeek API documentation](https://api-docs.deepseek.com/)

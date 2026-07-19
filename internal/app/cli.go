@@ -28,6 +28,7 @@ Usage:
   cc-dialect presets
   cc-dialect auth <dialect> <codex|claude|kimi|antigravity|xai> [--no-browser]
   cc-dialect cursor <install|status|models>
+  cc-dialect copilot <install|login|status|models>
   cc-dialect shim install <dialect> [--name <command>] [--dir <path>]
   cc-dialect native install <command> [--dangerous] [--dir <path>]
   cc-dialect proxy <dialect> <start|stop|status|logs>
@@ -76,6 +77,8 @@ func Run(args []string, version string) error {
 		return authCommand(args[1:])
 	case "cursor":
 		return cursorCommand(args[1:])
+	case "copilot":
+		return copilotCommand(args[1:])
 	case "proxy":
 		return proxyCommand(args[1:])
 	case "shim":
@@ -307,6 +310,12 @@ func createNextSteps(name, shimName string, dialect Dialect) []string {
 	var steps []string
 	if dialect.Bridge == "cursor" {
 		steps = append(steps, "Install the Cursor bridge: cc-dialect cursor install")
+	}
+	if dialect.Bridge == "copilot" {
+		steps = append(steps,
+			"Install the Copilot bridge: cc-dialect copilot install",
+			"Authenticate with GitHub Copilot: cc-dialect copilot login",
+		)
 	}
 	if step := authenticationStep(name, dialect); step != "" {
 		steps = append(steps, step)
@@ -683,7 +692,7 @@ func proxyCommand(args []string) error {
 		if dialectHealthy(dialect) {
 			fmt.Printf("running (pid %d, port %d", proxyPID(name), dialect.Port)
 			if dialect.Bridge != "" {
-				fmt.Printf(", %s bridge pid %d, port %d", dialect.Bridge, cursorBridgePID(name), dialect.BridgePort)
+				fmt.Printf(", %s bridge pid %d, port %d", dialect.Bridge, managedBridgePID(name, dialect), dialect.BridgePort)
 			}
 			fmt.Println(")")
 		} else {
@@ -905,10 +914,30 @@ func doctor() error {
 		fmt.Printf("✗ unsupported platform %s/%s (requires darwin/arm64)\n", runtime.GOOS, runtime.GOARCH)
 	}
 	hasCursor := false
+	hasCopilot := false
 	for _, dialect := range cfg.Dialects {
 		if dialect.Bridge == "cursor" {
 			hasCursor = true
-			break
+		}
+		if dialect.Bridge == "copilot" {
+			hasCopilot = true
+		}
+	}
+	if hasCopilot {
+		if version, copilotErr := copilotRuntimeVersion(); copilotErr == nil {
+			if version == copilotSDKVersion {
+				fmt.Printf("✓ Copilot bridge runtime (@github/copilot-sdk %s)\n", version)
+			} else {
+				fmt.Printf("✗ Copilot bridge runtime has @github/copilot-sdk %s; %s is required (run: cc-dialect copilot install)\n",
+					version, copilotSDKVersion)
+			}
+		} else {
+			fmt.Println("✗ Copilot bridge runtime is not installed (run: cc-dialect copilot install)")
+		}
+		if status, statusErr := copilotSDKStatus(); statusErr == nil && status.IsAuthenticated {
+			fmt.Println("✓ GitHub Copilot authentication")
+		} else {
+			fmt.Println("✗ GitHub Copilot is not authenticated (run: cc-dialect copilot login)")
 		}
 	}
 	if hasCursor {
@@ -951,14 +980,14 @@ func doctor() error {
 			fmt.Printf("✗ %s is not authenticated (run: cc-dialect auth %s %s)\n", name, name, dialect.AuthProvider)
 		}
 		if dialectHealthy(dialect) {
-			if dialect.Bridge == "cursor" {
-				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d, Cursor bridge on 127.0.0.1:%d\n",
-					name, displayPreset(dialect), dialect.Port, dialect.BridgePort)
+			if dialect.Bridge != "" {
+				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d, %s bridge on 127.0.0.1:%d\n",
+					name, displayPreset(dialect), dialect.Port, bridgeDisplayName(dialect.Bridge), dialect.BridgePort)
 			} else {
 				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d\n", name, displayPreset(dialect), dialect.Port)
 			}
 		} else {
-			if dialect.Bridge == "cursor" {
+			if dialect.Bridge != "" {
 				fmt.Printf("○ %s (preset %s) stopped (reserved proxy port %d, bridge port %d)\n",
 					name, displayPreset(dialect), dialect.Port, dialect.BridgePort)
 			} else {
@@ -974,4 +1003,15 @@ func displayPreset(dialect Dialect) string {
 		return preset
 	}
 	return "custom"
+}
+
+func bridgeDisplayName(bridge string) string {
+	switch bridge {
+	case "cursor":
+		return "Cursor"
+	case "copilot":
+		return "Copilot"
+	default:
+		return bridge
+	}
 }
