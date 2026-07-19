@@ -23,7 +23,30 @@ or other user-level Claude Code settings stay inside the active dialect.
 > responsible for complying with each provider's terms, subscription rules,
 > and usage policies.
 
-## Get the code, build, and install
+## Contents
+
+- [Install Claude Dialects](#install-claude-dialects)
+- [Create your first dialect](#create-your-first-dialect)
+- [Provider guides](#provider-guides)
+  - [OpenAI Codex](#openai-codex)
+  - [Z.ai GLM](#zai-glm)
+  - [Moonshot Kimi](#moonshot-kimi)
+  - [Google Gemini](#google-gemini)
+  - [xAI Grok, Grok Build, and Composer](#xai-grok-grok-build-and-composer)
+  - [MiniMax](#minimax)
+  - [DeepSeek](#deepseek)
+  - [Cursor](#cursor)
+  - [GitHub Copilot](#github-copilot)
+  - [Anthropic Claude](#anthropic-claude)
+- [Run several dialects](#run-several-dialects)
+- [Native Claude shortcuts](#native-claude-shortcuts)
+- [Presets and custom dialects](#presets-and-custom-dialects)
+- [Switch model and effort](#switch-model-and-effort-inside-a-conversation)
+- [Detect configured dialects](#detect-configured-and-running-dialects)
+- [Operations and security](#proxy-and-authentication-commands)
+- [Build local assets](#build-local-assets)
+
+## Install Claude Dialects
 
 Requirements:
 
@@ -47,100 +70,70 @@ To make that PATH change persist across terminal restarts:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
-When upgrading from the former `dialect` executable, `make install` removes that
-old command. Existing configuration, OAuth credentials, and conversations are
-preserved. Regenerate any older shims so they point directly to `cc-dialect`:
+## Create your first dialect
+
+Every dialect follows the same sequence:
+
+1. Create its isolated configuration.
+2. Authenticate with the provider or export its API key.
+3. Install the generated shell command.
+4. Run that command from any directory.
+
+For example, create an OpenAI Codex dialect:
 
 ```sh
-cc-dialect list
-# Replace legacy-name with an existing dialect shown above.
-cc-dialect shim install legacy-name --name cc-codex
-```
-
-This project does not publish prebuilt binaries or GitHub releases. Everyone
-builds the executable from the checked-out source. To create a shareable local
-Apple Silicon archive and checksum instead of installing it:
-
-```sh
-make assets VERSION=dev
-ls artifacts/
-(cd artifacts && shasum -a 256 -c SHA256SUMS)
-```
-
-The generated files are:
-
-- `artifacts/cc-dialect_dev_darwin_arm64.zip`
-- `artifacts/SHA256SUMS`
-
-Set `VERSION` to any identifier you want in the filename and embedded
-`cc-dialect --version` output. `make package` is an alias for `make assets`.
-These locally produced assets are not signed or notarized by this project.
-
-## Create several dialects
-
-```sh
-# GPT with Sol as both the main and subagent model
 cc-dialect create cc-codex --preset codex-sol
 cc-dialect auth cc-codex codex
 cc-dialect shim install cc-codex
-
-# Kimi, fully isolated from cc-codex and prefixed to avoid Kimi CLI
-cc-dialect create cc-kimi --preset kimi
-cc-dialect auth cc-kimi kimi
-cc-dialect shim install cc-kimi
-
-# A second Codex setup gets another port and credential store
-cc-dialect create cc-codex-work --preset codex
-cc-dialect auth cc-codex-work codex
-cc-dialect shim install cc-codex-work
-```
-
-`create` prints these required steps in order. OAuth presets will not launch or
-list models until their instance has been authenticated, and the error includes
-the exact `cc-dialect auth` command to run.
-
-You can now run all three simultaneously:
-
-```sh
 cc-codex
-cc-kimi
-cc-codex-work
 ```
 
-## Native Claude shortcuts
+`create` prints the remaining required steps in the correct order. OAuth
+dialects will not launch or list models before authentication; the error also
+includes the exact command to run.
 
-Claude Dialects can also install a lightweight shortcut for the normal Claude
-Code application without starting the proxy or changing its configuration. For
-example, replace a separate `cld` launcher with:
+Use the `cc-<provider>` naming convention. It makes generated commands easy to
+recognize and avoids collisions with existing provider CLIs such as `gemini`
+or `cursor`.
+
+## Provider guides
+
+Choose one provider below and follow its complete setup block. The recommended
+command name is only a convention; each provider can have multiple independently
+named dialects.
+
+| Provider route | Presets | Authentication | Recommended command |
+| --- | --- | --- | --- |
+| [OpenAI Codex](#openai-codex) | `codex-sol`, `codex` | ChatGPT OAuth | `cc-codex` |
+| [Z.ai GLM](#zai-glm) | `glm` | `ZAI_API_KEY` | `cc-glm` |
+| [Moonshot Kimi](#moonshot-kimi) | `kimi` | Kimi OAuth | `cc-kimi` |
+| [Google Gemini](#google-gemini) | `gemini` | Google OAuth through Antigravity | `cc-gemini` |
+| [xAI](#xai-grok-grok-build-and-composer) | `grok`, `grok-build`, `composer` | xAI OAuth | `cc-grok` |
+| [MiniMax](#minimax) | `minimax` | `MINIMAX_API_KEY` | `cc-minimax` |
+| [DeepSeek](#deepseek) | `deepseek` | `DEEPSEEK_API_KEY` | `cc-deepseek` |
+| [Cursor](#cursor) | `cursor-composer`, `cursor-composer-fast`, `cursor-grok`, `cursor-auto` | Cursor API key | `cc-cursor` |
+| [GitHub Copilot](#github-copilot) | `copilot-auto`, `copilot-mai`, `copilot-codex`, `copilot-claude`, `copilot-gemini` | GitHub Copilot login | `cc-copilot` |
+| [Anthropic Claude](#anthropic-claude) | `claude` | Anthropic OAuth | `cc-claude` |
+
+### OpenAI Codex
+
+Use `codex-sol` for GPT-5.6 Sol as both the main and subagent model:
 
 ```sh
-cc-dialect native install cld --dangerous
-cld
+cc-dialect create cc-codex --preset codex-sol
+cc-dialect auth cc-codex codex
+cc-dialect shim install cc-codex
+cc-codex
 ```
 
-This launches the installed Claude Code executable with
-`--dangerously-skip-permissions` and passes through any additional arguments.
-It deliberately uses the regular `~/.claude` settings, authentication, and
-conversation history, so it is a shortcut for your existing Claude Max setup,
-not an isolated model dialect. Use dangerous mode only in directories you
-trust.
+Use `--preset codex` instead to make GPT-5.6 the main model while retaining
+Sol, Terra, and Luna for the `opus`, `sonnet`, and `haiku` menu entries. Both
+routes authenticate through ChatGPT OAuth and the embedded CLIProxyAPI
+instance.
 
-Provider setup:
+### Z.ai GLM
 
-| Dialect | Connection | Setup |
-| --- | --- | --- |
-| OpenAI GPT / Codex | ChatGPT OAuth through CLIProxyAPI | `cc-dialect auth cc-codex codex` |
-| Kimi | Kimi OAuth through CLIProxyAPI | `cc-dialect auth cc-kimi kimi` |
-| Google Gemini | Antigravity Google OAuth through CLIProxyAPI | `cc-dialect auth cc-gemini antigravity` |
-| Claude | Anthropic OAuth through CLIProxyAPI | `cc-dialect auth cc-claude claude` |
-| xAI Grok / Grok Build / Composer | xAI OAuth through CLIProxyAPI | `cc-dialect auth cc-grok xai` |
-| Cursor Composer / Grok / Auto | Official Cursor SDK bridge | Install the bridge and set `CURSOR_API_KEY` |
-| GitHub Copilot / MAI-Code / hosted models | Official GitHub Copilot SDK bridge | Install the bridge and sign in with GitHub Copilot |
-| GLM | Z.ai Anthropic-compatible API through CLIProxyAPI | Set `ZAI_API_KEY` |
-| MiniMax | MiniMax Anthropic-compatible API through CLIProxyAPI | Set `MINIMAX_API_KEY` |
-| DeepSeek | DeepSeek Anthropic-compatible API through CLIProxyAPI | Set `DEEPSEEK_API_KEY` |
-
-Create a GLM runner using Z.ai's current GLM-5.2 flagship:
+GLM uses Z.ai's Anthropic-compatible API and current GLM-5.2 flagship:
 
 ```sh
 export ZAI_API_KEY="your_zai_api_key"
@@ -154,16 +147,60 @@ The GLM preset maps `opus` to `glm-5.2`, `sonnet` to `glm-5-turbo`, and
 provider default (`max`). Inside Claude Code, GLM-5.2 accepts `high` or `max`;
 the provider maps `xhigh` to `max` and maps `low` or `medium` to `high`.
 
-Create xAI runners with OAuth:
+### Moonshot Kimi
+
+Kimi authenticates through Moonshot's OAuth flow:
 
 ```sh
+cc-dialect create cc-kimi --preset kimi
+cc-dialect auth cc-kimi kimi
+cc-dialect shim install cc-kimi
+cc-kimi
+```
+
+The rolling `kimi` preset currently uses Kimi K3 as its main model. Kimi K3
+uses `max` effort by default; Moonshot says lower effort levels will arrive in
+later updates. Keep its preset at `auto` so the provider selects the supported
+default. The `sonnet` and `haiku` menu entries select Kimi K2.7 Code Highspeed
+and Kimi K2.6.
+
+### Google Gemini
+
+Gemini uses Google OAuth through CLIProxyAPI's Antigravity provider:
+
+```sh
+cc-dialect create cc-gemini --preset gemini
+cc-dialect auth cc-gemini antigravity
+cc-dialect shim install cc-gemini
+cc-gemini
+```
+
+The preset uses `gemini-pro-agent` as its main and `opus` model, with Gemini
+3.5 Flash variants for the lower tiers.
+
+### xAI Grok, Grok Build, and Composer
+
+xAI authentication is shared conceptually, but each model family gets its own
+preset and can have its own dialect:
+
+```sh
+# Grok 4.5
 cc-dialect create cc-grok --preset grok
 cc-dialect auth cc-grok xai
 cc-dialect shim install cc-grok
 
+# Grok Build
+cc-dialect create cc-grok-build --preset grok-build
+cc-dialect auth cc-grok-build xai
+cc-dialect shim install cc-grok-build
+
+# Cursor Composer 2.5 Fast as exposed by xAI Grok Build
 cc-dialect create cc-composer --preset composer
 cc-dialect auth cc-composer xai
 cc-dialect shim install cc-composer
+
+cc-grok
+# Or run cc-grok-build / cc-composer.
 ```
 
 The `grok`, `grok-build`, and `composer` presets remain separate model
@@ -171,7 +208,34 @@ families. `composer` uses Cursor Composer 2.5 Fast as exposed by xAI Grok
 Build; it is not a Grok foundation model. Availability depends on the models
 enabled for the authenticated xAI account.
 
-### Cursor Composer through the official Cursor SDK
+### MiniMax
+
+MiniMax uses its Anthropic-compatible API:
+
+```sh
+export MINIMAX_API_KEY="your_minimax_api_key"
+cc-dialect create cc-minimax --preset minimax
+cc-dialect shim install cc-minimax
+cc-minimax
+```
+
+The preset maps every Claude Code model alias to `MiniMax-M2.7`.
+
+### DeepSeek
+
+DeepSeek also uses an Anthropic-compatible API:
+
+```sh
+export DEEPSEEK_API_KEY="your_deepseek_api_key"
+cc-dialect create cc-deepseek --preset deepseek
+cc-dialect shim install cc-deepseek
+cc-deepseek
+```
+
+The preset maps the main, subagent, and `opus` selections to
+`deepseek-v4-pro`; `sonnet` and `haiku` use `deepseek-v4-flash`.
+
+### Cursor
 
 Cursor dialects use a small local OpenAI-compatible bridge backed by the
 official `@cursor/sdk`. The SDK is installed on demand rather than bundled in
@@ -236,7 +300,7 @@ uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.5 effort
 settings through its live SDK catalog when supported, so the bridge maps
 Claude Code's `/effort` choice onto the advertised variant.
 
-### GitHub Copilot through the official SDK
+### GitHub Copilot
 
 GitHub Copilot dialects use the official `@github/copilot-sdk` and its bundled
 Copilot CLI runtime. Install it and authenticate once:
@@ -248,12 +312,13 @@ cc-dialect copilot status
 cc-dialect copilot models
 ```
 
-Create a dialect for Microsoft's Copilot-native MAI-Code-1-Flash model:
+Create a general Copilot dialect that lets Copilot choose from the models
+enabled for the account:
 
 ```sh
-cc-dialect create cc-copilot-mai --preset copilot-mai
-cc-dialect shim install cc-copilot-mai
-cc-copilot-mai
+cc-dialect create cc-copilot --preset copilot-auto
+cc-dialect shim install cc-copilot
+cc-copilot
 ```
 
 Available Copilot presets are:
@@ -263,6 +328,9 @@ Available Copilot presets are:
 - `copilot-codex` — GPT-5.3-Codex
 - `copilot-claude` — Claude Sonnet 4.6 with Claude Haiku 4.5 for the Haiku tier
 - `copilot-gemini` — Gemini 3.1 Pro Preview with Gemini 3.5 Flash for lower tiers
+
+For example, replace `copilot-auto` with `copilot-mai` and name the dialect
+`cc-copilot-mai` to force Microsoft's Copilot-native MAI-Code-1-Flash model.
 
 The live SDK catalog remains authoritative. GitHub model availability depends
 on the Copilot plan and organization policy, and models may be added, replaced,
@@ -299,28 +367,40 @@ version changes. It remains a separately installed GitHub dependency under
 GitHub's terms. Copilot prompts consume the account's normal Copilot usage
 allowance.
 
-Create MiniMax and DeepSeek runners with provider API keys:
+### Anthropic Claude
+
+The `claude` preset routes Claude Code through the embedded proxy with a
+separate Anthropic OAuth login and isolated Claude Code configuration:
 
 ```sh
-export MINIMAX_API_KEY="your_minimax_api_key"
-cc-dialect create cc-minimax --preset minimax
-cc-dialect shim install cc-minimax
-
-export DEEPSEEK_API_KEY="your_deepseek_api_key"
-cc-dialect create cc-deepseek --preset deepseek
-cc-dialect shim install cc-deepseek
+cc-dialect create cc-claude --preset claude
+cc-dialect auth cc-claude claude
+cc-dialect shim install cc-claude
+cc-claude
 ```
 
-MiniMax uses `MiniMax-M2.7` for every Claude Code model alias. DeepSeek maps
-the main, subagent, and `opus` selections to `deepseek-v4-pro`, while `sonnet`
-and `haiku` use `deepseek-v4-flash`.
+This differs from a native shortcut: `cc-claude` has private settings,
+credentials, and history, while a native shortcut uses the regular
+`~/.claude` environment. The preset currently maps the main and `opus` routes
+to Claude Fable 5, with Claude Sonnet 4.6 and Claude Haiku 4.5 for the lower
+tiers.
 
-Create the Google runner with:
+## Run several dialects
+
+Each dialect gets a checked, high-numbered localhost port, private credentials,
+and its own Claude Code state. Create as many as you need:
 
 ```sh
-cc-dialect create cc-gemini --preset gemini
-cc-dialect auth cc-gemini antigravity
-cc-dialect shim install cc-gemini
+cc-dialect create cc-codex-work --preset codex
+cc-dialect auth cc-codex-work codex
+cc-dialect shim install cc-codex-work
+
+cc-dialect create cc-kimi-work --preset kimi
+cc-dialect auth cc-kimi-work kimi
+cc-dialect shim install cc-kimi-work
+
+cc-codex-work
+cc-kimi-work
 ```
 
 Ports are actively checked and allocated per dialect starting at the high range
@@ -340,61 +420,37 @@ cc-codex --permission-mode plan
 cc-kimi --allowedTools "Bash,Read"
 ```
 
+## Native Claude shortcuts
+
+Claude Dialects can also install a lightweight shortcut for the normal Claude
+Code application without starting the proxy or changing its configuration. For
+example, replace a separate `cld` launcher with:
+
+```sh
+cc-dialect native install cld --dangerous
+cld
+```
+
+This launches the installed Claude Code executable with
+`--dangerously-skip-permissions` and passes through any additional arguments.
+It deliberately uses the regular `~/.claude` settings, authentication, and
+conversation history, so it is a shortcut for your existing Claude Max setup,
+not an isolated model dialect. Use dangerous mode only in directories you
+trust.
+
 ## Presets and custom dialects
 
-Included presets:
+List the presets included in your installed version:
 
 ```sh
 cc-dialect presets
 ```
 
-- `codex-sol`
-- `codex`
-- `kimi`
-- `gemini`
-- `claude`
-- `glm`
-- `grok`
-- `grok-build`
-- `composer`
-- `minimax`
-- `deepseek`
-- `cursor-composer`
-- `cursor-composer-fast`
-- `cursor-grok`
-- `cursor-auto`
-- `copilot-auto`
-- `copilot-mai`
-- `copilot-codex`
-- `copilot-claude`
-- `copilot-gemini`
-
-Preset names describe providers; dialect names become shell commands. Prefer
-the `cc-<provider>` convention so generated commands are clearly Claude Code
-dialects and do not replace providers' existing CLIs. Arbitrary names and
-existing legacy names remain supported:
-
-| Preset | Recommended dialect command |
-| --- | --- |
-| `codex-sol` / `codex` | `cc-codex` |
-| `kimi` | `cc-kimi` |
-| `gemini` | `cc-gemini` |
-| `claude` | `cc-claude` |
-| `glm` | `cc-glm` |
-| `grok` | `cc-grok` |
-| `grok-build` | `cc-grok-build` |
-| `composer` | `cc-composer` |
-| `minimax` | `cc-minimax` |
-| `deepseek` | `cc-deepseek` |
-| `cursor-composer` | `cc-cursor` |
-| `cursor-composer-fast` | `cc-cursor-fast` |
-| `cursor-grok` | `cc-cursor-grok` |
-| `cursor-auto` | `cc-cursor-auto` |
-| `copilot-auto` | `cc-copilot` |
-| `copilot-mai` | `cc-copilot-mai` |
-| `copilot-codex` | `cc-copilot-codex` |
-| `copilot-claude` | `cc-copilot-claude` |
-| `copilot-gemini` | `cc-copilot-gemini` |
+Preset names select provider defaults; dialect names become shell commands.
+Arbitrary names and existing legacy names remain supported. Use the recommended
+names in the [provider table](#provider-guides), or append a purpose or model
+when you need more than one route, such as `cc-codex-work`,
+`cc-cursor-grok`, or `cc-copilot-mai`.
 
 Provider-named presets such as `kimi` are rolling defaults for newly created
 dialects. Updating and reinstalling the `cc-dialect` executable does not silently
@@ -481,15 +537,11 @@ that environment variable would take precedence over live `/effort` changes.
 Claude Code stores these interactive choices in the dialect's own configuration
 directory, so changing `cc-codex` does not change regular `claude`, `cc-kimi`, or
 another dialect.
-CLIProxyAPI translates
-Claude's adaptive reasoning request into the upstream provider's reasoning
-format when that provider supports it. Cursor SDK dialects similarly select a
-matching catalog variant when Cursor exposes an effort/thinking parameter; if
-the selected model has no such variant, its catalog default is used.
-
-Kimi K3 currently uses `max` effort by default; Moonshot says lower effort
-levels will arrive in later updates. Keep its preset at `auto` so the provider
-selects the supported default.
+CLIProxyAPI translates Claude's adaptive reasoning request into the upstream
+provider's reasoning format when that provider supports it. Cursor SDK dialects
+similarly select a matching catalog variant when Cursor exposes an
+effort/thinking parameter; if the selected model has no such variant, its
+catalog default is used.
 
 List the models actually exposed by an authenticated instance:
 
@@ -655,6 +707,16 @@ cc-dialect remove cc-codex
 cc-dialect --version
 ```
 
+When upgrading from the former `dialect` executable, `make install` removes that
+old command. Existing configuration, OAuth credentials, and conversations are
+preserved. Regenerate any older shims so they point directly to `cc-dialect`:
+
+```sh
+cc-dialect list
+# Replace legacy-name with an existing dialect shown above.
+cc-dialect shim install legacy-name --name cc-codex
+```
+
 `cc-dialect remove <name>` stops that dialect's proxy and permanently removes
 its configuration, OAuth credentials, and isolated Claude Code history. Shims
 are ordinary files and must be removed separately:
@@ -681,6 +743,27 @@ an already-built executable. Its MIT license permits embedding and
 redistribution. Licenses and notices for all modules compiled into the binary
 are included in `THIRD_PARTY_NOTICES.md` and regenerated after dependency
 updates.
+
+## Build local assets
+
+This project does not publish prebuilt binaries or GitHub releases. Everyone
+builds the executable from the checked-out source. To create a shareable local
+Apple Silicon archive and checksum instead of installing it:
+
+```sh
+make assets VERSION=dev
+ls artifacts/
+(cd artifacts && shasum -a 256 -c SHA256SUMS)
+```
+
+The generated files are:
+
+- `artifacts/cc-dialect_dev_darwin_arm64.zip`
+- `artifacts/SHA256SUMS`
+
+Set `VERSION` to any identifier you want in the filename and embedded
+`cc-dialect --version` output. `make package` is an alias for `make assets`.
+These locally produced assets are not signed or notarized by this project.
 
 ## Contributing and security
 
