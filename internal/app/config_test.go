@@ -710,7 +710,10 @@ func TestEmbeddedCursorBridgeDelegatesToolApprovalToClaudeCode(t *testing.T) {
 		`settingSources: []`,
 		`sandboxOptions: { enabled: false }`,
 		`autoReview: false`,
-		`customTools`,
+		`const forwardedTools = aliasTools(toolDefinitions)`,
+		`customTools[tool.alias]`,
+		`findForwardedTool(forwardedTools`,
+		`Use only the custom tools whose names begin with cc_tool_`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
@@ -718,6 +721,9 @@ func TestEmbeddedCursorBridgeDelegatesToolApprovalToClaudeCode(t *testing.T) {
 	}
 	if strings.Contains(text, `sandboxOptions: { enabled: true }`) {
 		t.Fatal("embedded Cursor bridge enables the headless sandbox that blocks custom tool calls")
+	}
+	if strings.Contains(text, `customTools[tool.name]`) {
+		t.Fatal("embedded Cursor bridge exposes names that can collide with Cursor built-in tool schemas")
 	}
 }
 

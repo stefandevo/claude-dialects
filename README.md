@@ -282,6 +282,13 @@ SDK runs cannot interactively approve calls to the SDK's synthetic
 `custom-user-tools` MCP server. This does not bypass Claude Code's permission
 prompt or execute the MCP action inside Cursor.
 
+Cursor and Claude Code have built-in tools with overlapping names but different
+argument schemas—for example, Cursor uses `path` where Claude Code's `Read`
+expects `file_path`. The bridge therefore gives every forwarded tool a private
+`cc_tool_` alias inside the Cursor SDK and translates the selected alias back to
+the original Claude Code tool name. This prevents Composer from accidentally
+calling a Cursor-native schema and returning invalid arguments to Claude Code.
+
 Cursor exposes Fast as a parameter of `composer-2.5`, not as a separate SDK
 model ID. Fast is Cursor's default and is billed at its higher Fast rate. The
 bridge adds `composer-2.5-fast` and `composer-2.5-standard` as local aliases and

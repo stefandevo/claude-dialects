@@ -81,7 +81,8 @@ async function chatCompletion(request, response, body) {
   const model = typeof body.model === "string" && body.model ? body.model : "auto";
   const modelSelection = await selectModel(model, body);
   const toolDefinitions = normalizeTools(body.tools);
-  const prompt = buildPrompt(body.messages, toolDefinitions);
+  const forwardedTools = aliasTools(toolDefinitions);
+  const prompt = buildPrompt(body.messages, forwardedTools);
   const customTools = {};
   const store = new JsonlLocalAgentStore(path.join(workspace, ".cursor-dialect-state"));
   let capturedToolCall;
@@ -99,8 +100,8 @@ async function chatCompletion(request, response, body) {
     }
   };
 
-  for (const tool of toolDefinitions) {
-    customTools[tool.name] = {
+  for (const tool of forwardedTools) {
+    customTools[tool.alias] = {
       description: tool.description,
       inputSchema: tool.parameters,
       execute: async (args, context) => {
@@ -153,12 +154,13 @@ async function chatCompletion(request, response, body) {
         for (const block of event.message?.content || []) {
           if (block?.type === "text" && typeof block.text === "string") {
             text += block.text;
-          } else if (block?.type === "tool_use" && findTool(toolDefinitions, block.name)) {
-            capture(findTool(toolDefinitions, block.name).name, block.input, block.id);
+          } else if (block?.type === "tool_use") {
+            const tool = findForwardedTool(forwardedTools, block.name);
+            if (tool) capture(tool.name, block.input, block.id);
           }
         }
       } else if (event.type === "tool_call" && event.status === "running") {
-        const tool = findTool(toolDefinitions, event.name);
+        const tool = findForwardedTool(forwardedTools, event.name);
         if (tool) capture(tool.name, event.args, event.call_id);
       } else if (event.type === "usage") {
         usage = event.usage;
@@ -395,13 +397,13 @@ function buildPrompt(messages, tools) {
       transcript.push(`CLAUDE CODE TOOL RESULT ${name}:\n${content}`);
     }
   }
-  const names = tools.map((tool) => tool.name).join(", ");
+  const names = tools.map((tool) => `${tool.alias} → ${tool.name}`).join(", ");
   return [
     "You are the model running inside the Claude Code harness.",
     "Claude Code owns all filesystem, terminal, web, MCP, and other tool execution.",
-    "Use only the custom tools supplied for this request. Never use Cursor's built-in shell, read, write, edit, search, browser, or other workspace tools.",
-    names ? `Available Claude Code tools: ${names}` : "No Claude Code tools are available for this request.",
-    "When a tool is needed, call the matching custom tool and stop so Claude Code can execute it.",
+    "Use only the custom tools whose names begin with cc_tool_. Never call Cursor's built-in shell, read, write, edit, search, browser, or other workspace tools.",
+    names ? `Custom tool aliases mapped to Claude Code tools: ${names}` : "No Claude Code tools are available for this request.",
+    "Call the exact cc_tool_ alias with the arguments required by its custom-tool schema, then stop so Claude Code can execute it.",
     "",
     transcript.join("\n\n"),
   ].join("\n");
@@ -423,10 +425,17 @@ function normalizeTools(rawTools) {
   return result;
 }
 
-function findTool(tools, name) {
+function aliasTools(tools) {
+  return tools.map((tool, index) => {
+    const stem = tool.name.replaceAll(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 44) || "tool";
+    return { ...tool, alias: `cc_tool_${index}_${stem}` };
+  });
+}
+
+function findForwardedTool(tools, name) {
   if (typeof name !== "string") return undefined;
   const lower = name.toLowerCase();
-  return tools.find((tool) => tool.name.toLowerCase() === lower);
+  return tools.find((tool) => tool.alias.toLowerCase() === lower);
 }
 
 function contentText(content) {
