@@ -118,7 +118,14 @@ async function chatCompletion(request, response, body) {
     local: {
       cwd: workspace,
       settingSources: [],
-      sandboxOptions: { enabled: true },
+      // Cursor exposes SDK custom tools through its synthetic
+      // custom-user-tools MCP server. A sandboxed headless local run cannot
+      // request the interactive approval those calls require, so it blocks
+      // every tool before our callback can return it to Claude Code. Claude
+      // Code remains the permission and execution boundary; this bridge only
+      // captures the requested tool call.
+      sandboxOptions: { enabled: false },
+      autoReview: false,
       store,
       customTools,
     },

@@ -704,6 +704,23 @@ func TestCursorBridgeEnvironmentDoesNotInheritUnrelatedSecrets(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCursorBridgeDelegatesToolApprovalToClaudeCode(t *testing.T) {
+	text := string(cursorBridgeSource)
+	for _, expected := range []string{
+		`settingSources: []`,
+		`sandboxOptions: { enabled: false }`,
+		`autoReview: false`,
+		`customTools`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
+		}
+	}
+	if strings.Contains(text, `sandboxOptions: { enabled: true }`) {
+		t.Fatal("embedded Cursor bridge enables the headless sandbox that blocks custom tool calls")
+	}
+}
+
 func TestCopilotBridgeEnvironmentDoesNotInheritUnrelatedSecrets(t *testing.T) {
 	t.Setenv("PATH", "/example/bin")
 	t.Setenv("HOME", "/Users/example")

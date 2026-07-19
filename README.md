@@ -274,6 +274,14 @@ two independently reserved localhost ports: one for the embedded CLIProxyAPI
 instance and one for its private SDK bridge. Both are started and stopped by
 the normal `cc-dialect proxy` lifecycle.
 
+MCP and other tools remain owned by Claude Code. The bridge exposes the tool
+definitions to Cursor as SDK custom tools, captures the selected call, and
+returns it to Claude Code for permission approval and execution. The inner
+Cursor SDK sandbox and Smart Auto Review are disabled because headless local
+SDK runs cannot interactively approve calls to the SDK's synthetic
+`custom-user-tools` MCP server. This does not bypass Claude Code's permission
+prompt or execute the MCP action inside Cursor.
+
 Cursor exposes Fast as a parameter of `composer-2.5`, not as a separate SDK
 model ID. Fast is Cursor's default and is billed at its higher Fast rate. The
 bridge adds `composer-2.5-fast` and `composer-2.5-standard` as local aliases and
