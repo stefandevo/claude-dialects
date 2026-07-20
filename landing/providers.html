@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Provider setup guides for Claude Dialects — Codex, Kimi, Gemini, Grok, Cursor, Copilot, GLM, and more.">
+  <title>Providers — Claude Dialects</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true">
+    <div class="aurora__blob aurora__blob--1"></div>
+    <div class="aurora__blob aurora__blob--2"></div>
+    <div class="aurora__blob aurora__blob--3"></div>
+  </div>
+  <div class="grid-overlay" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <a href="index.html" class="nav__logo">
+      <span class="nav__mark">◈</span>
+      Claude Dialects
+    </a>
+    <div class="nav__links">
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting started</a>
+      <a href="providers.html" class="active">Providers</a>
+      <a href="reference.html">Reference</a>
+      <a href="legal.html">Legal</a>
+    </div>
+    <button class="nav__toggle" aria-label="Open menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <a href="https://github.com/stefandevo/claude-dialects" class="nav__cta" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.395-.135-.345-.72-1.395-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      GitHub
+    </a>
+  </nav>
+  <div class="nav__mobile" id="mobile-nav">
+    <a href="index.html">Home</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="providers.html" class="active">Providers</a>
+    <a href="reference.html">Reference</a>
+    <a href="legal.html">Legal</a>
+  </div>
+
+  <header class="page-hero">
+    <div class="page-hero__breadcrumb">
+      <a href="index.html">Home</a>
+      <span>/</span>
+      <span>Providers</span>
+    </div>
+    <h1>Provider guides</h1>
+    <p>Choose a provider and follow its complete setup block. Each becomes its own shell command with isolated credentials and history.</p>
+  </header>
+
+  <div class="doc-layout">
+    <aside class="doc-sidebar">
+      <div class="doc-sidebar__title">Providers</div>
+      <nav id="doc-toc">
+        <a href="#overview">Overview</a>
+        <a href="#codex">OpenAI Codex</a>
+        <a href="#glm">Z.ai GLM</a>
+        <a href="#kimi">Moonshot Kimi</a>
+        <a href="#gemini">Google Gemini</a>
+        <a href="#xai">xAI Grok</a>
+        <a href="#minimax">MiniMax</a>
+        <a href="#deepseek">DeepSeek</a>
+        <a href="#cursor">Cursor</a>
+        <a href="#copilot">GitHub Copilot</a>
+        <a href="#claude">Anthropic Claude</a>
+      </nav>
+    </aside>
+
+    <main class="doc-content">
+      <section id="overview" class="doc-section reveal">
+        <h2>Overview</h2>
+        <p>Presets encode provider defaults; dialect names become shell commands. The recommended command name is a convention — each provider can have multiple independently named dialects.</p>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Presets</th>
+                <th>Authentication</th>
+                <th>Command</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><a href="#codex">OpenAI Codex</a></td><td><code>codex-sol</code>, <code>codex</code></td><td>ChatGPT OAuth</td><td><code>cc-codex</code></td></tr>
+              <tr><td><a href="#glm">Z.ai GLM</a></td><td><code>glm</code></td><td><code>ZAI_API_KEY</code></td><td><code>cc-glm</code></td></tr>
+              <tr><td><a href="#kimi">Moonshot Kimi</a></td><td><code>kimi</code></td><td>Kimi OAuth</td><td><code>cc-kimi</code></td></tr>
+              <tr><td><a href="#gemini">Google Gemini</a></td><td><code>gemini</code></td><td>Google OAuth (Antigravity)</td><td><code>cc-gemini</code></td></tr>
+              <tr><td><a href="#xai">xAI</a></td><td><code>grok</code>, <code>grok-build</code>, <code>composer</code></td><td>xAI OAuth</td><td><code>cc-grok</code></td></tr>
+              <tr><td><a href="#minimax">MiniMax</a></td><td><code>minimax</code></td><td><code>MINIMAX_API_KEY</code></td><td><code>cc-minimax</code></td></tr>
+              <tr><td><a href="#deepseek">DeepSeek</a></td><td><code>deepseek</code></td><td><code>DEEPSEEK_API_KEY</code></td><td><code>cc-deepseek</code></td></tr>
+              <tr><td><a href="#cursor">Cursor</a></td><td><code>cursor-composer</code>, etc.</td><td>Cursor API key</td><td><code>cc-cursor</code></td></tr>
+              <tr><td><a href="#copilot">GitHub Copilot</a></td><td><code>copilot-auto</code>, etc.</td><td>Copilot login</td><td><code>cc-copilot</code></td></tr>
+              <tr><td><a href="#claude">Anthropic Claude</a></td><td><code>claude</code></td><td>Anthropic OAuth</td><td><code>cc-claude</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <article id="codex" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>OpenAI Codex</h2>
+          <span class="provider-detail__badge">codex-sol · codex</span>
+        </div>
+        <p>Use <code>codex-sol</code> for GPT-5.6 Sol as both the main and subagent model:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>GPT-5.6 Sol preset</span>
+            <button class="copy-btn" data-copy="codex-sol">Copy</button>
+          </div>
+          <pre><code id="code-codex-sol">cc-dialect create cc-codex --preset codex-sol
+cc-dialect auth cc-codex codex
+cc-dialect shim install cc-codex
+cc-codex</code></pre>
+        </div>
+        <p>Use <code>--preset codex</code> instead to make GPT-5.6 the main model while retaining Sol, Terra, and Luna for the <code>opus</code>, <code>sonnet</code>, and <code>haiku</code> menu entries. Both routes authenticate through ChatGPT OAuth.</p>
+      </article>
+
+      <article id="glm" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>Z.ai GLM</h2>
+          <span class="provider-detail__badge">glm</span>
+        </div>
+        <p>GLM uses Z.ai's Anthropic-compatible API and current GLM-5.2 flagship:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>GLM-5.2 setup</span>
+            <button class="copy-btn" data-copy="glm">Copy</button>
+          </div>
+          <pre><code id="code-glm">export ZAI_API_KEY="your_zai_api_key"
+cc-dialect create cc-glm --preset glm
+cc-dialect shim install cc-glm
+cc-glm</code></pre>
+        </div>
+        <p>Maps <code>opus</code> → <code>glm-5.2</code>, <code>sonnet</code> → <code>glm-5-turbo</code>, <code>haiku</code> → <code>glm-4.5-air</code>. GLM-5.2 accepts <code>high</code> or <code>max</code> effort.</p>
+      </article>
+
+      <article id="kimi" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>Moonshot Kimi</h2>
+          <span class="provider-detail__badge">kimi</span>
+        </div>
+        <p>Kimi authenticates through Moonshot's OAuth flow:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Kimi K3 setup</span>
+            <button class="copy-btn" data-copy="kimi">Copy</button>
+          </div>
+          <pre><code id="code-kimi">cc-dialect create cc-kimi --preset kimi
+cc-dialect auth cc-kimi kimi
+cc-dialect shim install cc-kimi
+cc-kimi</code></pre>
+        </div>
+        <p>The rolling <code>kimi</code> preset uses Kimi K3 as its main model. Keep effort at <code>auto</code> — K3 uses <code>max</code> by default. <code>sonnet</code> and <code>haiku</code> select Kimi K2.7 Code Highspeed and Kimi K2.6.</p>
+      </article>
+
+      <article id="gemini" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>Google Gemini</h2>
+          <span class="provider-detail__badge">gemini</span>
+        </div>
+        <p>Gemini uses Google OAuth through CLIProxyAPI's Antigravity provider:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Gemini Pro Agent setup</span>
+            <button class="copy-btn" data-copy="gemini">Copy</button>
+          </div>
+          <pre><code id="code-gemini">cc-dialect create cc-gemini --preset gemini
+cc-dialect auth cc-gemini antigravity
+cc-dialect shim install cc-gemini
+cc-gemini</code></pre>
+        </div>
+        <p>Uses <code>gemini-pro-agent</code> as main and <code>opus</code> model, with Gemini 3.5 Flash variants for lower tiers.</p>
+      </article>
+
+      <article id="xai" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>xAI Grok, Grok Build, and Composer</h2>
+          <span class="provider-detail__badge">grok · grok-build · composer</span>
+        </div>
+        <p>xAI authentication is shared, but each model family gets its own preset and can have its own dialect:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Multiple xAI routes</span>
+            <button class="copy-btn" data-copy="xai">Copy</button>
+          </div>
+          <pre><code id="code-xai"># Grok 4.5
+cc-dialect create cc-grok --preset grok
+cc-dialect auth cc-grok xai
+cc-dialect shim install cc-grok
+
+# Grok Build
+cc-dialect create cc-grok-build --preset grok-build
+cc-dialect auth cc-grok-build xai
+cc-dialect shim install cc-grok-build
+
+# Composer 2.5 Fast (via xAI Grok Build)
+cc-dialect create cc-composer --preset composer
+cc-dialect auth cc-composer xai
+cc-dialect shim install cc-composer
+
+cc-grok   # or cc-grok-build / cc-composer</code></pre>
+        </div>
+        <p><code>composer</code> uses Cursor Composer 2.5 Fast as exposed by xAI Grok Build — not a Grok foundation model.</p>
+      </article>
+
+      <article id="minimax" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>MiniMax</h2>
+          <span class="provider-detail__badge">minimax</span>
+        </div>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>MiniMax M2.7 setup</span>
+            <button class="copy-btn" data-copy="minimax">Copy</button>
+          </div>
+          <pre><code id="code-minimax">export MINIMAX_API_KEY="your_minimax_api_key"
+cc-dialect create cc-minimax --preset minimax
+cc-dialect shim install cc-minimax
+cc-minimax</code></pre>
+        </div>
+        <p>Maps every Claude Code model alias to <code>MiniMax-M2.7</code>.</p>
+      </article>
+
+      <article id="deepseek" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>DeepSeek</h2>
+          <span class="provider-detail__badge">deepseek</span>
+        </div>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>DeepSeek v4 setup</span>
+            <button class="copy-btn" data-copy="deepseek">Copy</button>
+          </div>
+          <pre><code id="code-deepseek">export DEEPSEEK_API_KEY="your_deepseek_api_key"
+cc-dialect create cc-deepseek --preset deepseek
+cc-dialect shim install cc-deepseek
+cc-deepseek</code></pre>
+        </div>
+        <p>Main, subagent, and <code>opus</code> → <code>deepseek-v4-pro</code>; <code>sonnet</code> and <code>haiku</code> → <code>deepseek-v4-flash</code>.</p>
+      </article>
+
+      <article id="cursor" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>Cursor</h2>
+          <span class="provider-detail__badge">cursor-composer · cursor-grok · cursor-auto</span>
+        </div>
+        <p>Cursor dialects use a local OpenAI-compatible bridge backed by the official <code>@cursor/sdk</code>:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Composer 2.5 setup</span>
+            <button class="copy-btn" data-copy="cursor">Copy</button>
+          </div>
+          <pre><code id="code-cursor">cc-dialect cursor install
+export CURSOR_API_KEY="your_cursor_api_key"
+
+cc-dialect create cc-cursor --preset cursor-composer
+cc-dialect shim install cc-cursor
+cc-cursor
+
+# Check bridge status
+cc-dialect cursor status
+cc-dialect models cc-cursor</code></pre>
+        </div>
+        <p>Available presets:</p>
+        <ul>
+          <li><code>cursor-composer</code> — Composer 2.5 with Fast/Standard menu mappings</li>
+          <li><code>cursor-composer-fast</code> — explicitly forces Composer 2.5 Fast</li>
+          <li><code>cursor-grok</code> — Cursor Grok 4.5</li>
+          <li><code>cursor-auto</code> — Cursor's auto selection</li>
+        </ul>
+        <div class="callout callout--info">
+          <div class="callout__title">ℹ SDK bridge details</div>
+          <p>Each Cursor dialect reserves two localhost ports: one for the embedded proxy and one for the SDK bridge. Tools are forwarded with <code>cc_tool_</code> schema aliases to prevent Composer from calling Cursor-native schemas. Claude Code permission prompts remain in control.</p>
+        </div>
+      </article>
+
+      <article id="copilot" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>GitHub Copilot</h2>
+          <span class="provider-detail__badge">copilot-auto · copilot-mai · copilot-codex</span>
+        </div>
+        <p>Install and authenticate the Copilot SDK once:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect copilot install
+cc-dialect copilot login
+cc-dialect copilot status
+cc-dialect copilot models</code></pre>
+        </div>
+        <p>Create a general Copilot dialect:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Copilot auto setup</span>
+            <button class="copy-btn" data-copy="copilot">Copy</button>
+          </div>
+          <pre><code id="code-copilot">cc-dialect create cc-copilot --preset copilot-auto
+cc-dialect shim install cc-copilot
+cc-copilot</code></pre>
+        </div>
+        <p>Available presets: <code>copilot-auto</code>, <code>copilot-mai</code> (MAI-Code-1-Flash), <code>copilot-codex</code>, <code>copilot-claude</code>, <code>copilot-gemini</code>.</p>
+      </article>
+
+      <article id="claude" class="provider-detail reveal">
+        <div class="provider-detail__header">
+          <h2>Anthropic Claude</h2>
+          <span class="provider-detail__badge">claude</span>
+        </div>
+        <p>The <code>claude</code> preset routes Claude Code through the embedded proxy with a separate Anthropic OAuth login:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Isolated Claude OAuth setup</span>
+            <button class="copy-btn" data-copy="claude">Copy</button>
+          </div>
+          <pre><code id="code-claude">cc-dialect create cc-claude --preset claude
+cc-dialect auth cc-claude claude
+cc-dialect shim install cc-claude
+cc-claude</code></pre>
+        </div>
+        <p>Unlike a native shortcut, <code>cc-claude</code> has private settings, credentials, and history. Maps main and <code>opus</code> to Claude Fable 5, with Sonnet 4.6 and Haiku 4.5 for lower tiers.</p>
+      </article>
+
+      <section class="doc-section reveal">
+        <div class="doc-nav-cards">
+          <a href="getting-started.html" class="doc-nav-card">
+            <div class="doc-nav-card__label">Previous</div>
+            <h3>Getting started</h3>
+            <p>Install and create your first dialect.</p>
+          </a>
+          <a href="reference.html" class="doc-nav-card">
+            <div class="doc-nav-card__label">Next</div>
+            <h3>Reference</h3>
+            <p>Custom dialects, model switching, security, and commands.</p>
+          </a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer__platform">
+      <span class="footer__badge">macOS · Apple Silicon only</span>
+      <span class="footer__badge footer__badge--muted">Build from source</span>
+    </div>
+    <p class="footer__disclaimer">
+      <strong>Independent, unofficial project.</strong> Not affiliated with or endorsed by
+      Anthropic, OpenAI, Google, Moonshot AI, Z.ai, xAI, Cursor, GitHub, Microsoft, MiniMax,
+      DeepSeek, or the
+      <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+      maintainers. Product and company names are trademarks of their respective owners.
+    </p>
+    <p class="footer__notice">
+      You are responsible for complying with each provider's terms, subscription rules, and usage policies.
+      Powered by embedded
+      <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+      (MIT). See <a href="legal.html">Legal &amp; notices</a> for full disclaimers and third-party credits.
+    </p>
+    <p class="footer__copyright">© 2026 Stefan de Vogelaere · Claude Dialects is MIT licensed</p>
+    <p class="footer__links">
+      <a href="legal.html">Legal &amp; notices</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Third-party notices</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects" target="_blank" rel="noopener">GitHub</a>
+    </p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
