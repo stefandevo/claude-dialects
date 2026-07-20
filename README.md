@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/stefandevo/claude-dialects/actions/workflows/ci.yml/badge.svg)](https://github.com/stefandevo/claude-dialects/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-claude--dialects.cc-d97757)](https://claude-dialects.cc)
 
 Create multiple native-feeling Claude Code commands powered by different models.
 Each generated dialect runs the real Claude Code interface with its own model,
