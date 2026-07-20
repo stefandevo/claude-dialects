@@ -28,3 +28,5 @@ and tested that output. -->
 - [ ] I understand and can explain every submitted change.
 - [ ] Tests, formatting, vetting, and vulnerability checks pass.
 - [ ] No credentials, generated binaries, or personal configuration are included.
+- [ ] User-facing CLI or behavior changes are reflected in both `README.md` and
+      the relevant `landing/` pages (see `AGENTS.md`).

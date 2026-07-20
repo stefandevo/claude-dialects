@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Legal disclaimers, platform requirements, open-source credits, and third-party notices for Claude Dialects.">
+  <title>Legal &amp; notices — Claude Dialects</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true">
+    <div class="aurora__blob aurora__blob--1"></div>
+    <div class="aurora__blob aurora__blob--2"></div>
+    <div class="aurora__blob aurora__blob--3"></div>
+  </div>
+  <div class="grid-overlay" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <a href="index.html" class="nav__logo">
+      <span class="nav__mark">◈</span>
+      Claude Dialects
+    </a>
+    <div class="nav__links">
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting started</a>
+      <a href="providers.html">Providers</a>
+      <a href="reference.html">Reference</a>
+      <a href="legal.html" class="active">Legal</a>
+    </div>
+    <button class="nav__toggle" aria-label="Open menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <a href="https://github.com/stefandevo/claude-dialects" class="nav__cta" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.395-.135-.345-.72-1.395-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      GitHub
+    </a>
+  </nav>
+  <div class="nav__mobile" id="mobile-nav">
+    <a href="index.html">Home</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="providers.html">Providers</a>
+    <a href="reference.html">Reference</a>
+    <a href="legal.html" class="active">Legal</a>
+  </div>
+
+  <header class="page-hero">
+    <div class="page-hero__breadcrumb">
+      <a href="index.html">Home</a>
+      <span>/</span>
+      <span>Legal &amp; notices</span>
+    </div>
+    <h1>Legal &amp; notices</h1>
+    <p>Disclaimers, platform requirements, open-source credits, and licensing information for Claude Dialects.</p>
+  </header>
+
+  <div class="doc-layout">
+    <aside class="doc-sidebar">
+      <div class="doc-sidebar__title">On this page</div>
+      <nav id="doc-toc">
+        <a href="#disclaimer">Disclaimer</a>
+        <a href="#platform">Platform</a>
+        <a href="#components">Open-source components</a>
+        <a href="#third-party">Third-party notices</a>
+        <a href="#license">License</a>
+        <a href="#security">Security</a>
+        <a href="#copyright">Copyright</a>
+      </nav>
+    </aside>
+
+    <main class="doc-content">
+      <section id="disclaimer" class="doc-section reveal">
+        <h2>Disclaimer</h2>
+        <div class="callout callout--important">
+          <div class="callout__title">Independent, unofficial project</div>
+          <p>
+            Claude Dialects is an independent, unofficial project. It is <strong>not affiliated with or endorsed by</strong>
+            Anthropic, OpenAI, Google, Moonshot AI, Z.ai, xAI, Cursor, GitHub, Microsoft, MiniMax, DeepSeek, or the
+            <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a> maintainers.
+          </p>
+        </div>
+        <p>
+          Product and company names mentioned on this site and in the documentation are trademarks of their respective owners.
+          References to third-party products, services, or APIs do not imply sponsorship, partnership, or approval.
+        </p>
+        <p>
+          <strong>Your responsibility:</strong> You are solely responsible for complying with each provider's terms of service,
+          subscription rules, usage policies, and applicable laws when using Claude Dialects. The authors and contributors
+          of this project cannot be held liable for how you configure dialects, which models you access, or how you use
+          generated commands in your environment.
+        </p>
+        <p>
+          Claude Dialects wraps the real <a href="https://docs.anthropic.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a>
+          application and routes requests through provider-specific proxies or SDK bridges. It does not replace provider
+          billing, authentication requirements, or account eligibility checks imposed by upstream services.
+        </p>
+      </section>
+
+      <section id="platform" class="doc-section reveal">
+        <h2>Platform requirements</h2>
+        <div class="callout callout--warning">
+          <div class="callout__title">macOS on Apple Silicon only</div>
+          <p>
+            The current target platform is <strong>macOS on Apple Silicon</strong> (M-series Macs). Linux, Windows, and
+            Intel Mac builds are not supported at this time. Do not expect this project to run correctly on other platforms
+            without additional porting work.
+          </p>
+        </div>
+        <p>Additional requirements:</p>
+        <ul>
+          <li>Go 1.26.5 or newer — build the <code>cc-dialect</code> executable from source</li>
+          <li>Claude Code available as <code>claude</code> on your PATH</li>
+          <li>Node.js 22.13+ and npm (optional) — only for Cursor and GitHub Copilot SDK dialects</li>
+        </ul>
+        <p>
+          This project does <strong>not</strong> publish prebuilt binaries or GitHub releases. Everyone builds the
+          executable from the checked-out source. Locally produced archives from <code>make assets</code> are not signed
+          or notarized by this project.
+        </p>
+      </section>
+
+      <section id="components" class="doc-section reveal">
+        <h2>Open-source components</h2>
+        <p>Claude Dialects embeds or installs several third-party components. Each remains under its own license and terms.</p>
+
+        <div class="legal-card">
+          <h3>
+            <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+          </h3>
+          <p class="legal-card__meta">Embedded via Go SDK · MIT License</p>
+          <p>
+            The heart of proxied dialects. CLIProxyAPI translates Claude Code's Anthropic-compatible API calls to upstream
+            providers (OpenAI Codex, Kimi, Gemini via Antigravity, xAI, Anthropic OAuth, and custom Anthropic-compatible
+            endpoints). It is linked directly into the <code>cc-dialect</code> executable — there is no separate proxy
+            download, container, or global installation step.
+          </p>
+          <ul>
+            <li>Repository: <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">github.com/router-for-me/CLIProxyAPI</a></li>
+            <li>Documentation: <a href="https://help.router-for.me/introduction/what-is-cliproxyapi" target="_blank" rel="noopener">What is CLIProxyAPI?</a></li>
+            <li>Claude Code integration: <a href="https://help.router-for.me/agent-client/claude-code" target="_blank" rel="noopener">CLIProxyAPI Claude Code configuration</a></li>
+          </ul>
+          <p>
+            CLIProxyAPI is pinned as a Go dependency so a new upstream release cannot alter an already-built executable.
+            Its MIT license permits embedding and redistribution.
+          </p>
+        </div>
+
+        <div class="legal-card">
+          <h3>
+            <a href="https://cursor.com/changelog/sdk-release" target="_blank" rel="noopener">@cursor/sdk</a>
+          </h3>
+          <p class="legal-card__meta">Installed on demand · Cursor license &amp; terms</p>
+          <p>
+            Cursor dialects use a local OpenAI-compatible bridge backed by the official Cursor SDK. The SDK is installed
+            on demand via <code>cc-dialect cursor install</code> rather than bundled in this repository. It remains a
+            separately licensed Cursor dependency; usage is billed through your Cursor API key.
+          </p>
+        </div>
+
+        <div class="legal-card">
+          <h3>
+            <a href="https://github.com/github/copilot-sdk" target="_blank" rel="noopener">@github/copilot-sdk</a>
+          </h3>
+          <p class="legal-card__meta">Installed on demand · GitHub license &amp; terms</p>
+          <p>
+            GitHub Copilot dialects use the official Copilot SDK and its bundled CLI runtime. Install via
+            <code>cc-dialect copilot install</code>. Copilot prompts consume your account's normal Copilot usage allowance
+            and are subject to GitHub's policies.
+          </p>
+        </div>
+
+        <div class="legal-card">
+          <h3>Claude Code</h3>
+          <p class="legal-card__meta">External dependency · Anthropic terms</p>
+          <p>
+            Every dialect launches the real Claude Code binary. Claude Code itself is subject to Anthropic's terms and
+            requires a valid installation on your system. Claude Dialects does not redistribute Claude Code.
+          </p>
+        </div>
+      </section>
+
+      <section id="third-party" class="doc-section reveal">
+        <h2>Third-party notices</h2>
+        <p>
+          Licenses and notices for all modules compiled into the <code>cc-dialect</code> binary are included in the repository's
+          <a href="https://github.com/stefandevo/claude-dialects/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">THIRD_PARTY_NOTICES.md</a>
+          file. This file is regenerated after dependency updates.
+        </p>
+        <p>
+          When you install Cursor or Copilot SDK dialects, additional third-party packages are downloaded into
+          <code>cursor-runtime/</code> and <code>copilot-runtime/</code> under your dialect home directory. Those packages
+          carry their own licenses as declared by their publishers.
+        </p>
+        <div class="callout callout--info">
+          <div class="callout__title">No warranty</div>
+          <p>
+            This software is provided "as is", without warranty of any kind, express or implied. See the
+            <a href="https://github.com/stefandevo/claude-dialects/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+            for the full disclaimer of liability.
+          </p>
+        </div>
+      </section>
+
+      <section id="license" class="doc-section reveal">
+        <h2>License</h2>
+        <p>
+          Claude Dialects is available under the
+          <a href="https://github.com/stefandevo/claude-dialects/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>.
+        </p>
+        <p>Copyright © 2026 Stefan de Vogelaere</p>
+        <p>
+          Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+          documentation files, to deal in the Software without restriction, including without limitation the rights to use,
+          copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the conditions
+          in the license text.
+        </p>
+      </section>
+
+      <section id="security" class="doc-section reveal">
+        <h2>Security reporting</h2>
+        <p>
+          Report vulnerabilities privately through
+          <a href="https://github.com/stefandevo/claude-dialects/security/advisories/new" target="_blank" rel="noopener">GitHub Security Advisories</a>,
+          not through public issues. See
+          <a href="https://github.com/stefandevo/claude-dialects/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a>
+          in the repository for the full policy.
+        </p>
+        <p>
+          Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. Configuration, local API keys, and OAuth
+          credentials use owner-only file permissions. This reduces exposure but does not eliminate your responsibility
+          to secure your machine and provider accounts.
+        </p>
+      </section>
+
+      <section id="copyright" class="doc-section reveal">
+        <h2>Copyright &amp; attribution</h2>
+        <p>
+          © 2026 Stefan de Vogelaere. Claude Dialects source code is MIT licensed.
+        </p>
+        <p>
+          When referencing this project, please link to
+          <a href="https://github.com/stefandevo/claude-dialects" target="_blank" rel="noopener">github.com/stefandevo/claude-dialects</a>
+          and acknowledge the embedded
+          <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a> component.
+        </p>
+        <p>
+          Discuss changes in an issue before opening a pull request. See
+          <a href="https://github.com/stefandevo/claude-dialects/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a>
+          for contribution guidelines.
+        </p>
+
+        <div class="doc-nav-cards">
+          <a href="reference.html" class="doc-nav-card">
+            <div class="doc-nav-card__label">Previous</div>
+            <h3>Reference</h3>
+            <p>Commands, security model, and operations.</p>
+          </a>
+          <a href="index.html" class="doc-nav-card">
+            <div class="doc-nav-card__label">Home</div>
+            <h3>Back to landing</h3>
+            <p>Overview, providers, and quick config samples.</p>
+          </a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer__platform">
+      <span class="footer__badge">macOS · Apple Silicon only</span>
+      <span class="footer__badge footer__badge--muted">Build from source</span>
+    </div>
+    <p class="footer__disclaimer">
+      <strong>Independent, unofficial project.</strong> Not affiliated with or endorsed by
+      Anthropic, OpenAI, Google, Moonshot AI, Z.ai, xAI, Cursor, GitHub, Microsoft, MiniMax,
+      DeepSeek, or the
+      <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+      maintainers. Product and company names are trademarks of their respective owners.
+    </p>
+    <p class="footer__notice">
+      You are responsible for complying with each provider's terms, subscription rules, and usage policies.
+      Powered by embedded
+      <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+      (MIT). See <a href="legal.html">Legal &amp; notices</a> for full disclaimers and third-party credits.
+    </p>
+    <p class="footer__copyright">© 2026 Stefan de Vogelaere · Claude Dialects is MIT licensed</p>
+    <p class="footer__links">
+      <a href="legal.html">Legal &amp; notices</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Third-party notices</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects" target="_blank" rel="noopener">GitHub</a>
+    </p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

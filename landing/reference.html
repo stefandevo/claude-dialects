@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Claude Dialects reference — commands, custom dialects, model switching, security, and operations.">
+  <title>Reference — Claude Dialects</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true">
+    <div class="aurora__blob aurora__blob--1"></div>
+    <div class="aurora__blob aurora__blob--2"></div>
+    <div class="aurora__blob aurora__blob--3"></div>
+  </div>
+  <div class="grid-overlay" aria-hidden="true"></div>
+
+  <nav class="nav">
+    <a href="index.html" class="nav__logo">
+      <span class="nav__mark">◈</span>
+      Claude Dialects
+    </a>
+    <div class="nav__links">
+      <a href="index.html">Home</a>
+      <a href="getting-started.html">Getting started</a>
+      <a href="providers.html">Providers</a>
+      <a href="reference.html" class="active">Reference</a>
+      <a href="legal.html">Legal</a>
+    </div>
+    <button class="nav__toggle" aria-label="Open menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <a href="https://github.com/stefandevo/claude-dialects" class="nav__cta" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.395-.135-.345-.72-1.395-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      GitHub
+    </a>
+  </nav>
+  <div class="nav__mobile" id="mobile-nav">
+    <a href="index.html">Home</a>
+    <a href="getting-started.html">Getting started</a>
+    <a href="providers.html">Providers</a>
+    <a href="reference.html" class="active">Reference</a>
+    <a href="legal.html">Legal</a>
+  </div>
+
+  <header class="page-hero">
+    <div class="page-hero__breadcrumb">
+      <a href="index.html">Home</a>
+      <span>/</span>
+      <span>Reference</span>
+    </div>
+    <h1>Reference</h1>
+    <p>Model switching, custom dialects, proxy operations, security model, and useful commands.</p>
+  </header>
+
+  <div class="doc-layout">
+    <aside class="doc-sidebar">
+      <div class="doc-sidebar__title">On this page</div>
+      <nav id="doc-toc">
+        <a href="#model-switch">Model &amp; effort</a>
+        <a href="#presets">Presets &amp; custom</a>
+        <a href="#detect">Detect dialects</a>
+        <a href="#proxy">Proxy lifecycle</a>
+        <a href="#native">Native shortcuts</a>
+        <a href="#security">Security</a>
+        <a href="#files">File layout</a>
+        <a href="#commands">Useful commands</a>
+        <a href="#build">Build assets</a>
+      </nav>
+    </aside>
+
+    <main class="doc-content">
+      <section id="model-switch" class="doc-section reveal">
+        <h2>Switch model and effort</h2>
+        <p>Claude Code 2.x supports live switching without losing the conversation:</p>
+        <div class="code-block">
+          <pre><code>/model opus
+/model sonnet
+/model haiku
+/model &lt;any model ID from cc-dialect models cc-codex&gt;
+/effort low
+/effort high
+/effort xhigh
+/effort max</code></pre>
+        </div>
+        <p>Each dialect maps <code>opus</code>, <code>sonnet</code>, and <code>haiku</code> to its own three configured model IDs. The Codex preset maps them to Sol, Terra, and Luna. Use <code>--opus-model</code>, <code>--sonnet-model</code>, and <code>--haiku-model</code> to change that mapping.</p>
+        <p>Interactive choices are stored in the dialect's own configuration directory — changing <code>cc-codex</code> does not change regular <code>claude</code>, <code>cc-kimi</code>, or another dialect.</p>
+        <p>List live models from an authenticated instance:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect models cc-codex</code></pre>
+        </div>
+      </section>
+
+      <section id="presets" class="doc-section reveal">
+        <h2>Presets and custom dialects</h2>
+        <p>List presets included in your installed version:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect presets</code></pre>
+        </div>
+        <p>Override parameters while creating or updating a dialect:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Custom model mapping</span>
+            <button class="copy-btn" data-copy="custom">Copy</button>
+          </div>
+          <pre><code id="code-custom">cc-dialect create cc-my-codex \
+  --preset codex \
+  --model gpt-5.6 \
+  --opus-model gpt-5.6-sol \
+  --sonnet-model gpt-5.6-terra \
+  --haiku-model gpt-5.6-luna \
+  --effort-level auto \
+  --concurrency 3 \
+  --effort=true \
+  --tool-search=false \
+  --port 53170</code></pre>
+        </div>
+        <p>For an Anthropic-compatible service, route the upstream through the dialect's isolated embedded proxy:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Custom Anthropic-compatible provider</span>
+            <button class="copy-btn" data-copy="custom-provider">Copy</button>
+          </div>
+          <pre><code id="code-custom-provider">export MY_PROVIDER_TOKEN="..."
+cc-dialect create cc-my-model \
+  --model my-model-id \
+  --base-url https://provider.example.com/api/anthropic \
+  --token-env MY_PROVIDER_TOKEN
+cc-dialect shim install cc-my-model</code></pre>
+        </div>
+        <div class="callout callout--warn">
+          <div class="callout__title">⚠ Updating presets</div>
+          <p>Updating <code>cc-dialect</code> does not silently change existing dialects. Re-run <code>cc-dialect create cc-kimi --preset kimi</code> to apply the latest preset while preserving port, credentials, and history. Start a new conversation after changing the underlying model.</p>
+        </div>
+      </section>
+
+      <section id="detect" class="doc-section reveal">
+        <h2>Detect configured dialects</h2>
+        <p>Human-readable detection:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect detect
+cc-dialect detect codex
+cc-dialect detect glm --running</code></pre>
+        </div>
+        <p>JSON output for tooling:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect detect --running --json
+cc-dialect detect kimi --running --json</code></pre>
+        </div>
+        <p>Silent exit-status check:</p>
+        <div class="code-block">
+          <pre><code>if cc-dialect detect glm --running --quiet; then
+  echo "A GLM Claude Code dialect is running"
+fi</code></pre>
+        </div>
+        <p>Exit status <code>0</code> means at least one matching dialect was found; <code>1</code> means none matched.</p>
+      </section>
+
+      <section id="proxy" class="doc-section reveal">
+        <h2>Proxy lifecycle</h2>
+        <p>Every proxied dialect has an independent lifecycle:</p>
+        <div class="command-grid">
+          <div class="command-item">
+            <code>cc-dialect proxy cc-codex start</code>
+            <span>Start the embedded proxy</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect proxy cc-codex status</code>
+            <span>Check proxy state</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect proxy cc-codex logs</code>
+            <span>View proxy logs</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect proxy cc-codex stop</code>
+            <span>Stop the proxy</span>
+          </div>
+        </div>
+        <p>The proxy starts automatically when its generated command runs. OAuth credentials are scoped per dialect:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect auth cc-codex codex
+cc-dialect auth cc-kimi kimi
+cc-dialect auth cc-claude claude</code></pre>
+        </div>
+        <p>Supported embedded OAuth providers: <code>codex</code>, <code>claude</code>, <code>kimi</code>, <code>antigravity</code>, and <code>xai</code>.</p>
+      </section>
+
+      <section id="native" class="doc-section reveal">
+        <h2>Native Claude shortcuts</h2>
+        <p>Install a lightweight shortcut for the normal Claude Code application without starting the proxy or changing its configuration:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect native install cld --dangerous
+cld</code></pre>
+        </div>
+        <p>This launches Claude Code with <code>--dangerously-skip-permissions</code> using the regular <code>~/.claude</code> settings, authentication, and history — a shortcut for your existing Claude Max setup, not an isolated dialect. Use dangerous mode only in directories you trust.</p>
+      </section>
+
+      <section id="security" class="doc-section reveal">
+        <h2>Security</h2>
+        <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. Configuration, local API keys, and OAuth credentials use owner-only permissions. Environment variables are scoped to the launched Claude Code process.</p>
+        <ul>
+          <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
+          <li>Checked port allocation starting at <code>:43170</code></li>
+          <li>Cursor/Copilot tools forwarded with <code>cc_tool_</code> schema aliases</li>
+          <li>Claude Code permission prompts remain in control</li>
+          <li><code>CURSOR_API_KEY</code> and tokens never copied into <code>config.json</code></li>
+        </ul>
+        <div class="callout callout--info">
+          <div class="callout__title">ℹ Project-level config still works</div>
+          <p>The dialect's private <code>claude/</code> directory is supplied via <code>CLAUDE_CONFIG_DIR</code>. Project-level <code>.claude/</code> files in the repository you are working in continue to work normally.</p>
+        </div>
+      </section>
+
+      <section id="files" class="doc-section reveal">
+        <h2>File layout</h2>
+        <p>State lives under <code>~/Library/Application Support/claude-dialects</code> on macOS (or <code>DIALECT_HOME</code> when set):</p>
+        <div class="code-block">
+          <pre><code>config.json
+instances/
+  cc-codex/
+    auth/
+    claude/
+    proxy.yaml
+    proxy.pid
+    proxy.log
+  cc-kimi/
+    auth/
+    claude/
+    proxy.yaml
+  cc-cursor/
+    claude/
+    cursor-workspace/
+    cursor-bridge.pid
+    proxy.yaml
+cursor-runtime/
+  cursor_bridge.mjs
+  node_modules/@cursor/sdk/
+copilot-runtime/
+  copilot_bridge.mjs
+  node_modules/@github/copilot-sdk/</code></pre>
+        </div>
+      </section>
+
+      <section id="commands" class="doc-section reveal">
+        <h2>Useful commands</h2>
+        <div class="command-grid">
+          <div class="command-item">
+            <code>cc-dialect list</code>
+            <span>List configured dialects</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect show cc-codex</code>
+            <span>Show dialect details</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect doctor</code>
+            <span>Diagnose configuration issues</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect remove cc-codex</code>
+            <span>Remove a dialect permanently</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect presets</code>
+            <span>List available presets</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect --version</code>
+            <span>Show version</span>
+          </div>
+        </div>
+        <p>To fully uninstall after removing all dialects:</p>
+        <div class="code-block">
+          <pre><code>rm ~/.local/bin/cc-dialect
+rm -rf "$HOME/Library/Application Support/claude-dialects"</code></pre>
+        </div>
+      </section>
+
+      <section id="build" class="doc-section reveal">
+        <h2>Build local assets</h2>
+        <p>Create a shareable Apple Silicon archive instead of installing directly:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Package for sharing</span>
+            <button class="copy-btn" data-copy="build">Copy</button>
+          </div>
+          <pre><code id="code-build">make assets VERSION=dev
+ls artifacts/
+(cd artifacts && shasum -a 256 -c SHA256SUMS)</code></pre>
+        </div>
+        <p>Generates <code>artifacts/cc-dialect_dev_darwin_arm64.zip</code> and <code>SHA256SUMS</code>. These locally produced assets are not signed or notarized.</p>
+
+        <div class="doc-nav-cards">
+          <a href="providers.html" class="doc-nav-card">
+            <div class="doc-nav-card__label">Previous</div>
+            <h3>Provider guides</h3>
+            <p>Complete setup for every supported provider.</p>
+          </a>
+          <a href="legal.html" class="doc-nav-card">
+            <div class="doc-nav-card__label">Next</div>
+            <h3>Legal &amp; notices</h3>
+            <p>Disclaimers, CLIProxyAPI credits, and third-party notices.</p>
+          </a>
+          <a href="https://github.com/stefandevo/claude-dialects" class="doc-nav-card" target="_blank" rel="noopener">
+            <div class="doc-nav-card__label">GitHub</div>
+            <h3>Full README &amp; source</h3>
+            <p>Contributing, security advisories, and issue tracker.</p>
+          </a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer__platform">
+      <span class="footer__badge">macOS · Apple Silicon only</span>
+      <span class="footer__badge footer__badge--muted">Build from source</span>
+    </div>
+    <p class="footer__disclaimer">
+      <strong>Independent, unofficial project.</strong> Not affiliated with or endorsed by
+      Anthropic, OpenAI, Google, Moonshot AI, Z.ai, xAI, Cursor, GitHub, Microsoft, MiniMax,
+      DeepSeek, or the
+      <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+      maintainers. Product and company names are trademarks of their respective owners.
+    </p>
+    <p class="footer__notice">
+      You are responsible for complying with each provider's terms, subscription rules, and usage policies.
+      Powered by embedded
+      <a href="https://github.com/router-for-me/CLIProxyAPI" target="_blank" rel="noopener">CLIProxyAPI</a>
+      (MIT). See <a href="legal.html">Legal &amp; notices</a> for full disclaimers and third-party credits.
+    </p>
+    <p class="footer__copyright">© 2026 Stefan de Vogelaere · Claude Dialects is MIT licensed</p>
+    <p class="footer__links">
+      <a href="legal.html">Legal &amp; notices</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">Third-party notices</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+      <span>·</span>
+      <a href="https://github.com/stefandevo/claude-dialects" target="_blank" rel="noopener">GitHub</a>
+    </p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
