@@ -55,7 +55,7 @@ Before opening or merging a PR that touches user-facing behavior:
 - **Product:** Multiple isolated Claude Code dialects, each with its own model,
   credentials, config, history, and embedded [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
   instance — no manual proxy setup or global `~/.claude` changes.
-- **Platform:** macOS on Apple Silicon only (state under
+- **Platform:** macOS only (state under
   `~/Library/Application Support/claude-dialects`).
 - **Build:** `make install` produces `~/.local/bin/cc-dialect`. No published
   binaries; see README “Build local assets”.

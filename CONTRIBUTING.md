@@ -34,7 +34,7 @@ review.
 
 Requirements:
 
-- macOS on Apple Silicon;
+- macOS;
 - Go 1.26.5 or newer;
 - Claude Code installed and available as `claude`.
 

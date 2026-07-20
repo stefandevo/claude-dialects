@@ -14,7 +14,7 @@ There is no separate proxy download, installation, container, or global
 `~/.claude/settings.json` modification. Changes made with `/model`, `/effort`,
 or other user-level Claude Code settings stay inside the active dialect.
 
-> Current target: macOS on Apple Silicon only.
+> Current target: macOS only.
 
 > [!IMPORTANT]
 > This is an independent, unofficial project. It is not affiliated with or
@@ -51,7 +51,7 @@ or other user-level Claude Code settings stay inside the active dialect.
 
 Requirements:
 
-- macOS on Apple Silicon;
+- macOS;
 - Go 1.26.5 or newer
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
@@ -764,7 +764,7 @@ updates.
 
 This project does not publish prebuilt binaries or GitHub releases. Everyone
 builds the executable from the checked-out source. To create a shareable local
-Apple Silicon archive and checksum instead of installing it:
+macOS archive and checksum instead of installing it:
 
 ```sh
 make assets VERSION=dev

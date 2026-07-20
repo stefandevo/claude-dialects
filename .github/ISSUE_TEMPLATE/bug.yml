@@ -55,7 +55,7 @@ body:
     attributes:
       label: Hardware
       options:
-        - Apple Silicon
+        - macOS
         - Other (unsupported)
     validations:
       required: true

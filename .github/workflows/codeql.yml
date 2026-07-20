@@ -41,7 +41,7 @@ jobs:
           languages: go
           build-mode: manual
 
-      - name: Build Apple Silicon binary
+      - name: Build macOS binary
         run: make build VERSION=codeql
 
       - name: Analyze
