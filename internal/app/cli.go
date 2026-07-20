@@ -31,7 +31,7 @@ Usage:
   cc-dialect copilot <install|login|status|models>
   cc-dialect shim install <dialect> [--name <command>] [--dir <path>]
   cc-dialect native install <command> [--dangerous] [--dir <path>]
-  cc-dialect proxy <dialect> <start|stop|status|logs>
+  cc-dialect proxy <dialect> <start|stop|restart|status|logs>
   cc-dialect doctor
 
 Example:
@@ -140,172 +140,53 @@ func createDialect(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	var dialect Dialect
-	if *preset != "" {
-		var ok bool
-		dialect, ok = presets[*preset]
-		if !ok {
-			return fmt.Errorf("unknown preset %q (available: %s)", *preset, strings.Join(presetNames(), ", "))
-		}
-		dialect.Preset = *preset
-	}
-	if *model != "" {
-		dialect.Model = *model
-	}
-	if dialect.Model == "" {
-		return errors.New("choose --preset or provide --model")
-	}
-	if *subagent != "" {
-		dialect.SubagentModel = *subagent
-	}
-	if dialect.SubagentModel == "" {
-		dialect.SubagentModel = dialect.Model
-	}
-	if *opusModel != "" {
-		dialect.OpusModel = *opusModel
-	}
-	if *sonnetModel != "" {
-		dialect.SonnetModel = *sonnetModel
-	}
-	if *haikuModel != "" {
-		dialect.HaikuModel = *haikuModel
-	}
-	if dialect.OpusModel == "" {
-		dialect.OpusModel = dialect.Model
-	}
-	if dialect.SonnetModel == "" {
-		dialect.SonnetModel = dialect.Model
-	}
-	if dialect.HaikuModel == "" {
-		dialect.HaikuModel = dialect.Model
-	}
-	if *effortLevel != "" {
-		dialect.EffortLevel = *effortLevel
-	}
-	if dialect.EffortLevel == "" {
-		dialect.EffortLevel = "auto"
-	}
-	if !validEffort(dialect.EffortLevel) {
-		return fmt.Errorf("invalid effort level %q", dialect.EffortLevel)
-	}
-	if *concurrency != 0 {
-		dialect.Concurrency = *concurrency
-	}
-	if dialect.Concurrency == 0 {
-		dialect.Concurrency = 3
-	}
-	if *baseURL != "" {
-		dialect.BaseURL = *baseURL
-	}
-	if *tokenEnv != "" {
-		dialect.AuthTokenEnv = *tokenEnv
-	}
-	dialect.Effort = *effort
-	dialect.ToolSearch = *toolSearch
-	cfg, err := loadConfig()
+	service := newAppService()
+	result, err := service.UpsertDialect(DialectInput{
+		Name: name, Preset: *preset, Model: *model, SubagentModel: *subagent,
+		OpusModel: *opusModel, SonnetModel: *sonnetModel, HaikuModel: *haikuModel,
+		EffortLevel: *effortLevel, Concurrency: *concurrency, Port: *port, BridgePort: *bridgePort,
+		BaseURL: *baseURL, AuthTokenEnv: *tokenEnv, Effort: *effort, ToolSearch: *toolSearch,
+	}, "")
 	if err != nil {
 		return err
 	}
-	_, updating := cfg.Dialects[name]
-	if existing, ok := cfg.Dialects[name]; ok {
-		dialect.Port = existing.Port
-		dialect.APIKey = existing.APIKey
-		if dialect.Bridge != "" && existing.Bridge == dialect.Bridge {
-			dialect.BridgePort = existing.BridgePort
-		}
-	} else {
-		dialect.Port = nextPort(cfg)
-		if dialect.Port == 0 {
-			return errors.New("no proxy ports available")
-		}
-		dialect.APIKey, err = newAPIKey()
-		if err != nil {
-			return err
-		}
-	}
-	if *port != 0 {
-		if *port < 1024 || *port > 65535 {
-			return errors.New("--port must be between 1024 and 65535")
-		}
-		for otherName, other := range cfg.Dialects {
-			if otherName != name && (other.Port == *port || other.BridgePort == *port) {
-				return fmt.Errorf("port %d is already reserved by %q", *port, otherName)
-			}
-		}
-		if existing, ok := cfg.Dialects[name]; !ok || existing.Port != *port {
-			if !portAvailable(*port) {
-				return fmt.Errorf("port %d is already in use by another process", *port)
-			}
-		}
-		if dialect.Port != *port {
-			dialect.Port = *port
-		}
-	}
-	if dialect.Bridge != "" && dialect.BridgePort == 0 {
-		dialect.BridgePort = nextAvailablePort(cfg, map[int]bool{dialect.Port: true})
-		if dialect.BridgePort == 0 {
-			return errors.New("no provider bridge ports available")
-		}
-	}
-	if *bridgePort != 0 {
-		if dialect.Bridge == "" {
-			return errors.New("--bridge-port requires a preset with a managed provider bridge")
-		}
-		if *bridgePort < 1024 || *bridgePort > 65535 {
-			return errors.New("--bridge-port must be between 1024 and 65535")
-		}
-		if *bridgePort == dialect.Port {
-			return errors.New("--bridge-port must differ from --port")
-		}
-		for otherName, other := range cfg.Dialects {
-			if otherName != name && (other.Port == *bridgePort || other.BridgePort == *bridgePort) {
-				return fmt.Errorf("bridge port %d is already reserved by %q", *bridgePort, otherName)
-			}
-		}
-		if existing, ok := cfg.Dialects[name]; !ok || existing.BridgePort != *bridgePort {
-			if !portAvailable(*bridgePort) {
-				return fmt.Errorf("bridge port %d is already in use by another process", *bridgePort)
-			}
-		}
-		dialect.BridgePort = *bridgePort
-	}
-	if dialect.BridgePort == dialect.Port {
-		return fmt.Errorf("proxy and provider bridge cannot share port %d", dialect.Port)
-	}
-	if updating {
-		_ = stopProxy(name)
-	}
-	cfg.Dialects[name] = dialect
-	if err = saveConfig(cfg); err != nil {
-		return err
-	}
-	if updating {
+	dialect := result.Dialect
+	if !result.Created {
 		fmt.Printf("Updated %q to model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
 		fmt.Println("Authentication, isolated Claude Code state, and installed shims were preserved.")
-		if step := missingAuthenticationStep(name, dialect); step != "" {
+		cfg, loadErr := loadConfig()
+		if loadErr != nil {
+			return loadErr
+		}
+		stored := cfg.Dialects[name]
+		if step := missingAuthenticationStep(name, stored); step != "" {
 			fmt.Println("Next:")
 			fmt.Println("  1.", step)
 		}
-	} else {
-		fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
-		home, _ := os.UserHomeDir()
-		shimName := preferredShimName(name)
-		target := filepath.Join(home, ".local", "bin", shimName)
-		if alias, found := zshAlias(shimName); found {
-			fmt.Printf("Warning: command name %q is already used by %s.\n", shimName, alias)
-			shimName = suggestedShimName(shimName)
-		} else if conflicts := commandConflicts(shimName, target); len(conflicts) > 0 {
-			fmt.Printf("Warning: command name %q already exists at %s.\n", shimName, strings.Join(conflicts, ", "))
-			shimName = suggestedShimName(shimName)
-		}
-		fmt.Println("Next:")
-		for index, step := range createNextSteps(name, shimName, dialect) {
-			fmt.Printf("  %d. %s\n", index+1, step)
-		}
+		return nil
+	}
+	fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
+	home, _ := os.UserHomeDir()
+	shimName := preferredShimName(name)
+	target := filepath.Join(home, ".local", "bin", shimName)
+	if alias, found := zshAlias(shimName); found {
+		fmt.Printf("Warning: command name %q is already used by %s.\n", shimName, alias)
+		shimName = suggestedShimName(shimName)
+	} else if conflicts := commandConflicts(shimName, target); len(conflicts) > 0 {
+		fmt.Printf("Warning: command name %q already exists at %s.\n", shimName, strings.Join(conflicts, ", "))
+		shimName = suggestedShimName(shimName)
+	}
+	cfg, loadErr := loadConfig()
+	if loadErr != nil {
+		return loadErr
+	}
+	stored := cfg.Dialects[name]
+	fmt.Println("Next:")
+	for index, step := range createNextSteps(name, shimName, stored) {
+		fmt.Printf("  %d. %s\n", index+1, step)
 	}
 	return nil
 }
-
 func createNextSteps(name, shimName string, dialect Dialect) []string {
 	var steps []string
 	if dialect.Bridge == "cursor" {
@@ -349,32 +230,22 @@ func missingAuthenticationStep(name string, dialect Dialect) string {
 }
 
 func listDialects() error {
-	cfg, err := loadConfig()
+	result, err := newAppService().ListDialects(false)
 	if err != nil {
 		return err
 	}
-	names := make([]string, 0, len(cfg.Dialects))
-	for name := range cfg.Dialects {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
+	if len(result.Dialects) == 0 {
 		fmt.Println("No dialects yet. Try: cc-dialect create cc-codex --preset codex-sol")
 		return nil
 	}
-	for _, name := range names {
-		d := cfg.Dialects[name]
-		preset := presetForDialect(d)
-		if preset == "" {
-			preset = "custom"
+	for _, dialect := range result.Dialects {
+		transport := fmt.Sprintf("embedded proxy :%d", dialect.Port)
+		if dialect.BaseURL != "" {
+			transport = fmt.Sprintf("embedded upstream proxy :%d", dialect.Port)
+		} else if dialect.Bridge != "" {
+			transport = fmt.Sprintf("embedded proxy :%d → %s bridge :%d", dialect.Port, dialect.Bridge, dialect.BridgePort)
 		}
-		transport := fmt.Sprintf("embedded proxy :%d", d.Port)
-		if d.BaseURL != "" {
-			transport = fmt.Sprintf("embedded upstream proxy :%d", d.Port)
-		} else if d.Bridge != "" {
-			transport = fmt.Sprintf("embedded proxy :%d → %s bridge :%d", d.Port, d.Bridge, d.BridgePort)
-		}
-		fmt.Printf("%-18s %-12s %-24s %s\n", name, preset, d.Model, transport)
+		fmt.Printf("%-18s %-12s %-24s %s\n", dialect.Name, dialect.Preset, dialect.Model, transport)
 	}
 	return nil
 }
@@ -476,15 +347,14 @@ func showDialect(args []string) error {
 	if len(args) != 1 {
 		return errors.New("show requires a dialect name")
 	}
-	cfg, err := loadConfig()
+	dialect, _, err := newAppService().Dialect(args[0])
 	if err != nil {
 		return err
 	}
-	d, ok := cfg.Dialects[args[0]]
-	if !ok {
-		return fmt.Errorf("dialect %q does not exist", args[0])
+	raw, err := json.MarshalIndent(dialect, "", "  ")
+	if err != nil {
+		return err
 	}
-	raw, _ := json.MarshalIndent(d, "", "  ")
 	fmt.Println(string(raw))
 	return nil
 }
@@ -504,9 +374,14 @@ func listModels(args []string) error {
 	if dialect.AuthProvider != "" && !hasProviderCredentials(args[0], dialect.AuthProvider) {
 		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", args[0], args[0], dialect.AuthProvider)
 	}
-	if err = startProxy(args[0], dialect); err != nil {
+	if _, err = newAppService().StartDialect(args[0]); err != nil {
 		return err
 	}
+	cfg, err = loadConfig()
+	if err != nil {
+		return err
+	}
+	dialect = cfg.Dialects[args[0]]
 	models, err := fetchModels(dialect)
 	if err != nil {
 		return err
@@ -524,20 +399,7 @@ func removeDialect(args []string) error {
 	if len(args) != 1 {
 		return errors.New("remove requires a dialect name")
 	}
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-	if _, ok := cfg.Dialects[args[0]]; !ok {
-		return fmt.Errorf("dialect %q does not exist", args[0])
-	}
-	_ = stopProxy(args[0])
-	delete(cfg.Dialects, args[0])
-	if err = saveConfig(cfg); err != nil {
-		return err
-	}
-	home, _, _, _, _, _, _ := paths(args[0])
-	return os.RemoveAll(filepath.Join(home, "instances", args[0]))
+	return newAppService().RemoveDialect(args[0], "")
 }
 
 func runDialect(args []string) error {
@@ -565,9 +427,14 @@ func runDialect(args []string) error {
 		return err
 	}
 	env := append([]string{}, os.Environ()...)
-	if err = startProxy(name, d); err != nil {
+	if _, err = newAppService().StartDialect(name); err != nil {
 		return err
 	}
+	cfg, err = loadConfig()
+	if err != nil {
+		return err
+	}
+	d = cfg.Dialects[name]
 	env = setEnv(env, "CLAUDE_CONFIG_DIR", claudeDir)
 	env = setEnv(env, "ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d", d.Port))
 	env = setEnv(env, "ANTHROPIC_AUTH_TOKEN", d.APIKey)
@@ -668,34 +535,49 @@ func authCommand(args []string) error {
 
 func proxyCommand(args []string) error {
 	if len(args) != 2 {
-		return errors.New("proxy requires a dialect and action: cc-dialect proxy <dialect> <start|stop|status|logs>")
+		return errors.New("proxy requires a dialect and action: cc-dialect proxy <dialect> <start|stop|restart|status|logs>")
 	}
-	cfg, err := loadConfig()
+	name := args[0]
+	service := newAppService()
+	dialect, _, err := service.Dialect(name)
 	if err != nil {
 		return err
 	}
-	name := args[0]
-	dialect, ok := cfg.Dialects[name]
-	if !ok {
-		return fmt.Errorf("dialect %q does not exist", name)
-	}
 	switch args[1] {
 	case "start":
-		err = startProxy(name, dialect)
+		_, err = service.StartDialect(name)
 		if err == nil {
 			fmt.Printf("%s proxy ready at http://127.0.0.1:%d\n", name, dialect.Port)
 		}
 		return err
 	case "stop":
-		return stopProxy(name)
+		_, err = service.StopDialect(name)
+		return err
+	case "restart":
+		_, err = service.RestartDialect(name)
+		if err == nil {
+			fmt.Printf("%s proxy ready at http://127.0.0.1:%d\n", name, dialect.Port)
+		}
+		return err
 	case "status":
-		if dialectHealthy(dialect) {
-			fmt.Printf("running (pid %d, port %d", proxyPID(name), dialect.Port)
-			if dialect.Bridge != "" {
-				fmt.Printf(", %s bridge pid %d, port %d", dialect.Bridge, managedBridgePID(name, dialect), dialect.BridgePort)
+		status, statusErr := service.DialectStatus(name)
+		if statusErr != nil {
+			return statusErr
+		}
+		switch status.State {
+		case RuntimeRunning:
+			fmt.Printf("running (pid %d, port %d", status.Proxy.PID, status.Proxy.Port)
+			if status.Bridge != nil {
+				fmt.Printf(", %s bridge pid %d, port %d", dialect.Bridge, status.Bridge.PID, status.Bridge.Port)
 			}
 			fmt.Println(")")
-		} else {
+		case RuntimeDegraded:
+			fmt.Printf("degraded (proxy %s", status.Proxy.State)
+			if status.Bridge != nil {
+				fmt.Printf(", %s bridge %s", dialect.Bridge, status.Bridge.State)
+			}
+			fmt.Println(")")
+		default:
 			fmt.Println("stopped")
 		}
 	case "logs":
@@ -750,10 +632,7 @@ func shimCommand(args []string) error {
 			*name, strings.Join(conflicts, ", "), dialectName, suggestedShimName(*name))
 	}
 	body := fmt.Sprintf("#!/bin/sh\nexec %q run %q -- \"$@\"\n", exe, dialectName)
-	if err = os.WriteFile(path, []byte(body), 0o755); err != nil {
-		return err
-	}
-	if err = os.Chmod(path, 0o755); err != nil {
+	if err = atomicWriteFile(path, []byte(body), 0o755); err != nil {
 		return err
 	}
 	fmt.Println("Installed", path)
@@ -777,39 +656,15 @@ func nativeCommand(args []string) error {
 	if err := fs.Parse(args[2:]); err != nil {
 		return err
 	}
-	if *dir == "" {
-		home, _ := os.UserHomeDir()
-		*dir = filepath.Join(home, ".local", "bin")
-	}
-	claudePath, err := exec.LookPath("claude")
-	if err != nil {
-		return errors.New("Claude Code not found in PATH")
-	}
-	claudePath, err = filepath.Abs(claudePath)
+	result, err := newAppService().InstallNativeLauncher(NativeLauncherInput{
+		Name: name, Directory: *dir, Dangerous: *dangerous,
+	}, "")
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(*dir, 0o755); err != nil {
-		return err
-	}
-	path := filepath.Join(*dir, name)
-	if alias, found := zshAlias(name); found {
-		return fmt.Errorf("zsh alias %q would override the installed command; remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, name)
-	}
-	if conflicts := commandConflicts(name, path); len(conflicts) > 0 {
-		return fmt.Errorf("command %q already exists at %s; remove it or choose another launcher name",
-			name, strings.Join(conflicts, ", "))
-	}
-	body := nativeLauncherBody(claudePath, *dangerous)
-	if err = os.WriteFile(path, []byte(body), 0o755); err != nil {
-		return err
-	}
-	if err = os.Chmod(path, 0o755); err != nil {
-		return err
-	}
-	fmt.Println("Installed", path)
-	if !pathContains(*dir) {
-		fmt.Printf("Add %s to PATH to invoke %s directly.\n", *dir, name)
+	fmt.Println("Installed", result.Launcher.Path)
+	if !pathContains(filepath.Dir(result.Launcher.Path)) {
+		fmt.Printf("Add %s to PATH to invoke %s directly.\n", filepath.Dir(result.Launcher.Path), name)
 	}
 	return nil
 }

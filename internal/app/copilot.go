@@ -93,7 +93,7 @@ func installCopilotRuntime() error {
 		return err
 	}
 	packageJSON := fmt.Sprintf("{\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@github/copilot-sdk\": %q\n  }\n}\n", copilotSDKVersion)
-	if err = os.WriteFile(filepath.Join(runtimeDir, "package.json"), []byte(packageJSON), 0o600); err != nil {
+	if err = atomicWriteFile(filepath.Join(runtimeDir, "package.json"), []byte(packageJSON), 0o600); err != nil {
 		return err
 	}
 	fmt.Printf("Installing official @github/copilot-sdk %s with Node %s…\n", copilotSDKVersion, version)
@@ -211,10 +211,7 @@ func requireCopilotRuntime() error {
 }
 
 func writeCopilotBridge(path string) error {
-	if err := os.WriteFile(path, copilotBridgeSource, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return atomicWriteFile(path, copilotBridgeSource, 0o600)
 }
 
 type copilotAuthStatus struct {
@@ -357,7 +354,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
+	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return err
 	}

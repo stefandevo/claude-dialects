@@ -175,7 +175,7 @@ func startProxy(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
+	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return err
 	}
@@ -192,22 +192,29 @@ func startProxy(name string, dialect Dialect) error {
 }
 
 func stopProxy(name string) error {
-	cfg, cfgErr := loadConfig()
-	var dialect Dialect
-	var exists bool
-	if cfgErr == nil {
-		dialect, exists = cfg.Dialects[name]
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
 	}
-	if exists {
-		defer func() {
-			_ = stopManagedBridge(name, dialect)
-		}()
+	dialect, exists := cfg.Dialects[name]
+	if !exists {
+		// Without the private key there is no safe way to prove PID ownership.
+		_, _, _, _, pidPath, _, _ := paths(name)
+		_ = os.Remove(pidPath)
+		return nil
 	}
+	return stopProxyDialect(name, dialect)
+}
+
+func stopProxyDialect(name string, dialect Dialect) error {
+	defer func() {
+		_ = stopManagedBridge(name, dialect)
+	}()
 	pid := proxyPID(name)
 	if pid == 0 {
 		return nil
 	}
-	if cfgErr != nil || !exists || !proxyHealthy(dialect) {
+	if !proxyHealthy(dialect) {
 		// A stale PID can refer to an unrelated process after reboot or PID reuse.
 		// Only signal a process that answers with this dialect's private API key.
 		_, _, _, _, pidPath, _, _ := paths(name)
@@ -308,8 +315,8 @@ func authenticate(name, provider string, noBrowser bool) error {
 	}
 	if proxyHealthy(dialect) {
 		fmt.Println("Restarting proxy to load the new credentials…")
-		_ = stopProxy(name)
-		return startProxy(name, dialect)
+		_, err = newAppService().RestartDialect(name)
+		return err
 	}
 	return nil
 }

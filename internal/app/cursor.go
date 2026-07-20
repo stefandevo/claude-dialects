@@ -28,11 +28,49 @@ func cursorCommand(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: cc-dialect cursor <install|status|models>")
 	}
+	service := newAppService()
 	switch args[0] {
 	case "install":
-		return installCursorRuntime()
+		if _, version, nodeErr := cursorNode(); nodeErr == nil {
+			if _, npmErr := exec.LookPath("npm"); npmErr == nil {
+				fmt.Printf("Installing official @cursor/sdk %s with Node %s…\n", cursorSDKVersion, version)
+			}
+		}
+		result, err := service.InstallCursorRuntime()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+		if len(result.StoppedDialects) > 0 {
+			fmt.Printf("Stopped stale Cursor dialect runtime(s): %s\n", strings.Join(result.StoppedDialects, ", "))
+			fmt.Println("Launch the dialect again to use the updated bridge.")
+		}
+		fmt.Println("Set CURSOR_API_KEY, then create a dialect with --preset cursor-composer.")
+		return nil
 	case "status":
-		return cursorStatus()
+		status := service.CursorStatus()
+		if status.NodeError != "" {
+			fmt.Println("✗", status.NodeError)
+		} else {
+			fmt.Printf("✓ Node %s: %s\n", status.NodeVersion, status.NodePath)
+		}
+		if !status.RuntimeInstalled {
+			fmt.Println("✗ Cursor bridge runtime is not installed (run: cc-dialect cursor install)")
+		} else if !status.RuntimeCurrent {
+			fmt.Printf("✗ @cursor/sdk %s is installed; %s is required (run: cc-dialect cursor install)\n",
+				status.InstalledVersion, status.RequiredVersion)
+		} else {
+			fmt.Printf("✓ @cursor/sdk %s\n", status.InstalledVersion)
+		}
+		if !status.APIKeySet {
+			fmt.Println("✗ CURSOR_API_KEY is not set")
+		} else {
+			fmt.Println("✓ CURSOR_API_KEY")
+		}
+		if status.NodeError != "" {
+			return errors.New(status.NodeError)
+		}
+		return nil
 	case "models":
 		models, err := cursorSDKModels()
 		if err != nil {
@@ -67,51 +105,64 @@ func cursorInstancePaths(name string) (pidPath, logPath, workspace string, err e
 		filepath.Join(instanceDir, "cursor-workspace"), nil
 }
 
-func installCursorRuntime() error {
+type CursorRuntimeStatus struct {
+	NodePath         string `json:"nodePath,omitempty"`
+	NodeVersion      string `json:"nodeVersion,omitempty"`
+	NodeError        string `json:"nodeError,omitempty"`
+	RuntimeInstalled bool   `json:"runtimeInstalled"`
+	RuntimeCurrent   bool   `json:"runtimeCurrent"`
+	InstalledVersion string `json:"installedVersion,omitempty"`
+	RequiredVersion  string `json:"requiredVersion"`
+	APIKeySet        bool   `json:"apiKeySet"`
+}
+
+type CursorInstallResult struct {
+	NodePath         string   `json:"nodePath"`
+	NodeVersion      string   `json:"nodeVersion"`
+	InstalledVersion string   `json:"installedVersion"`
+	StoppedDialects  []string `json:"stoppedDialects"`
+}
+
+func installCursorRuntime() (CursorInstallResult, error) {
 	nodePath, version, err := cursorNode()
 	if err != nil {
-		return err
+		return CursorInstallResult{}, err
 	}
 	npmPath, err := exec.LookPath("npm")
 	if err != nil {
-		return errors.New("npm was not found in PATH; install Node.js 22.13 or newer first")
+		return CursorInstallResult{}, errors.New("npm was not found in PATH; install Node.js 22.13 or newer first")
 	}
 	runtimeDir, bridgePath, _, err := cursorRuntimePaths()
 	if err != nil {
-		return err
+		return CursorInstallResult{}, err
 	}
 	if err = os.MkdirAll(runtimeDir, 0o700); err != nil {
-		return err
+		return CursorInstallResult{}, err
 	}
 	if err = os.Chmod(runtimeDir, 0o700); err != nil {
-		return err
+		return CursorInstallResult{}, err
 	}
 	if err = writeCursorBridge(bridgePath); err != nil {
-		return err
+		return CursorInstallResult{}, err
 	}
 	packageJSON := fmt.Sprintf("{\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@cursor/sdk\": %q\n  }\n}\n", cursorSDKVersion)
-	if err = os.WriteFile(filepath.Join(runtimeDir, "package.json"), []byte(packageJSON), 0o600); err != nil {
-		return err
+	if err = atomicWriteFile(filepath.Join(runtimeDir, "package.json"), []byte(packageJSON), 0o600); err != nil {
+		return CursorInstallResult{}, err
 	}
-	fmt.Printf("Installing official @cursor/sdk %s with Node %s…\n", cursorSDKVersion, version)
 	cmd := exec.Command(npmPath, "install", "--ignore-scripts", "--no-audit", "--no-fund", "--omit=dev")
 	cmd.Dir = runtimeDir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("install @cursor/sdk: %w", err)
+		return CursorInstallResult{}, fmt.Errorf("install @cursor/sdk: %w", err)
 	}
 	installed, err := cursorRuntimeVersion()
 	if err != nil {
-		return err
+		return CursorInstallResult{}, err
 	}
-	stopped := stopRunningCursorDialects()
-	fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", installed, nodePath)
-	if len(stopped) > 0 {
-		fmt.Printf("Stopped stale Cursor dialect runtime(s): %s\n", strings.Join(stopped, ", "))
-		fmt.Println("Launch the dialect again to use the updated bridge.")
-	}
-	fmt.Println("Set CURSOR_API_KEY, then create a dialect with --preset cursor-composer.")
-	return nil
+	return CursorInstallResult{
+		NodePath: nodePath, NodeVersion: version, InstalledVersion: installed,
+		StoppedDialects: stopRunningCursorDialects(),
+	}, nil
 }
 
 func stopRunningCursorDialects() []string {
@@ -121,44 +172,36 @@ func stopRunningCursorDialects() []string {
 	}
 	names := make([]string, 0)
 	for name, dialect := range cfg.Dialects {
-		if dialect.Bridge == "cursor" && dialectHealthy(dialect) {
+		if dialect.Bridge == "cursor" && (proxyHealthy(dialect) || managedBridgeHealthy(dialect)) {
 			names = append(names, name)
 		}
 	}
 	sort.Strings(names)
 	stopped := make([]string, 0, len(names))
 	for _, name := range names {
-		if stopProxy(name) == nil {
+		if stopProxyDialect(name, cfg.Dialects[name]) == nil {
 			stopped = append(stopped, name)
 		}
 	}
 	return stopped
 }
 
-func cursorStatus() error {
+func inspectCursorRuntime() CursorRuntimeStatus {
+	status := CursorRuntimeStatus{
+		RequiredVersion: cursorSDKVersion,
+		APIKeySet:       os.Getenv("CURSOR_API_KEY") != "",
+	}
 	nodePath, nodeVersion, nodeErr := cursorNode()
+	status.NodePath, status.NodeVersion = nodePath, nodeVersion
 	if nodeErr != nil {
-		fmt.Println("✗", nodeErr)
-	} else {
-		fmt.Printf("✓ Node %s: %s\n", nodeVersion, nodePath)
+		status.NodeError = nodeErr.Error()
 	}
-	if version, err := cursorRuntimeVersion(); err != nil {
-		fmt.Println("✗ Cursor bridge runtime is not installed (run: cc-dialect cursor install)")
-	} else if version != cursorSDKVersion {
-		fmt.Printf("✗ @cursor/sdk %s is installed; %s is required (run: cc-dialect cursor install)\n",
-			version, cursorSDKVersion)
-	} else {
-		fmt.Printf("✓ @cursor/sdk %s\n", version)
+	if version, err := cursorRuntimeVersion(); err == nil {
+		status.RuntimeInstalled = true
+		status.InstalledVersion = version
+		status.RuntimeCurrent = version == cursorSDKVersion
 	}
-	if os.Getenv("CURSOR_API_KEY") == "" {
-		fmt.Println("✗ CURSOR_API_KEY is not set")
-	} else {
-		fmt.Println("✓ CURSOR_API_KEY")
-	}
-	if nodeErr != nil {
-		return nodeErr
-	}
-	return nil
+	return status
 }
 
 func cursorNode() (path, version string, err error) {
@@ -210,10 +253,7 @@ func cursorRuntimeVersion() (string, error) {
 }
 
 func writeCursorBridge(path string) error {
-	if err := os.WriteFile(path, cursorBridgeSource, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return atomicWriteFile(path, cursorBridgeSource, 0o600)
 }
 
 func cursorSDKModels() ([]string, error) {
@@ -340,7 +380,7 @@ func startCursorBridge(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
+	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return err
 	}
