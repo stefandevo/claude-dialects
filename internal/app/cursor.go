@@ -104,9 +104,35 @@ func installCursorRuntime() error {
 	if err != nil {
 		return err
 	}
+	stopped := stopRunningCursorDialects()
 	fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", installed, nodePath)
+	if len(stopped) > 0 {
+		fmt.Printf("Stopped stale Cursor dialect runtime(s): %s\n", strings.Join(stopped, ", "))
+		fmt.Println("Launch the dialect again to use the updated bridge.")
+	}
 	fmt.Println("Set CURSOR_API_KEY, then create a dialect with --preset cursor-composer.")
 	return nil
+}
+
+func stopRunningCursorDialects() []string {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0)
+	for name, dialect := range cfg.Dialects {
+		if dialect.Bridge == "cursor" && dialectHealthy(dialect) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	stopped := make([]string, 0, len(names))
+	for _, name := range names {
+		if stopProxy(name) == nil {
+			stopped = append(stopped, name)
+		}
+	}
+	return stopped
 }
 
 func cursorStatus() error {
