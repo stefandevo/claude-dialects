@@ -1,4 +1,4 @@
-import { Activity, ArrowLeft, Braces, Cpu, Edit3, LoaderCircle, Network, Play, RefreshCw, Square, TerminalSquare } from 'lucide-react';
+import { Activity, ArrowLeft, Braces, Cpu, Edit3, KeyRound, LoaderCircle, Network, Play, RefreshCw, Square, TerminalSquare } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useDashboard } from '../AppContext';
@@ -94,6 +94,12 @@ export function DialectDetailPage() {
 
   const dialect = snapshot.dialect;
   const busy = Boolean(action);
+  const expectedAuth = dialect.authProviders?.length
+    ? dialect.authProviders
+    : dialect.authProvider
+      ? [dialect.authProvider]
+      : [];
+  const unauthenticated = new Set(dialect.unauthenticatedProviders ?? []);
   return (
     <div className="space-y-8">
       <PageHeader
@@ -116,6 +122,33 @@ export function DialectDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {expectedAuth.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2"><KeyRound className="size-4 text-primary" />Authentication</CardTitle>
+                    <CardDescription className="mt-2">{expectedAuth.length > 1 ? 'This dialect maps tiers across several providers — each needs its own OAuth login.' : 'OAuth login required before this dialect can start.'}</CardDescription>
+                  </div>
+                  <Badge variant={unauthenticated.size === 0 ? 'success' : 'warning'}>{unauthenticated.size === 0 ? 'Ready' : `${unauthenticated.size} to authenticate`}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {expectedAuth.map((provider) => {
+                  const pending = unauthenticated.has(provider);
+                  return (
+                    <div key={provider} className="flex items-center justify-between gap-4 rounded-md border p-3 text-sm">
+                      <span className="font-mono">{provider}</span>
+                      {pending
+                        ? <span className="flex flex-wrap items-center gap-2 text-muted-foreground"><Badge variant="warning">Needs auth</Badge><code className="text-xs">cc-dialect auth {dialect.name} {provider}</code></span>
+                        : <Badge variant="success">Authenticated</Badge>}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="size-4 text-primary" />Model mapping</CardTitle></CardHeader><CardContent><dl><DetailRow label="Primary" value={dialect.model} mono /><DetailRow label="Subagent" value={dialect.subagentModel} mono /><DetailRow label="Opus alias" value={dialect.opusModel} mono /><DetailRow label="Sonnet alias" value={dialect.sonnetModel} mono /><DetailRow label="Haiku alias" value={dialect.haikuModel} mono /></dl></CardContent></Card>

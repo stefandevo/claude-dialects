@@ -54,26 +54,30 @@ type DialectInput struct {
 }
 
 type DialectView struct {
-	Name          string         `json:"name"`
-	Preset        string         `json:"preset"`
-	Provider      string         `json:"provider"`
-	Model         string         `json:"model"`
-	SubagentModel string         `json:"subagentModel,omitempty"`
-	OpusModel     string         `json:"opusModel,omitempty"`
-	SonnetModel   string         `json:"sonnetModel,omitempty"`
-	HaikuModel    string         `json:"haikuModel,omitempty"`
-	Effort        bool           `json:"effort"`
-	EffortLevel   string         `json:"effortLevel,omitempty"`
-	Concurrency   int            `json:"concurrency"`
-	ToolSearch    bool           `json:"toolSearch"`
-	Port          int            `json:"port"`
-	BaseURL       string         `json:"baseUrl,omitempty"`
-	AuthTokenEnv  string         `json:"authTokenEnv,omitempty"`
-	AuthProvider  string         `json:"authProvider,omitempty"`
-	Bridge        string         `json:"bridge,omitempty"`
-	BridgePort    int            `json:"bridgePort,omitempty"`
-	ExtraEnvKeys  []string       `json:"extraEnvKeys,omitempty"`
-	Status        *RuntimeStatus `json:"status,omitempty"`
+	Name          string   `json:"name"`
+	Preset        string   `json:"preset"`
+	Provider      string   `json:"provider"`
+	Model         string   `json:"model"`
+	SubagentModel string   `json:"subagentModel,omitempty"`
+	OpusModel     string   `json:"opusModel,omitempty"`
+	SonnetModel   string   `json:"sonnetModel,omitempty"`
+	HaikuModel    string   `json:"haikuModel,omitempty"`
+	Effort        bool     `json:"effort"`
+	EffortLevel   string   `json:"effortLevel,omitempty"`
+	Concurrency   int      `json:"concurrency"`
+	ToolSearch    bool     `json:"toolSearch"`
+	Port          int      `json:"port"`
+	BaseURL       string   `json:"baseUrl,omitempty"`
+	AuthTokenEnv  string   `json:"authTokenEnv,omitempty"`
+	AuthProvider  string   `json:"authProvider,omitempty"`
+	AuthProviders []string `json:"authProviders,omitempty"`
+	// UnauthenticatedProviders lists expected OAuth providers still missing
+	// credentials, so the dashboard can prompt for the remaining logins.
+	UnauthenticatedProviders []string       `json:"unauthenticatedProviders,omitempty"`
+	Bridge                   string         `json:"bridge,omitempty"`
+	BridgePort               int            `json:"bridgePort,omitempty"`
+	ExtraEnvKeys             []string       `json:"extraEnvKeys,omitempty"`
+	Status                   *RuntimeStatus `json:"status,omitempty"`
 }
 
 type DialectMutationResult struct {
@@ -173,8 +177,18 @@ func safeDialectView(name string, dialect Dialect) DialectView {
 		Effort: dialect.Effort, EffortLevel: dialect.EffortLevel, Concurrency: dialect.Concurrency,
 		ToolSearch: dialect.ToolSearch, Port: dialect.Port, BaseURL: dialect.BaseURL,
 		AuthTokenEnv: dialect.AuthTokenEnv, AuthProvider: dialect.AuthProvider,
-		Bridge: dialect.Bridge, BridgePort: dialect.BridgePort, ExtraEnvKeys: extraEnvKeys,
+		AuthProviders: dialect.AuthProviders,
+		Bridge:        dialect.Bridge, BridgePort: dialect.BridgePort, ExtraEnvKeys: extraEnvKeys,
 	}
+}
+
+// installedDialectView builds a view for a configured dialect, adding the
+// on-disk authentication status that only makes sense for a real instance —
+// unlike safeDialectView, which is also reused to describe preset templates.
+func installedDialectView(name string, dialect Dialect) DialectView {
+	view := safeDialectView(name, dialect)
+	view.UnauthenticatedProviders = missingAuthProviders(name, dialect)
+	return view
 }
 
 func (service *appService) ListDialects(includeStatus bool) (DialectListResult, error) {
@@ -194,7 +208,7 @@ func (service *appService) ListDialects(includeStatus bool) (DialectListResult, 
 	result := DialectListResult{Dialects: make([]DialectView, len(names)), Revision: revision}
 	if !includeStatus {
 		for index, name := range names {
-			result.Dialects[index] = safeDialectView(name, cfg.Dialects[name])
+			result.Dialects[index] = installedDialectView(name, cfg.Dialects[name])
 		}
 		return result, nil
 	}
@@ -214,7 +228,7 @@ func (service *appService) ListDialects(includeStatus bool) (DialectListResult, 
 			for index := range jobs {
 				name := names[index]
 				dialect := cfg.Dialects[name]
-				view := safeDialectView(name, dialect)
+				view := installedDialectView(name, dialect)
 				status := service.runtimeStatus(name, dialect)
 				view.Status = &status
 				result.Dialects[index] = view
@@ -242,7 +256,7 @@ func (service *appService) Dialect(name string) (DialectView, string, error) {
 		return DialectView{}, "", operationError(ErrorNotFound, "dialect %q does not exist", name)
 	}
 	revision, err := configRevision(cfg)
-	return safeDialectView(name, dialect), revision, err
+	return installedDialectView(name, dialect), revision, err
 }
 
 func (service *appService) CreateDialect(input DialectInput, expectedRevision string) (DialectMutationResult, error) {

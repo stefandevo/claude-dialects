@@ -619,6 +619,121 @@ func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
 	}
 }
 
+func TestMixedFrontierPresetMapsTiersAcrossProviders(t *testing.T) {
+	mixed := presets["mixed-frontier"]
+	if mixed.Model != "claude-fable-5" || mixed.SubagentModel != "claude-fable-5" {
+		t.Fatalf("mixed-frontier main/subagent model = %q/%q, want claude-fable-5", mixed.Model, mixed.SubagentModel)
+	}
+	if mixed.OpusModel != "gpt-5.6-sol" || mixed.SonnetModel != "kimi-k3" || mixed.HaikuModel != "grok-4.5" {
+		t.Fatalf("mixed-frontier tier mapping = opus %q / sonnet %q / haiku %q, want Sol/Kimi/Grok: %#v",
+			mixed.OpusModel, mixed.SonnetModel, mixed.HaikuModel, mixed)
+	}
+	if mixed.AuthProvider != "" {
+		t.Fatalf("mixed-frontier must not pin a single auth provider, got %q", mixed.AuthProvider)
+	}
+	want := []string{"claude", "codex", "kimi", "xai"}
+	if strings.Join(mixed.AuthProviders, ",") != strings.Join(want, ",") {
+		t.Fatalf("mixed-frontier auth providers = %v, want %v", mixed.AuthProviders, want)
+	}
+}
+
+func TestProviderForMixedDialectReportsMixed(t *testing.T) {
+	mixed := presets["mixed-frontier"]
+	mixed.Preset = "mixed-frontier"
+	if got := providerForDialect(mixed); got != "mixed" {
+		t.Fatalf("providerForDialect(mixed-frontier) = %q, want mixed", got)
+	}
+	if got := presetForDialect(mixed); got != "mixed-frontier" {
+		t.Fatalf("presetForDialect(mixed-frontier) = %q, want mixed-frontier", got)
+	}
+}
+
+func TestExpectedAuthProvidersPrefersPluralThenSingle(t *testing.T) {
+	mixed := Dialect{AuthProviders: []string{"claude", "codex"}}
+	if got := expectedAuthProviders(mixed); strings.Join(got, ",") != "claude,codex" {
+		t.Fatalf("expectedAuthProviders(mixed) = %v, want [claude codex]", got)
+	}
+	single := Dialect{AuthProvider: "kimi"}
+	if got := expectedAuthProviders(single); strings.Join(got, ",") != "kimi" {
+		t.Fatalf("expectedAuthProviders(single) = %v, want [kimi]", got)
+	}
+	if got := expectedAuthProviders(Dialect{}); len(got) != 0 {
+		t.Fatalf("expectedAuthProviders(none) = %v, want empty", got)
+	}
+}
+
+func TestMissingAuthProvidersListsOnlyUncredentialedProviders(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	_, _, _, authDir, _, _, err := paths("cc-mixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dialect := Dialect{AuthProviders: []string{"claude", "codex", "kimi", "xai"}}
+	got := missingAuthProviders("cc-mixed", dialect)
+	if strings.Join(got, ",") != "claude,kimi,xai" {
+		t.Fatalf("missingAuthProviders = %v, want [claude kimi xai] (codex is authenticated)", got)
+	}
+}
+
+func TestCreateNextStepsForMixedDialectListsEachProvider(t *testing.T) {
+	mixed := presets["mixed-frontier"]
+	mixed.Preset = "mixed-frontier"
+	got := createNextSteps("cc-mixed", "cc-mixed", mixed)
+	want := []string{
+		"Authenticate: cc-dialect auth cc-mixed claude",
+		"Authenticate: cc-dialect auth cc-mixed codex",
+		"Authenticate: cc-dialect auth cc-mixed kimi",
+		"Authenticate: cc-dialect auth cc-mixed xai",
+		"Install the command: cc-dialect shim install cc-mixed",
+		"Run: cc-mixed",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps(mixed) =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestNotAuthenticatedErrorListsEveryMissingProvider(t *testing.T) {
+	single := notAuthenticatedError("cc-kimi", []string{"kimi"})
+	if single.Error() != "dialect \"cc-kimi\" is not authenticated; run: cc-dialect auth cc-kimi kimi" {
+		t.Fatalf("single-provider error = %q", single.Error())
+	}
+	multi := notAuthenticatedError("cc-mixed", []string{"claude", "codex", "xai"})
+	want := "dialect \"cc-mixed\" is missing authentication for claude, codex, xai; run:\n" +
+		"  cc-dialect auth cc-mixed claude\n" +
+		"  cc-dialect auth cc-mixed codex\n" +
+		"  cc-dialect auth cc-mixed xai"
+	if multi.Error() != want {
+		t.Fatalf("multi-provider error =\n%q\nwant\n%q", multi.Error(), want)
+	}
+}
+
+func TestAuthCommandRejectsProviderOutsideMixedSet(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	mixed := presets["mixed-frontier"]
+	mixed.Preset = "mixed-frontier"
+	mixed.Port = 43170
+	mixed.APIKey = "local-key"
+	cfg := defaultConfig()
+	cfg.Dialects["cc-mixed"] = mixed
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// antigravity is a valid OAuth provider but not part of the mixed set.
+	err := authCommand([]string{"cc-mixed", "antigravity"})
+	if err == nil {
+		t.Fatal("expected auth to reject a provider outside the dialect's mixed set")
+	}
+	if !strings.Contains(err.Error(), "claude, codex, kimi, xai") {
+		t.Fatalf("auth rejection error = %q, want it to list the expected providers", err.Error())
+	}
+}
+
 func TestHasProviderCredentialsMatchesCredentialType(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	_, _, _, authDir, _, _, err := paths("cc-codex")

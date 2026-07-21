@@ -29,6 +29,8 @@ export interface DialectView {
   baseUrl?: string;
   authTokenEnv?: string;
   authProvider?: string;
+  authProviders?: string[];
+  unauthenticatedProviders?: string[];
   bridge?: string;
   bridgePort?: number;
   extraEnvKeys?: string[];

@@ -18,13 +18,14 @@ export function OverviewPage() {
   if (error) return <ErrorState message={error} onRetry={() => void refresh().catch((caught) => reportError(caught))} />;
 
   const running = dialects.filter((dialect) => dialect.status?.state === 'running').length;
-  const attention = dialects.filter((dialect) => dialect.status?.state === 'degraded').length;
+  const needsAuth = (dialect: typeof dialects[number]) => (dialect.unauthenticatedProviders?.length ?? 0) > 0;
+  const attention = dialects.filter((dialect) => dialect.status?.state === 'degraded' || needsAuth(dialect)).length;
   const cursorReady = Boolean(cursor?.runtimeCurrent && cursor.apiKeySet && !cursor.nodeError);
 
   const stats = [
     { label: 'Configured dialects', value: dialects.length, detail: pluralize(running, 'currently running'), icon: RadioTower },
     { label: 'Active runtimes', value: running, detail: running === dialects.length && dialects.length > 0 ? 'All configured dialects' : 'Healthy proxy and bridge', icon: CirclePlay },
-    { label: 'Needs attention', value: attention, detail: attention ? 'Degraded runtime state' : 'No degraded runtimes', icon: AlertTriangle },
+    { label: 'Needs attention', value: attention, detail: attention ? 'Degraded or awaiting authentication' : 'Authenticated and healthy', icon: AlertTriangle },
     { label: 'Native launchers', value: launchers.length, detail: launchers.every((launcher) => launcher.verified) ? 'All tracked files verified' : 'Verification issue detected', icon: Command },
   ];
 
@@ -74,7 +75,7 @@ export function OverviewPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
-                      <div className="flex flex-wrap gap-2"><Badge variant="outline">Port {dialect.port}</Badge>{dialect.bridge && <Badge variant="outline">{dialect.bridge}</Badge>}</div>
+                      <div className="flex flex-wrap gap-2"><Badge variant="outline">Port {dialect.port}</Badge>{dialect.bridge && <Badge variant="outline">{dialect.bridge}</Badge>}{needsAuth(dialect) && <Badge variant="warning">Needs auth: {dialect.unauthenticatedProviders!.join(', ')}</Badge>}</div>
                       <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                     </CardContent>
                   </Card>

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -163,9 +164,11 @@ func createDialect(args []string) error {
 			return loadErr
 		}
 		stored := cfg.Dialects[name]
-		if step := missingAuthenticationStep(name, stored); step != "" {
+		if steps := missingAuthenticationSteps(name, stored); len(steps) > 0 {
 			fmt.Println("Next:")
-			fmt.Println("  1.", step)
+			for index, step := range steps {
+				fmt.Printf("  %d. %s\n", index+1, step)
+			}
 		}
 		return nil
 	}
@@ -202,9 +205,7 @@ func createNextSteps(name, shimName string, dialect Dialect) []string {
 			"Authenticate with GitHub Copilot: cc-dialect copilot login",
 		)
 	}
-	if step := authenticationStep(name, dialect); step != "" {
-		steps = append(steps, step)
-	}
+	steps = append(steps, authenticationSteps(name, dialect)...)
 	shim := fmt.Sprintf("Install the command: cc-dialect shim install %s", name)
 	if shimName != preferredShimName(name) {
 		shim += " --name " + shimName
@@ -213,24 +214,50 @@ func createNextSteps(name, shimName string, dialect Dialect) []string {
 	return steps
 }
 
-func authenticationStep(name string, dialect Dialect) string {
-	if dialect.AuthProvider != "" {
-		return fmt.Sprintf("Authenticate: cc-dialect auth %s %s", name, dialect.AuthProvider)
+// authenticationSteps lists the login steps a freshly created dialect needs:
+// one `cc-dialect auth` line per expected OAuth provider (several for a mixed
+// dialect), or a token export for an upstream API-key route.
+func authenticationSteps(name string, dialect Dialect) []string {
+	if providers := expectedAuthProviders(dialect); len(providers) > 0 {
+		steps := make([]string, len(providers))
+		for index, provider := range providers {
+			steps[index] = fmt.Sprintf("Authenticate: cc-dialect auth %s %s", name, provider)
+		}
+		return steps
 	}
 	if dialect.AuthTokenEnv != "" {
-		return fmt.Sprintf("Set the provider token: export %s=your_token", dialect.AuthTokenEnv)
+		return []string{fmt.Sprintf("Set the provider token: export %s=your_token", dialect.AuthTokenEnv)}
 	}
-	return ""
+	return nil
 }
 
-func missingAuthenticationStep(name string, dialect Dialect) string {
-	if dialect.AuthProvider != "" && !hasProviderCredentials(name, dialect.AuthProvider) {
-		return authenticationStep(name, dialect)
+// notAuthenticatedError reports the OAuth logins a dialect still needs. A single
+// missing provider keeps the original one-line message; a mixed dialect lists an
+// explicit `cc-dialect auth` command per missing provider so the fix is copyable.
+func notAuthenticatedError(name string, missing []string) error {
+	if len(missing) == 1 {
+		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", name, name, missing[0])
 	}
-	if dialect.AuthTokenEnv != "" && os.Getenv(dialect.AuthTokenEnv) == "" {
-		return authenticationStep(name, dialect)
+	var b strings.Builder
+	fmt.Fprintf(&b, "dialect %q is missing authentication for %s; run:", name, strings.Join(missing, ", "))
+	for _, provider := range missing {
+		fmt.Fprintf(&b, "\n  cc-dialect auth %s %s", name, provider)
 	}
-	return ""
+	return errors.New(b.String())
+}
+
+// missingAuthenticationSteps lists only the login steps still outstanding for an
+// existing dialect: an entry per unauthenticated OAuth provider, plus a token
+// export when the upstream API-key variable is unset.
+func missingAuthenticationSteps(name string, dialect Dialect) []string {
+	var steps []string
+	for _, provider := range missingAuthProviders(name, dialect) {
+		steps = append(steps, fmt.Sprintf("Authenticate: cc-dialect auth %s %s", name, provider))
+	}
+	if len(expectedAuthProviders(dialect)) == 0 && dialect.AuthTokenEnv != "" && os.Getenv(dialect.AuthTokenEnv) == "" {
+		steps = append(steps, fmt.Sprintf("Set the provider token: export %s=your_token", dialect.AuthTokenEnv))
+	}
+	return steps
 }
 
 func listDialects() error {
@@ -375,8 +402,8 @@ func listModels(args []string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", args[0])
 	}
-	if dialect.AuthProvider != "" && !hasProviderCredentials(args[0], dialect.AuthProvider) {
-		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", args[0], args[0], dialect.AuthProvider)
+	if missing := missingAuthProviders(args[0], dialect); len(missing) > 0 {
+		return notAuthenticatedError(args[0], missing)
 	}
 	if _, err = newAppService().StartDialect(args[0]); err != nil {
 		return err
@@ -423,8 +450,8 @@ func runDialect(args []string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", name)
 	}
-	if d.AuthProvider != "" && !hasProviderCredentials(name, d.AuthProvider) {
-		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", name, name, d.AuthProvider)
+	if missing := missingAuthProviders(name, d); len(missing) > 0 {
+		return notAuthenticatedError(name, missing)
 	}
 	claudeDir, err := ensureClaudeConfigDir(name)
 	if err != nil {
@@ -526,7 +553,12 @@ func authCommand(args []string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", args[0])
 	}
-	if dialect.AuthProvider != "" && dialect.AuthProvider != args[1] {
+	if len(dialect.AuthProviders) > 0 {
+		if !slices.Contains(dialect.AuthProviders, args[1]) {
+			return fmt.Errorf("dialect %q expects OAuth for %s; %s is not one of them",
+				args[0], strings.Join(dialect.AuthProviders, ", "), args[1])
+		}
+	} else if dialect.AuthProvider != "" && dialect.AuthProvider != args[1] {
 		return fmt.Errorf("dialect %q requires %s authentication, not %s", args[0], dialect.AuthProvider, args[1])
 	}
 	fs := flag.NewFlagSet("auth", flag.ContinueOnError)
@@ -835,8 +867,8 @@ func doctor() error {
 	sort.Strings(names)
 	for _, name := range names {
 		dialect := cfg.Dialects[name]
-		if dialect.AuthProvider != "" && !hasProviderCredentials(name, dialect.AuthProvider) {
-			fmt.Printf("✗ %s is not authenticated (run: cc-dialect auth %s %s)\n", name, name, dialect.AuthProvider)
+		for _, provider := range missingAuthProviders(name, dialect) {
+			fmt.Printf("✗ %s is not authenticated for %s (run: cc-dialect auth %s %s)\n", name, provider, name, provider)
 		}
 		if dialectHealthy(dialect) {
 			if dialect.Bridge != "" {

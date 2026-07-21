@@ -61,6 +61,7 @@
       <div class="doc-sidebar__title">Providers</div>
       <nav id="doc-toc">
         <a href="#overview">Overview</a>
+        <a href="#mixed">Mixed / multi-provider</a>
         <a href="#codex">OpenAI Codex</a>
         <a href="#glm">Z.ai GLM</a>
         <a href="#kimi">Moonshot Kimi</a>
@@ -99,8 +100,52 @@
               <tr><td><a href="#cursor">Cursor</a></td><td><code>cursor-composer</code>, etc.</td><td>Cursor API key</td><td><code>cc-cursor</code></td></tr>
               <tr><td><a href="#copilot">GitHub Copilot</a></td><td><code>copilot-auto</code>, etc.</td><td>Copilot login</td><td><code>cc-copilot</code></td></tr>
               <tr><td><a href="#claude">Anthropic Claude</a></td><td><code>claude</code></td><td>Anthropic OAuth</td><td><code>cc-claude</code></td></tr>
+              <tr><td><a href="#mixed">Mixed / multi-provider</a></td><td><code>mixed-frontier</code></td><td>Several OAuth logins</td><td><code>cc-mixed</code></td></tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section id="mixed" class="doc-section reveal">
+        <h2>Mixed / multi-provider dialects</h2>
+        <p>Claude Code pins every subagent to a model tier — <code>opus</code>, <code>sonnet</code>, or <code>haiku</code> — and each tier maps to a model ID. Because one dialect can hold OAuth credentials for several providers at once, you can point each tier at a <strong>different</strong> provider. The result is a single Claude Code session whose agents run on different providers: the main agent on one model, opus-tier subagents on another, sonnet-tier on a third — all in the same conversation.</p>
+        <p>The <code>mixed-frontier</code> preset runs Claude Fable 5 as the main model and spreads the tiers across OpenAI, Moonshot, and xAI:</p>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Tier / role</th>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>OAuth login</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Main + subagent</td><td><code>claude-fable-5</code></td><td>Anthropic</td><td><code>cc-dialect auth cc-mixed claude</code></td></tr>
+              <tr><td><code>/model opus</code></td><td><code>gpt-5.6-sol</code></td><td>OpenAI Codex</td><td><code>cc-dialect auth cc-mixed codex</code></td></tr>
+              <tr><td><code>/model sonnet</code></td><td><code>kimi-k3</code></td><td>Moonshot Kimi</td><td><code>cc-dialect auth cc-mixed kimi</code></td></tr>
+              <tr><td><code>/model haiku</code></td><td><code>grok-4.5</code></td><td>xAI Grok</td><td><code>cc-dialect auth cc-mixed xai</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Because the tiers span providers, authenticate each one into the <strong>same</strong> dialect — one command per provider:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Multi-provider dialect</span>
+            <button class="copy-btn" data-copy="mixed">Copy</button>
+          </div>
+          <pre><code id="code-mixed">cc-dialect create cc-mixed --preset mixed-frontier
+cc-dialect auth cc-mixed claude
+cc-dialect auth cc-mixed codex
+cc-dialect auth cc-mixed kimi
+cc-dialect auth cc-mixed xai
+cc-dialect shim install cc-mixed
+cc-mixed</code></pre>
+        </div>
+        <p><code>cc-dialect create</code> and <code>cc-dialect doctor</code> report which providers still need a login, and <code>cc-mixed</code> refuses to start until every tier's provider is authenticated — it never silently serves a partial set. The web dashboard shows a per-provider authentication status for the dialect. Override any tier with <code>--opus-model</code>, <code>--sonnet-model</code>, or <code>--haiku-model</code> to build your own mix. Mixing is currently limited to the five OAuth providers; model IDs are current defaults and roll over as providers ship new versions.</p>
+        <div class="callout callout--important">
+          <div class="callout__title">Provider terms still apply</div>
+          <p>Mixing providers in one session runs each request against that provider's own subscription and usage terms. Claude Dialects is an independent, unofficial project and is not affiliated with or endorsed by any provider.</p>
         </div>
       </section>
 

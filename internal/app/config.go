@@ -47,6 +47,7 @@ type Dialect struct {
 	BaseURL       string            `json:"baseUrl,omitempty"`
 	AuthTokenEnv  string            `json:"authTokenEnv,omitempty"`
 	AuthProvider  string            `json:"authProvider,omitempty"`
+	AuthProviders []string          `json:"authProviders,omitempty"`
 	Bridge        string            `json:"bridge,omitempty"`
 	BridgePort    int               `json:"bridgePort,omitempty"`
 	ExtraEnv      map[string]string `json:"extraEnv,omitempty"`
@@ -82,6 +83,12 @@ var presets = map[string]Dialect{
 		OpusModel: "claude-fable-5", SonnetModel: "claude-sonnet-4-6", HaikuModel: "claude-haiku-4-5",
 		AuthProvider: "claude",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
+	"mixed-frontier": {
+		Model: "claude-fable-5", SubagentModel: "claude-fable-5",
+		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.5",
+		AuthProviders: []string{"claude", "codex", "kimi", "xai"},
+		Effort:        true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"glm": {
 		Model: "glm-5.2", SubagentModel: "glm-5.2",
@@ -571,7 +578,26 @@ func presetForDialect(dialect Dialect) string {
 	}
 }
 
+// expectedAuthProviders returns the OAuth providers a dialect expects
+// credentials for. Mixed dialects list several via AuthProviders; single
+// provider dialects fall back to AuthProvider; upstream/bridge dialects have
+// none.
+func expectedAuthProviders(dialect Dialect) []string {
+	if len(dialect.AuthProviders) > 0 {
+		providers := make([]string, len(dialect.AuthProviders))
+		copy(providers, dialect.AuthProviders)
+		return providers
+	}
+	if dialect.AuthProvider != "" {
+		return []string{dialect.AuthProvider}
+	}
+	return nil
+}
+
 func providerForDialect(dialect Dialect) string {
+	if len(dialect.AuthProviders) > 0 {
+		return "mixed"
+	}
 	switch presetForDialect(dialect) {
 	case "codex", "codex-sol":
 		return "codex"
