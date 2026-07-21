@@ -29,7 +29,7 @@ export function ConfirmDeleteDialog({ name, noun, busy, onConfirm }: ConfirmDele
         </Button>
       </AlertDialog.Trigger>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/45 backdrop-blur-sm" />
+        <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/45 backdrop-blur-xs" />
         <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-2xl">
           <AlertDialog.Title className="text-lg font-semibold">Delete {name}?</AlertDialog.Title>
           <AlertDialog.Description className="mt-2 text-sm leading-relaxed text-muted-foreground">

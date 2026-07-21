@@ -185,7 +185,7 @@ export function DialectFormPage() {
             <CardHeader><CardTitle>Identity and preset</CardTitle><CardDescription>The name identifies this configuration. Launch it with <code className="font-mono">cc-dialect run &lt;name&gt;</code>, or install an optional shim later.</CardDescription></CardHeader>
             <CardContent className="grid gap-5 md:grid-cols-2">
               <div className="grid gap-2"><Label htmlFor="name">Dialect name</Label><Input id="name" value={input.name} disabled={editing} autoComplete="off" placeholder="my-dialect" onChange={(event) => update('name', event.target.value)} aria-describedby="name-hint" /><p id="name-hint" className="text-xs text-muted-foreground">Lowercase letters, numbers, <code>-</code>, and <code>_</code>.</p></div>
-              <div className="grid gap-2"><Label htmlFor="preset">Provider preset</Label><select id="preset" className="h-10 rounded-md border border-input bg-background/80 px-3 text-sm shadow-sm" value={input.preset} onChange={(event) => choosePreset(event.target.value)}><option value="">Custom configuration</option>{presets.map((preset) => <option key={preset.name} value={preset.name}>{preset.name} · {preset.provider}</option>)}</select><p className="text-xs text-muted-foreground">Preset values remain editable below.</p></div>
+              <div className="grid gap-2"><Label htmlFor="preset">Provider preset</Label><select id="preset" className="h-10 rounded-md border border-input bg-background/80 px-3 text-sm shadow-xs" value={input.preset} onChange={(event) => choosePreset(event.target.value)}><option value="">Custom configuration</option>{presets.map((preset) => <option key={preset.name} value={preset.name}>{preset.name} · {preset.provider}</option>)}</select><p className="text-xs text-muted-foreground">Preset values remain editable below.</p></div>
             </CardContent>
           </Card>
 
@@ -205,7 +205,7 @@ export function DialectFormPage() {
             <CardContent className="grid gap-5 md:grid-cols-2">
               <div className="grid gap-2 md:col-span-2"><Label htmlFor="base-url">Base URL</Label><Input id="base-url" type="url" value={input.baseUrl} onChange={(event) => update('baseUrl', event.target.value)} placeholder="https://api.example.com/v1" /></div>
               <div className="grid gap-2"><Label htmlFor="auth-token-env">Token environment variable</Label><Input id="auth-token-env" className="font-mono" value={input.authTokenEnv} onChange={(event) => update('authTokenEnv', event.target.value)} placeholder="PROVIDER_API_KEY" /></div>
-              <div className="grid gap-2"><Label htmlFor="effort-level">Effort level</Label><select id="effort-level" className="h-10 rounded-md border border-input bg-background/80 px-3 text-sm shadow-sm" value={input.effortLevel} onChange={(event) => update('effortLevel', event.target.value)}>{['auto', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => <option key={level} value={level}>{level}</option>)}</select></div>
+              <div className="grid gap-2"><Label htmlFor="effort-level">Effort level</Label><select id="effort-level" className="h-10 rounded-md border border-input bg-background/80 px-3 text-sm shadow-xs" value={input.effortLevel} onChange={(event) => update('effortLevel', event.target.value)}>{['auto', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => <option key={level} value={level}>{level}</option>)}</select></div>
             </CardContent>
           </Card>
 
