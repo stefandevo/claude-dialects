@@ -15,6 +15,11 @@ const workspace = path.resolve(options.workspace || process.cwd());
 let modelCatalogCache;
 let modelCatalogExpiresAt = 0;
 
+// Module-private marker for errors this bridge creates for the client. A Symbol
+// can never be forged by a third-party SDK/HTTP error (unlike the public
+// `expose` convention), so only our own readJSON errors expose their message.
+const CLIENT_SAFE = Symbol("clientSafe");
+
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("--port must be a valid TCP port");
 }
@@ -58,11 +63,12 @@ const server = http.createServer(async (request, response) => {
   } catch (error) {
     if (!response.headersSent) {
       // Only errors this bridge creates for the client (400/413 from readJSON)
-      // are marked `expose` and may return their message. Everything else —
-      // including SDK/API failures that happen to carry a numeric status — is
-      // unexpected: log it server-side and return a generic message so internal
-      // detail (SDK internals, stack traces) never reaches the client.
-      const expose = error?.expose === true;
+      // carry the CLIENT_SAFE marker and may return their message. Everything
+      // else — including SDK/API failures that happen to carry a numeric status
+      // or a public `expose` flag — is unexpected: log it server-side and return
+      // a generic message so internal detail (SDK internals, stack traces)
+      // never reaches the client.
+      const expose = error?.[CLIENT_SAFE] === true;
       if (!expose) {
         process.stderr.write(
           `cursor bridge error: ${
@@ -498,7 +504,7 @@ function readJSON(request) {
       if (raw.length > 16 * 1024 * 1024) {
         const error = new Error("Request body is too large");
         error.status = 413;
-        error.expose = true;
+        error[CLIENT_SAFE] = true;
         reject(error);
         request.destroy();
       }
@@ -509,7 +515,7 @@ function readJSON(request) {
       } catch {
         const error = new Error("Invalid JSON request");
         error.status = 400;
-        error.expose = true;
+        error[CLIENT_SAFE] = true;
         reject(error);
       }
     });
