@@ -350,6 +350,48 @@ func TestRestartStopsThenStartsLatestConfiguration(t *testing.T) {
 	}
 }
 
+func TestStartDialectBlocksPartiallyAuthenticatedMixedDialect(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	dialect := presets["mixed-frontier"]
+	dialect.Preset = "mixed-frontier"
+	dialect.Port = 43170
+	dialect.APIKey = "key"
+	cfg := defaultConfig()
+	cfg.Dialects["cc-mixed"] = dialect
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Authenticate only one of the four providers the mapping requires.
+	_, _, _, authDir, _, _, err := paths("cc-mixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	started := false
+	service.startRuntime = func(string, Dialect) error {
+		started = true
+		return nil
+	}
+	_, err = service.StartDialect("cc-mixed")
+	if err == nil {
+		t.Fatal("StartDialect should refuse a partially authenticated mixed dialect")
+	}
+	for _, provider := range []string{"claude", "kimi", "xai"} {
+		if !strings.Contains(err.Error(), provider) {
+			t.Fatalf("error should list missing provider %q, got %q", provider, err.Error())
+		}
+	}
+	if started {
+		t.Fatal("runtime must not start while providers are unauthenticated")
+	}
+}
+
 func TestRuntimeStatusReportsDegradedComponents(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	cfg := defaultConfig()

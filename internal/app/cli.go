@@ -553,13 +553,9 @@ func authCommand(args []string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", args[0])
 	}
-	if len(dialect.AuthProviders) > 0 {
-		if !slices.Contains(dialect.AuthProviders, args[1]) {
-			return fmt.Errorf("dialect %q expects OAuth for %s; %s is not one of them",
-				args[0], strings.Join(dialect.AuthProviders, ", "), args[1])
-		}
-	} else if dialect.AuthProvider != "" && dialect.AuthProvider != args[1] {
-		return fmt.Errorf("dialect %q requires %s authentication, not %s", args[0], dialect.AuthProvider, args[1])
+	if expected := expectedAuthProviders(dialect); len(expected) > 0 && !slices.Contains(expected, args[1]) {
+		return fmt.Errorf("dialect %q expects OAuth for %s; %s is not one of them",
+			args[0], strings.Join(expected, ", "), args[1])
 	}
 	fs := flag.NewFlagSet("auth", flag.ContinueOnError)
 	noBrowser := fs.Bool("no-browser", false, "do not open a browser")

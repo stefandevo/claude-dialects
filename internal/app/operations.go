@@ -177,7 +177,7 @@ func safeDialectView(name string, dialect Dialect) DialectView {
 		Effort: dialect.Effort, EffortLevel: dialect.EffortLevel, Concurrency: dialect.Concurrency,
 		ToolSearch: dialect.ToolSearch, Port: dialect.Port, BaseURL: dialect.BaseURL,
 		AuthTokenEnv: dialect.AuthTokenEnv, AuthProvider: dialect.AuthProvider,
-		AuthProviders: dialect.AuthProviders,
+		AuthProviders: expectedAuthProviders(dialect),
 		Bridge:        dialect.Bridge, BridgePort: dialect.BridgePort, ExtraEnvKeys: extraEnvKeys,
 	}
 }
@@ -531,6 +531,9 @@ func (service *appService) RemoveDialect(name, expectedRevision string) error {
 func (service *appService) StartDialect(name string) (RuntimeStatus, error) {
 	var status RuntimeStatus
 	err := service.withDialectMutation(name, func(dialect Dialect) error {
+		if missing := missingAuthProviders(name, dialect); len(missing) > 0 {
+			return notAuthenticatedError(name, missing)
+		}
 		if err := service.startRuntime(name, dialect); err != nil {
 			return err
 		}
@@ -555,6 +558,9 @@ func (service *appService) StopDialect(name string) (RuntimeStatus, error) {
 func (service *appService) RestartDialect(name string) (RuntimeStatus, error) {
 	var status RuntimeStatus
 	err := service.withDialectMutation(name, func(dialect Dialect) error {
+		if missing := missingAuthProviders(name, dialect); len(missing) > 0 {
+			return notAuthenticatedError(name, missing)
+		}
 		if err := service.stopRuntime(name, dialect); err != nil {
 			return err
 		}

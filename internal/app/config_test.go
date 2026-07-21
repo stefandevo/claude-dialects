@@ -632,8 +632,8 @@ func TestMixedFrontierPresetMapsTiersAcrossProviders(t *testing.T) {
 		t.Fatalf("mixed-frontier must not pin a single auth provider, got %q", mixed.AuthProvider)
 	}
 	want := []string{"claude", "codex", "kimi", "xai"}
-	if strings.Join(mixed.AuthProviders, ",") != strings.Join(want, ",") {
-		t.Fatalf("mixed-frontier auth providers = %v, want %v", mixed.AuthProviders, want)
+	if got := expectedAuthProviders(mixed); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("mixed-frontier expected auth providers = %v, want %v", got, want)
 	}
 }
 
@@ -648,17 +648,25 @@ func TestProviderForMixedDialectReportsMixed(t *testing.T) {
 	}
 }
 
-func TestExpectedAuthProvidersPrefersPluralThenSingle(t *testing.T) {
-	mixed := Dialect{AuthProviders: []string{"claude", "codex"}}
-	if got := expectedAuthProviders(mixed); strings.Join(got, ",") != "claude,codex" {
-		t.Fatalf("expectedAuthProviders(mixed) = %v, want [claude codex]", got)
-	}
-	single := Dialect{AuthProvider: "kimi"}
+func TestExpectedAuthProvidersDerivesFromModelMapping(t *testing.T) {
+	single := Dialect{Model: "kimi-k3", SubagentModel: "kimi-k3", OpusModel: "kimi-k3", SonnetModel: "kimi-k2.7-code-highspeed", HaikuModel: "kimi-k2.6"}
 	if got := expectedAuthProviders(single); strings.Join(got, ",") != "kimi" {
-		t.Fatalf("expectedAuthProviders(single) = %v, want [kimi]", got)
+		t.Fatalf("expectedAuthProviders(single kimi) = %v, want [kimi]", got)
 	}
-	if got := expectedAuthProviders(Dialect{}); len(got) != 0 {
-		t.Fatalf("expectedAuthProviders(none) = %v, want empty", got)
+	// Overriding a tier onto a different provider must add that provider (the
+	// original stale-list bug: an override to Gemini needs antigravity).
+	overridden := Dialect{Model: "claude-fable-5", SubagentModel: "claude-fable-5", OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "gemini-pro-agent"}
+	if got := expectedAuthProviders(overridden); strings.Join(got, ",") != "claude,codex,kimi,antigravity" {
+		t.Fatalf("expectedAuthProviders(overridden haiku→gemini) = %v, want [claude codex kimi antigravity]", got)
+	}
+	// Bridge and upstream API-key routes carry their own credentials.
+	bridge := Dialect{Model: "gpt-5.3-codex", OpusModel: "gpt-5.3-codex", Bridge: "copilot"}
+	if got := expectedAuthProviders(bridge); len(got) != 0 {
+		t.Fatalf("expectedAuthProviders(copilot bridge) = %v, want empty", got)
+	}
+	upstream := Dialect{Model: "glm-5.2", OpusModel: "glm-5.2", BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY"}
+	if got := expectedAuthProviders(upstream); len(got) != 0 {
+		t.Fatalf("expectedAuthProviders(glm upstream) = %v, want empty", got)
 	}
 }
 
@@ -674,8 +682,7 @@ func TestMissingAuthProvidersListsOnlyUncredentialedProviders(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dialect := Dialect{AuthProviders: []string{"claude", "codex", "kimi", "xai"}}
-	got := missingAuthProviders("cc-mixed", dialect)
+	got := missingAuthProviders("cc-mixed", presets["mixed-frontier"])
 	if strings.Join(got, ",") != "claude,kimi,xai" {
 		t.Fatalf("missingAuthProviders = %v, want [claude kimi xai] (codex is authenticated)", got)
 	}
