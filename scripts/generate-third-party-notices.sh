@@ -9,7 +9,7 @@ trap 'rm -f "$temp" "$clean"' EXIT
 
 {
   printf '# Third-party notices\n\n'
-  printf 'This file is generated from the modules compiled into Claude Dialects.\n'
+  printf 'This file is generated from the Go modules compiled into Claude Dialects and the npm packages bundled into its embedded dashboard.\n'
   printf "Run \`./scripts/generate-third-party-notices.sh\` after dependency changes.\n"
 } > "$temp"
 
@@ -42,6 +42,8 @@ go list -deps -f '{{with .Module}}{{if ne .Path "github.com/stefandevo/claude-di
         } >> "$temp"
       done
   done
+
+node "$root/scripts/generate-frontend-notices.mjs" >> "$temp"
 
 sed 's/[[:space:]]*$//' "$temp" > "$clean"
 mv "$clean" "$output"

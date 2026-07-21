@@ -66,6 +66,7 @@
         <a href="#workflow">Four-step workflow</a>
         <a href="#naming">Naming convention</a>
         <a href="#multi">Multiple dialects</a>
+        <a href="#dashboard">Web dashboard</a>
         <a href="#next">Next steps</a>
       </nav>
     </aside>
@@ -80,6 +81,7 @@
           <li><strong>Claude Code</strong> — available as <code>claude</code> on your PATH</li>
           <li><strong>Node.js 22.13+ and npm</strong> (optional) — required only for Cursor and GitHub Copilot SDK dialects</li>
         </ul>
+        <p>The dashboard frontend is embedded in the executable. Running it, <code>make build</code>, and <code>make install</code> do not require Node.js; contributors need a package-compatible Node.js release when rebuilding dashboard source.</p>
         <div class="callout callout--important">
           <div class="callout__title">⚠ Independent project</div>
           <p>
@@ -133,7 +135,7 @@ cc-dialect auth cc-codex codex
 cc-dialect shim install cc-codex
 cc-codex</code></pre>
         </div>
-        <p>The <code>create</code> command prints the remaining required steps in the correct order. OAuth dialects will not launch or list models before authentication — if you skip auth, the error includes the exact command to run.</p>
+        <p>For preset-based routes, <code>create</code> prints the remaining setup steps in the correct order. An arbitrary custom model ID cannot determine its provider automatically, so you must supply and follow the appropriate authentication or token route yourself. OAuth dialects will not launch or list models before authentication — if you skip auth, the error includes the exact command to run.</p>
         <p>Inside Claude Code you can switch models and effort live:</p>
         <div class="code-block">
           <pre><code>/model opus    # → gpt-5.6-sol
@@ -152,7 +154,7 @@ cc-codex</code></pre>
             <div class="step__body">
               <h3>Create isolated configuration</h3>
               <p><code>cc-dialect create cc-name --preset preset-name</code></p>
-              <p>Allocates a localhost port, sets up the embedded proxy config, and creates a private Claude Code config directory.</p>
+              <p>Records the dialect configuration and reserves checked proxy and bridge ports. It does not start the runtime yet.</p>
             </div>
           </div>
           <div class="step">
@@ -160,7 +162,7 @@ cc-codex</code></pre>
             <div class="step__body">
               <h3>Authenticate with the provider</h3>
               <p><code>cc-dialect auth cc-name provider</code> or export an API key env var.</p>
-              <p>OAuth credentials and API keys stay scoped to this dialect — never written to global settings.</p>
+              <p>Provider authentication or the first proxy start creates the per-instance <code>proxy.yaml</code>. Embedded OAuth files are per dialect; Cursor or Copilot may instead use shared environment or system credentials. Local proxy keys and runtime state remain isolated.</p>
             </div>
           </div>
           <div class="step">
@@ -176,7 +178,7 @@ cc-codex</code></pre>
             <div class="step__body">
               <h3>Run from any directory</h3>
               <p><code>cc-name</code></p>
-              <p>The embedded proxy starts automatically. Pass Claude Code arguments normally: <code>cc-codex --permission-mode plan</code></p>
+              <p>The first run creates the private <code>claude/</code> directory and starts the embedded proxy automatically. The proxy remains available for later sessions until explicitly stopped. Pass Claude Code arguments normally: <code>cc-codex --permission-mode plan</code></p>
             </div>
           </div>
         </div>
@@ -212,7 +214,7 @@ cc-codex</code></pre>
 
       <section id="multi" class="doc-section reveal">
         <h2>Run several dialects</h2>
-        <p>Each dialect gets a checked, high-numbered localhost port, private credentials, and its own Claude Code state. Create as many as you need:</p>
+        <p>Each dialect gets checked high-numbered localhost ports, a private local proxy key and runtime state, and its own Claude Code state. Provider credentials remain route-dependent. Create as many as you need:</p>
         <div class="code-block">
           <div class="code-block__header">
             <span>Parallel dialects</span>
@@ -226,11 +228,31 @@ cc-dialect create cc-kimi-work --preset kimi
 cc-dialect auth cc-kimi-work kimi
 cc-dialect shim install cc-kimi-work
 
-# Each gets its own port, credentials, and history
+# Each gets its own port, local proxy state, and history
 cc-codex-work    # embedded proxy :43170
 cc-kimi-work     # embedded proxy :43171</code></pre>
         </div>
         <p>Ports are actively checked and allocated per dialect starting at <code>:43170</code>. A port already bound by any process is skipped during creation and rejected again at startup.</p>
+      </section>
+
+      <section id="dashboard" class="doc-section reveal">
+        <h2>Open the web dashboard</h2>
+        <p>Manage configured dialects from the bundled localhost dashboard:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Launch the local dashboard</span>
+            <button class="copy-btn" data-copy="dashboard">Copy</button>
+          </div>
+          <pre><code id="code-dashboard">cc-dialect web
+
+# Print the URL without opening a browser
+cc-dialect web --no-browser
+
+# Use a fixed numeric loopback address
+cc-dialect web --listen 127.0.0.1:8765</code></pre>
+        </div>
+        <p>The default is an available ephemeral port on <code>127.0.0.1</code>. The command stays in the foreground; press Ctrl-C to stop it. Numeric loopback addresses are required — <code>localhost</code>, wildcard addresses, remote access, and reverse proxies are not supported.</p>
+        <p>The dashboard can inspect safe configuration views, create and update dialects, start or stop runtimes, manage tracked native launchers, and install or refresh the Cursor runtime. OAuth login, Copilot setup, logs, shims, and launching Claude Code sessions remain CLI workflows.</p>
       </section>
 
       <section id="next" class="doc-section reveal">

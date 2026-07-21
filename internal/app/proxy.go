@@ -175,7 +175,7 @@ func startProxy(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
+	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return err
 	}
@@ -192,40 +192,60 @@ func startProxy(name string, dialect Dialect) error {
 }
 
 func stopProxy(name string) error {
-	cfg, cfgErr := loadConfig()
-	var dialect Dialect
-	var exists bool
-	if cfgErr == nil {
-		dialect, exists = cfg.Dialects[name]
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
 	}
-	if exists {
-		defer func() {
-			_ = stopManagedBridge(name, dialect)
-		}()
-	}
-	pid := proxyPID(name)
-	if pid == 0 {
-		return nil
-	}
-	if cfgErr != nil || !exists || !proxyHealthy(dialect) {
-		// A stale PID can refer to an unrelated process after reboot or PID reuse.
-		// Only signal a process that answers with this dialect's private API key.
+	dialect, exists := cfg.Dialects[name]
+	if !exists {
+		// Without the private key there is no safe way to prove PID ownership.
 		_, _, _, _, pidPath, _, _ := paths(name)
 		_ = os.Remove(pidPath)
 		return nil
 	}
+	return stopProxyDialect(name, dialect)
+}
+
+func stopProxyDialect(name string, dialect Dialect) (err error) {
+	defer func() {
+		err = errors.Join(err, stopManagedBridge(name, dialect))
+	}()
+	pid := proxyPID(name)
+	if pid == 0 {
+		return nil
+	}
+	_, _, _, _, pidPath, _, pathErr := paths(name)
+	if pathErr != nil {
+		return pathErr
+	}
+	if !proxyHealthy(dialect) {
+		// A stale PID can refer to an unrelated process after reboot or PID reuse.
+		// Only signal a process that answers with this dialect's private API key.
+		if removeErr := os.Remove(pidPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return removeErr
+		}
+		return nil
+	}
 	process, err := os.FindProcess(pid)
-	if err == nil && processAlive(pid) {
-		_ = process.Signal(os.Interrupt)
+	if err != nil {
+		return err
+	}
+	if processAlive(pid) {
+		if err = process.Signal(os.Interrupt); err != nil {
+			return err
+		}
 		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && processAlive(pid); {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if processAlive(pid) {
-			_ = process.Kill()
+			if err = process.Kill(); err != nil {
+				return err
+			}
 		}
 	}
-	_, _, _, _, pidPath, _, _ := paths(name)
-	_ = os.Remove(pidPath)
+	if err = os.Remove(pidPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 
@@ -308,8 +328,8 @@ func authenticate(name, provider string, noBrowser bool) error {
 	}
 	if proxyHealthy(dialect) {
 		fmt.Println("Restarting proxy to load the new credentials…")
-		_ = stopProxy(name)
-		return startProxy(name, dialect)
+		_, err = newAppService().RestartDialect(name)
+		return err
 	}
 	return nil
 }

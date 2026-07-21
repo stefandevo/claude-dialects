@@ -112,7 +112,13 @@
           <li>Go 1.26.5 or newer — build the <code>cc-dialect</code> executable from source</li>
           <li>Claude Code available as <code>claude</code> on your PATH</li>
           <li>Node.js 22.13+ and npm (optional) — only for Cursor and GitHub Copilot SDK dialects</li>
+          <li>Node.js 22.13.x or 24+ and npm — contributor requirement when rebuilding or verifying dashboard source</li>
         </ul>
+        <p>
+          The dashboard frontend is compiled, committed, and embedded in the Go executable. It does not download frontend
+          assets at runtime, and Node.js is not required to run it or for a normal <code>make build</code> or
+          <code>make install</code> from a clean checkout.
+        </p>
         <p>
           This project does <strong>not</strong> publish prebuilt binaries or GitHub releases. Everyone builds the
           executable from the checked-out source. Locally produced archives from <code>make assets</code> are not signed
@@ -171,6 +177,19 @@
         </div>
 
         <div class="legal-card">
+          <h3>Embedded dashboard frontend</h3>
+          <p class="legal-card__meta">Bundled web assets · third-party npm licenses</p>
+          <p>
+            The localhost dashboard is built from React, React Router, Radix UI components, Lucide React, and supporting
+            frontend libraries. Production dependencies are compiled into <code>internal/app/dashboard/dist/</code> and
+            embedded in the <code>cc-dialect</code> binary. Their license notices are included in
+            <a href="https://github.com/stefandevo/claude-dialects/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">THIRD_PARTY_NOTICES.md</a>.
+            Build and test tools such as Vite, TypeScript, Vitest, Tailwind CSS, jsdom, and Testing Library are contributor
+            dependencies and are not shipped as runtime Node packages.
+          </p>
+        </div>
+
+        <div class="legal-card">
           <h3>Claude Code</h3>
           <p class="legal-card__meta">External dependency · Anthropic terms</p>
           <p>
@@ -183,9 +202,10 @@
       <section id="third-party" class="doc-section reveal">
         <h2>Third-party notices</h2>
         <p>
-          Licenses and notices for all modules compiled into the <code>cc-dialect</code> binary are included in the repository's
+          Licenses and notices for Go modules compiled into the <code>cc-dialect</code> binary and production npm dependencies
+          bundled into its embedded dashboard are included in the repository's
           <a href="https://github.com/stefandevo/claude-dialects/blob/main/THIRD_PARTY_NOTICES.md" target="_blank" rel="noopener">THIRD_PARTY_NOTICES.md</a>
-          file. This file is regenerated after dependency updates.
+          file. This committed file is regenerated after dependency updates; development-only frontend packages are not included.
         </p>
         <p>
           When you install Cursor or Copilot SDK dialects, additional third-party packages are downloaded into
@@ -227,9 +247,15 @@
           in the repository for the full policy.
         </p>
         <p>
-          Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. Configuration, local API keys, and OAuth
-          credentials use owner-only file permissions. This reduces exposure but does not eliminate your responsibility
-          to secure your machine and provider accounts.
+          Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. The web dashboard accepts numeric loopback
+          listeners only, requires the exact bound Host on every request, and requires the exact Origin plus a per-process
+          CSRF token for state changes. Its API omits credential contents, keys, token values, and other private fields.
+        </p>
+        <p>
+          The dashboard has no separate user login and assumes one trusted local user. These browser controls do not stop
+          another process running as that user from connecting to loopback and obtaining the CSRF token. Remote access,
+          port forwarding, and reverse-proxy exposure are unsupported. Securing the local machine and provider accounts
+          remains your responsibility.
         </p>
       </section>
 

@@ -1,8 +1,11 @@
-.PHONY: build test verify notices install assets package clean
+.PHONY: build test verify notices install assets package clean \
+	dashboard-install dashboard-typecheck dashboard-test dashboard-build dashboard-verify
 
 VERSION ?= dev
 PREFIX ?= $(HOME)/.local
 ASSET_NAME = cc-dialect_$(VERSION)_darwin_arm64
+DASHBOARD_DIR = internal/app/dashboard
+DASHBOARD_DIST = $(DASHBOARD_DIR)/dist
 
 build:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o dist/cc-dialect .
@@ -10,14 +13,31 @@ build:
 test:
 	go test ./...
 
-verify:
+dashboard-install:
+	npm --prefix "$(DASHBOARD_DIR)" ci
+
+dashboard-typecheck: dashboard-install
+	npm --prefix "$(DASHBOARD_DIR)" run typecheck
+
+dashboard-test: dashboard-install
+	npm --prefix "$(DASHBOARD_DIR)" test
+
+dashboard-build: dashboard-install
+	npm --prefix "$(DASHBOARD_DIR)" run build
+
+dashboard-verify: dashboard-typecheck dashboard-test dashboard-build
+	git ls-files --error-unmatch -- "$(DASHBOARD_DIST)/index.html" >/dev/null
+	test -z "$$(git ls-files --others --exclude-standard -- "$(DASHBOARD_DIST)")"
+	git diff --exit-code -- "$(DASHBOARD_DIST)"
+
+verify: dashboard-verify
 	test -z "$$(gofmt -l .)"
 	go mod verify
 	go test ./...
 	go vet ./...
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
 
-notices:
+notices: dashboard-install
 	./scripts/generate-third-party-notices.sh
 
 install: build

@@ -58,7 +58,9 @@ Before opening or merging a PR that touches user-facing behavior:
 - **Platform:** macOS only (state under
   `~/Library/Application Support/claude-dialects`).
 - **Build:** `make install` produces `~/.local/bin/cc-dialect`. No published
-  binaries; see README “Build local assets”.
+  binaries; see README “Build local assets”. The committed
+  `internal/app/dashboard/dist/` frontend is embedded in that binary, so Node.js
+  is needed only when contributors rebuild or verify dashboard source.
 - **Contributing:** See [CONTRIBUTING.md](CONTRIBUTING.md) — accepted issue
   required before PRs.
 
@@ -82,17 +84,20 @@ cd landing && python3 -m http.server 8765
 
 - Match existing Go style; run `gofmt`, `go test ./...`, `go vet ./...` before
   submitting.
-- Do not commit credentials, instance state, or generated binaries.
+- Do not commit credentials, instance state, or generated binaries. The one
+  generated exception is `internal/app/dashboard/dist/`: it is committed because
+  Go embeds it, and dashboard source changes must include refreshed assets.
 - Prefer minimal, focused diffs — no drive-by refactors.
-- Third-party embedding: CLIProxyAPI (Go SDK), optional `@cursor/sdk` and
-  `@github/copilot-sdk` — regenerate `THIRD_PARTY_NOTICES.md` when dependencies
-  change.
+- Third-party embedding: CLIProxyAPI (Go SDK), production npm dependencies in
+  the embedded dashboard, and optional `@cursor/sdk` / `@github/copilot-sdk`
+  runtimes — regenerate `THIRD_PARTY_NOTICES.md` when dependencies change.
 
 ## Key paths
 
 | Path | Purpose |
 | --- | --- |
-| `internal/app/` | CLI, dialect lifecycle, proxy, Cursor/Copilot bridges |
+| `internal/app/` | CLI, dialect lifecycle, proxy, dashboard, Cursor/Copilot bridges |
+| `internal/app/dashboard/` | React dashboard source; committed `dist/` is embedded in the binary |
 | `landing/` | Public website (HTML/CSS/JS) |
 | `README.md` | Canonical user documentation |
 | `THIRD_PARTY_NOTICES.md` | Embedded dependency licenses |

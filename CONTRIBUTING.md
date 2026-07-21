@@ -36,20 +36,43 @@ Requirements:
 
 - macOS;
 - Go 1.26.5 or newer;
-- Claude Code installed and available as `claude`.
+- Claude Code installed and available as `claude`;
+- npm and Node.js 22.13.x or 24+ when changing or verifying the dashboard.
 
-Before submitting:
+The dashboard source is under `internal/app/dashboard/`. Its compiled
+`internal/app/dashboard/dist/` output is committed because Go embeds it into the
+single executable. Rebuild and include that directory whenever frontend source
+changes. Do not commit the root `dist/` directory or other generated binaries.
+Node.js and npm are contributor dependencies for dashboard work; they are not
+required to run the embedded dashboard or for a normal `make build` or
+`make install` from a clean checkout.
+
+Run the frontend checks in the same order as CI:
 
 ```sh
-gofmt -w .
-go mod verify
-go test ./...
-go vet ./...
+npm --prefix internal/app/dashboard ci
+npm --prefix internal/app/dashboard run typecheck
+npm --prefix internal/app/dashboard test
+npm --prefix internal/app/dashboard run build
+git diff --exit-code -- internal/app/dashboard/dist
+```
+
+`make dashboard-verify` runs that sequence. `make verify` adds the normal Go
+format, module, test, vet, and build checks. Before submitting, run the complete
+verification set:
+
+```sh
+make verify
 govulncheck ./...
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
 ./scripts/generate-third-party-notices.sh
+git diff --exit-code -- THIRD_PARTY_NOTICES.md
 git diff --check
 ```
+
+`THIRD_PARTY_NOTICES.md` is committed generated output. Regenerate it after Go
+or frontend dependency changes; it includes Go modules compiled into the binary
+and production npm dependencies bundled into the dashboard, not frontend-only
+development dependencies.
 
 Do not commit generated binaries, credentials, OAuth files, instance state, or
 personal Claude Code configuration.

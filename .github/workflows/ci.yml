@@ -30,6 +30,35 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: internal/app/dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: internal/app/dashboard
+        run: npm ci
+
+      - name: Typecheck dashboard
+        working-directory: internal/app/dashboard
+        run: npm run typecheck
+
+      - name: Test dashboard
+        working-directory: internal/app/dashboard
+        run: npm test
+
+      - name: Build dashboard
+        working-directory: internal/app/dashboard
+        run: npm run build
+
+      - name: Verify dashboard assets
+        run: |
+          git ls-files --error-unmatch -- internal/app/dashboard/dist/index.html >/dev/null
+          test -z "$(git ls-files --others --exclude-standard -- internal/app/dashboard/dist)"
+          git diff --exit-code -- internal/app/dashboard/dist
+
       - name: Verify formatting
         shell: bash
         run: |

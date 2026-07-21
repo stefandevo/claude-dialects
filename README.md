@@ -6,8 +6,11 @@
 
 Create multiple native-feeling Claude Code commands powered by different models.
 Each generated dialect runs the real Claude Code interface with its own model,
-environment, Claude Code configuration and history, credentials, API key, and embedded
-[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance.
+environment, Claude Code configuration and history, local proxy key, ports,
+runtime state, and embedded
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance. Embedded
+OAuth files are isolated per dialect; Cursor and Copilot provider credentials
+may instead come from shared environment variables or system credentials.
 
 The proxy is linked into the `cc-dialect` executable through CLIProxyAPI's Go SDK.
 There is no separate proxy download, installation, container, or global
@@ -44,6 +47,7 @@ or other user-level Claude Code settings stay inside the active dialect.
 - [Presets and custom dialects](#presets-and-custom-dialects)
 - [Switch model and effort](#switch-model-and-effort-inside-a-conversation)
 - [Detect configured dialects](#detect-configured-and-running-dialects)
+- [Web dashboard](#web-dashboard)
 - [Operations and security](#proxy-and-authentication-commands)
 - [Build local assets](#build-local-assets)
 
@@ -56,6 +60,11 @@ Requirements:
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
 - optionally, Node.js 22.13 or newer and npm for Cursor and GitHub Copilot SDK dialects
+
+The dashboard frontend is already compiled into and embedded in the Go executable.
+Node.js is not required to run the dashboard or for a normal `make build` or
+`make install`; it is a contributor dependency only when rebuilding or verifying
+the dashboard source.
 
 ```sh
 git clone https://github.com/stefandevo/claude-dialects.git
@@ -89,9 +98,11 @@ cc-dialect shim install cc-codex
 cc-codex
 ```
 
-`create` prints the remaining required steps in the correct order. OAuth
-dialects will not launch or list models before authentication; the error also
-includes the exact command to run.
+For preset-based routes, `create` prints the remaining required steps in the
+correct order. An arbitrary custom model ID cannot determine its provider, so
+you must supply and follow the appropriate authentication or token route
+yourself. OAuth dialects will not launch or list models before authentication;
+the error also includes the exact command to run.
 
 Use the `cc-<provider>` naming convention. It makes generated commands easy to
 recognize and avoids collisions with existing provider CLIs such as `gemini`
@@ -403,8 +414,9 @@ tiers.
 
 ## Run several dialects
 
-Each dialect gets a checked, high-numbered localhost port, private credentials,
-and its own Claude Code state. Create as many as you need:
+Each dialect gets checked high-numbered localhost ports, a private local proxy
+key and runtime state, and its own Claude Code state. Provider credentials remain
+route-dependent. Create as many as you need:
 
 ```sh
 cc-dialect create cc-codex-work --preset codex
@@ -602,6 +614,72 @@ For a preset or provider query, exit status `0` means at least one matching
 dialect was found and exit status `1` means none matched. JSON records contain
 the command name, exact preset, provider family, model, port, and running state.
 
+## Web dashboard
+
+Launch the local management dashboard with:
+
+```sh
+cc-dialect web
+```
+
+By default, `cc-dialect` binds an available ephemeral port on
+`127.0.0.1`, prints the selected URL, and opens it in the default browser. The
+server stays in the foreground; press Ctrl-C to stop it. Suppress only the
+browser launch, or choose a fixed loopback address, with:
+
+```sh
+cc-dialect web --no-browser
+cc-dialect web --listen 127.0.0.1:8765
+cc-dialect web --listen '[::1]:8765'
+```
+
+`--listen` accepts a numeric loopback IP and port only. Hostnames such as
+`localhost`, wildcard addresses such as `0.0.0.0`, LAN addresses, remote access,
+and reverse-proxy deployment are not supported.
+
+The dashboard can:
+
+- inspect safe views of configured preset and custom dialects, their effective
+  model and runtime settings, built-in presets, tracked native launchers, and
+  Cursor runtime readiness;
+- create and update dialects, including model aliases, effort, concurrency,
+  ports, tool search, and custom Anthropic-compatible routing;
+- start, stop, and restart dialect proxies and provider bridges;
+- install or refresh the pinned Cursor runtime; after a successful update,
+  currently running Cursor dialects are stopped so they cannot keep using stale
+  bridge code, and must be started again explicitly;
+- install, update, verify, and remove tracked native Claude launchers; and
+- require exact typed-name confirmation before deleting a dialect or native
+  launcher.
+
+A dialect edit validates the replacement before stopping anything, then stops
+the old runtime, saves the new configuration, and leaves it stopped. It preserves
+the private local API key, isolated authentication and Claude Code state,
+history, installed shims, the proxy port unless explicitly changed, and the
+bridge port when the bridge type stays the same. Dashboard edits are full
+replacements of the public fields: custom configurations that depend on hidden
+`ExtraEnv` values, other unexposed bridge/authentication fields, or URL userinfo,
+query strings, or fragments should be updated with the CLI instead.
+
+Native launchers are tracked in `config.json` with their canonical path and a
+content digest. A tracked launcher cannot be moved in place; remove and reinstall
+it to use another path. Missing or externally modified launcher files cannot be
+updated or removed through the dashboard. Older untracked launchers are not
+scanned automatically and are adopted only when the file at the requested path
+exactly matches the launcher that the current executable would generate for the
+current `claude` path and dangerous-mode setting.
+
+The dashboard API omits private local API keys, OAuth credential contents,
+upstream token values, `ExtraEnv` values, the Cursor API key, and native-launcher
+digests. It exposes only safe metadata such as token environment-variable names,
+extra environment-variable key names, sanitized upstream URLs, and whether a
+Cursor key is present.
+
+The dashboard does not perform OAuth login, install or log in to GitHub Copilot,
+show proxy logs, install or manage dialect shims, run doctor diagnostics, list
+live provider models, or launch interactive Claude Code sessions. Use the
+existing CLI commands for those workflows.
+
 ## Proxy and authentication commands
 
 Every proxied dialect has an independent lifecycle:
@@ -631,7 +709,8 @@ State lives under `~/Library/Application Support/claude-dialects` on macOS (or
 `DIALECT_HOME` when set):
 
 ```text
-config.json
+config.json          # dialect configuration and tracked native-launcher registry
+.state.lock          # owner-only cross-process mutation lock
 instances/
   cc-codex/
     auth/
@@ -671,7 +750,16 @@ copilot-runtime/
 
 Proxy servers bind only to `127.0.0.1`. Configuration, local API keys, and OAuth
 credentials use owner-only permissions. The CLI changes environment variables
-only for the launched Claude Code process.
+only for the launched Claude Code process. Mutating operations are serialized
+across CLI and dashboard processes with the owner-only `.state.lock`; configuration
+and launcher files are written atomically.
+
+The dashboard accepts only numeric loopback listeners. Every request must use
+the exact bound `Host`; state-changing API requests must also use the exact local
+`Origin` and the per-process CSRF token obtained by the embedded frontend. These
+browser controls do not authenticate local processes, so the dashboard assumes
+one trusted user and no hostile processes on the same machine. Do not expose it
+through port forwarding, a reverse proxy, or another network interface.
 
 The optional Cursor bridge also binds only to `127.0.0.1`, authenticates every
 request with the dialect's private local key, and keeps its SDK workspace and
@@ -718,6 +806,7 @@ Use `--name` only when you want a different command name.
 ```sh
 cc-dialect list
 cc-dialect show cc-codex
+cc-dialect web
 cc-dialect doctor
 cc-dialect remove cc-codex
 cc-dialect --version
@@ -756,11 +845,20 @@ Dialects.
 
 CLIProxyAPI is pinned as a Go dependency so a new upstream release cannot alter
 an already-built executable. Its MIT license permits embedding and
-redistribution. Licenses and notices for all modules compiled into the binary
-are included in `THIRD_PARTY_NOTICES.md` and regenerated after dependency
-updates.
+redistribution. Licenses and notices for Go modules compiled into the binary and
+production npm dependencies bundled into the embedded dashboard are included in
+`THIRD_PARTY_NOTICES.md` and regenerated after dependency updates.
 
 ## Build local assets
+
+The React dashboard is built to `internal/app/dashboard/dist/`, committed to the
+repository, and embedded into the executable with Go's `embed` package. A normal
+`make build` or `make install` compiles the committed assets and does not invoke
+Node.js. Contributors who change dashboard source need npm and a package-compatible
+Node.js release (Node.js 22.13.x or 24+), and must rebuild and commit the updated
+`dist/` files. Production npm dependencies bundled into those assets are included
+in `THIRD_PARTY_NOTICES.md`; development-only frontend packages are not shipped in
+the binary.
 
 This project does not publish prebuilt binaries or GitHub releases. Everyone
 builds the executable from the checked-out source. To create a shareable local
