@@ -12,7 +12,7 @@ export const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <DialogPrimitive.Portal>
-    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-foreground/45 backdrop-blur-sm data-[state=closed]:animate-out data-[state=open]:animate-in" />
+    <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-foreground/45 backdrop-blur-xs data-[state=closed]:animate-out data-[state=open]:animate-in" />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
@@ -22,7 +22,7 @@ export const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm text-muted-foreground hover:text-foreground">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-xs text-muted-foreground hover:text-foreground">
         <X className="size-4" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>

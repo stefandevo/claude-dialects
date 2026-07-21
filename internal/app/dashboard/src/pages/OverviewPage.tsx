@@ -41,7 +41,7 @@ export function OverviewPage() {
         <h2 id="summary-heading" className="sr-only">Workspace summary</h2>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {stats.map(({ label, value, detail, icon: Icon }) => (
-            <Card key={label} className="bg-card/85 backdrop-blur-sm">
+            <Card key={label} className="bg-card/85 backdrop-blur-xs">
               <CardContent className="pt-5 sm:pt-6">
                 <div className="flex items-start justify-between gap-4">
                   <div><p className="text-sm font-medium text-muted-foreground">{label}</p><p className="mt-3 text-3xl font-bold tracking-tight">{value}</p></div>

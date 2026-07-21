@@ -165,13 +165,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
           <div key={toast.id} className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-lg border bg-popover p-4 text-sm shadow-2xl">
             {toast.tone === 'success' ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" /> : <AlertTriangle className={`mt-0.5 size-5 shrink-0 ${toast.tone === 'warning' ? 'text-warning' : 'text-destructive'}`} />}
             <p className="flex-1 leading-relaxed">{toast.message}</p>
-            <button className="rounded-sm text-muted-foreground hover:text-foreground" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} aria-label="Dismiss notification"><X className="size-4" /></button>
+            <button className="rounded-xs text-muted-foreground hover:text-foreground" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} aria-label="Dismiss notification"><X className="size-4" /></button>
           </div>
         ))}
       </div>
       <AlertDialog.Root open={conflictOpen} onOpenChange={setConflictOpen}>
         <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/45 backdrop-blur-sm" />
+          <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/45 backdrop-blur-xs" />
           <AlertDialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-2xl">
             <AlertDialog.Title className="text-lg font-semibold">Configuration changed</AlertDialog.Title>
             <AlertDialog.Description className="mt-2 text-sm leading-relaxed text-muted-foreground">
