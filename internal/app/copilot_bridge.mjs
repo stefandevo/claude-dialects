@@ -70,9 +70,23 @@ const server = http.createServer(async (request, response) => {
     });
   } catch (error) {
     if (!response.headersSent) {
-      return json(response, error?.status || 500, {
+      // Errors that intentionally set an explicit status (e.g. 400/413 from
+      // readJSON) carry a client-safe message. Any error without an explicit
+      // status is unexpected: log it server-side and return a generic message
+      // so internal detail (SDK internals, stack traces) never reaches the client.
+      const hasSafeStatus = typeof error?.status === "number";
+      if (!hasSafeStatus) {
+        process.stderr.write(
+          `copilot bridge error: ${
+            error instanceof Error ? error.stack || error.message : String(error)
+          }\n`,
+        );
+      }
+      return json(response, hasSafeStatus ? error.status : 500, {
         error: {
-          message: error instanceof Error ? error.message : String(error),
+          message: hasSafeStatus
+            ? (error instanceof Error ? error.message : String(error))
+            : "Internal server error",
           type: "api_error",
           code: error?.code || "copilot_bridge_error",
         },
