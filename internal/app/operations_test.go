@@ -156,6 +156,57 @@ func TestDialectUpdateValidatesCustomUpstreamBeforeStop(t *testing.T) {
 	}
 }
 
+func TestDialectViewPresetRoundTripDoesNotCoerceCustomUpstream(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	cfg := defaultConfig()
+	cfg.Dialects["cc-gpt-custom"] = Dialect{
+		Model: "gpt-4o-custom", BaseURL: "https://api.example.com/v1",
+		AuthTokenEnv: "EXAMPLE_API_KEY", Port: 43170, APIKey: "private", Concurrency: 3,
+	}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	service.stopRuntime = func(string, Dialect) error { return nil }
+
+	view, revision, err := service.Dialect("cc-gpt-custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A custom upstream with no stored preset must not surface an inferred preset,
+	// because the dashboard form submits that value back verbatim on save.
+	if view.Preset != "custom" {
+		t.Fatalf("custom dialect view preset = %q, want \"custom\"", view.Preset)
+	}
+
+	// Mimic the dashboard round-trip: inputFromView drops a "custom" preset to empty.
+	submittedPreset := view.Preset
+	if submittedPreset == "custom" {
+		submittedPreset = ""
+	}
+	result, err := service.UpdateDialect(DialectInput{
+		Name: "cc-gpt-custom", Preset: submittedPreset, Model: view.Model,
+		BaseURL: view.BaseURL, AuthTokenEnv: view.AuthTokenEnv, Concurrency: view.Concurrency,
+	}, revision)
+	if err != nil {
+		t.Fatalf("round-trip update failed: %v", err)
+	}
+	if result.Dialect.AuthProvider != "" {
+		t.Fatalf("round-trip injected auth provider %q into a custom dialect", result.Dialect.AuthProvider)
+	}
+	saved, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := saved.Dialects["cc-gpt-custom"]
+	if got.Preset != "" || got.AuthProvider != "" {
+		t.Fatalf("round-trip coerced custom dialect into preset %q / provider %q", got.Preset, got.AuthProvider)
+	}
+	if got.BaseURL != "https://api.example.com/v1" || got.AuthTokenEnv != "EXAMPLE_API_KEY" {
+		t.Fatalf("round-trip dropped custom upstream: base=%q token=%q", got.BaseURL, got.AuthTokenEnv)
+	}
+}
+
 func TestDialectMutationStopFailuresPreserveConfigurationAndState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)

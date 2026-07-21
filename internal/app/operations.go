@@ -149,7 +149,11 @@ func newAppService() *appService {
 }
 
 func safeDialectView(name string, dialect Dialect) DialectView {
-	preset := presetForDialect(dialect)
+	// Expose only the stored preset here: it round-trips through the dashboard
+	// form back into mutations, so an inferred preset (e.g. "codex" for a custom
+	// gpt-* upstream) would coerce a custom dialect into a preset on save. The
+	// inferred label is surfaced separately via Provider for display.
+	preset := dialect.Preset
 	if preset == "" {
 		preset = "custom"
 	}
