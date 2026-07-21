@@ -2,3 +2,5 @@
 /cc-dialect
 /dist/
 /artifacts/
+/internal/app/dashboard/node_modules/
+/internal/app/dashboard/coverage/

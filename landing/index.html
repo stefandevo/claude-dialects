@@ -155,8 +155,8 @@
           <li>Injects <code>ANTHROPIC_BASE_URL</code>, auth token, and model env vars when you run <code>cc-codex</code></li>
           <li>Maps <code>opus</code> / <code>sonnet</code> / <code>haiku</code> to provider-specific models automatically</li>
           <li><code>cc-dialect auth cc-codex codex</code> — scoped OAuth per dialect, not global</li>
-          <li>Proxy starts and stops with your dialect command — lifecycle included</li>
-          <li>Run <code>cc-codex</code> and <code>cc-kimi</code> in parallel — isolated ports, creds, and history</li>
+          <li>The proxy starts automatically with the dialect command and remains available until you explicitly stop it</li>
+          <li>Run <code>cc-codex</code> and <code>cc-kimi</code> in parallel — isolated ports, local proxy state, and history</li>
           <li>Your global <code>~/.claude</code> stays untouched — each dialect gets its own <code>claude/</code> dir</li>
         </ul>
       </div>
@@ -175,7 +175,7 @@
     <div class="section__header reveal">
       <span class="section__eyebrow">Architecture</span>
       <h2>Real Claude Code.<br>Private everything else.</h2>
-      <p>Each dialect is a self-contained stack: embedded CLIProxyAPI, isolated OAuth or API keys, and a dedicated Claude Code config directory.</p>
+      <p>Each dialect is a self-contained stack: embedded CLIProxyAPI, an isolated local proxy key, ports and runtime state, and a dedicated Claude Code config directory. Provider credentials follow the route: embedded OAuth is per dialect, while Cursor or Copilot may use shared environment or system credentials.</p>
     </div>
 
     <div class="flow reveal">
@@ -194,7 +194,7 @@
       <div class="flow__step">
         <div class="flow__icon">◈</div>
         <h3>Upstream responds</h3>
-        <p>OAuth or API key auth stays scoped to this dialect. Settings and history never leak across commands.</p>
+        <p>The local proxy key, ports, settings, and history stay scoped to this dialect. Embedded OAuth is per dialect; Cursor and Copilot provider credentials may come from shared environment variables or system credentials.</p>
       </div>
     </div>
 
@@ -202,8 +202,8 @@
       <article class="feature-card reveal">
         <div class="feature-card__glow"></div>
         <span class="feature-card__icon">🔐</span>
-        <h3>Isolated credentials</h3>
-        <p>Each dialect owns its OAuth tokens, API keys, and proxy config under <code>DIALECT_HOME</code>. Owner-only file permissions.</p>
+        <h3>Isolated local state</h3>
+        <p>Each dialect owns its local proxy key, ports, proxy config, runtime files, and Claude Code state under <code>DIALECT_HOME</code>. Embedded OAuth files are also per dialect.</p>
       </article>
       <article class="feature-card reveal">
         <div class="feature-card__glow"></div>
@@ -216,6 +216,12 @@
         <span class="feature-card__icon">🔌</span>
         <h3>SDK bridges</h3>
         <p>Cursor and GitHub Copilot dialects run local SDK bridges that forward Claude Code tools with schema-safe aliases.</p>
+      </article>
+      <article class="feature-card reveal">
+        <div class="feature-card__glow"></div>
+        <span class="feature-card__icon">▦</span>
+        <h3>Local web dashboard</h3>
+        <p>Run <code>cc-dialect web</code> to inspect safe configuration views, create or update dialects, manage runtimes and native launchers, and refresh Cursor — on numeric loopback only.</p>
       </article>
       <article class="feature-card reveal">
         <div class="feature-card__glow"></div>
@@ -401,7 +407,7 @@ cc-dialect create cc-kimi-work --preset kimi
 cc-dialect auth cc-kimi-work kimi
 cc-dialect shim install cc-kimi-work
 
-# Each gets its own port, credentials, and history
+# Each gets its own port, local proxy state, and history
 cc-codex-work    # proxy :43170
 cc-kimi-work     # proxy :43171</code></pre>
         </div>
@@ -439,7 +445,7 @@ cc-dialect create cc-my-model \
       <div class="security-content reveal">
         <span class="section__eyebrow">Security</span>
         <h2>Localhost by design.</h2>
-        <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. Configuration, local API keys, and OAuth credentials use owner-only permissions. Environment variables are scoped to the launched Claude Code process — never written to global settings.</p>
+        <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. The dashboard accepts numeric loopback listeners only and enforces exact Host, Origin, and CSRF checks for local browser use. Local proxy keys, state, and per-dialect OAuth files use owner-only permissions; Cursor or Copilot provider credentials may come from shared environment or system credentials.</p>
         <ul class="security-list">
           <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
           <li>Checked port allocation starting at <code>:43170</code></li>

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -219,15 +220,21 @@ func TestWriteProxyConfigRoutesCopilotModelsThroughPrivateBridge(t *testing.T) {
 	}
 }
 
-func TestLoadConfigCreatesPrivateConfig(t *testing.T) {
+func TestLoadConfigReturnsDefaultsWithoutWriting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
 	cfg, err := loadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.BasePort != 43170 || cfg.Dialects == nil {
+	if cfg.Version != configVersion || cfg.BasePort != 43170 || cfg.Dialects == nil || cfg.NativeLaunchers == nil {
 		t.Fatalf("unexpected default config: %#v", cfg)
+	}
+	if _, err = os.Stat(filepath.Join(home, "config.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("loadConfig wrote defaults unexpectedly: %v", err)
+	}
+	if err = saveConfig(cfg); err != nil {
+		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(home, "config.json"))
 	if err != nil {

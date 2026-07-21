@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,12 +12,23 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
+const configVersion = 2
+
 type Config struct {
-	Version  int                `json:"version"`
-	BasePort int                `json:"basePort"`
-	Dialects map[string]Dialect `json:"dialects"`
+	Version         int                       `json:"version"`
+	BasePort        int                       `json:"basePort"`
+	Dialects        map[string]Dialect        `json:"dialects"`
+	NativeLaunchers map[string]NativeLauncher `json:"nativeLaunchers"`
+}
+
+type NativeLauncher struct {
+	Path       string `json:"path"`
+	ClaudePath string `json:"claudePath"`
+	Dangerous  bool   `json:"dangerous"`
+	SHA256     string `json:"sha256"`
 }
 
 type Dialect struct {
@@ -212,18 +224,38 @@ func ensureClaudeConfigDir(name string) (string, error) {
 	return path, nil
 }
 
-func loadConfig() (*Config, error) {
-	home, path, _, _, _, _, err := paths("")
-	if err != nil {
-		return nil, err
+func defaultConfig() *Config {
+	return &Config{
+		Version:         configVersion,
+		BasePort:        43170,
+		Dialects:        map[string]Dialect{},
+		NativeLaunchers: map[string]NativeLauncher{},
 	}
-	if err = os.MkdirAll(home, 0o700); err != nil {
+}
+
+func normalizeConfig(cfg *Config) {
+	if cfg.Version < configVersion {
+		cfg.Version = configVersion
+	}
+	if cfg.BasePort == 0 {
+		cfg.BasePort = 43170
+	}
+	if cfg.Dialects == nil {
+		cfg.Dialects = map[string]Dialect{}
+	}
+	if cfg.NativeLaunchers == nil {
+		cfg.NativeLaunchers = map[string]NativeLauncher{}
+	}
+}
+
+func loadConfig() (*Config, error) {
+	_, path, _, _, _, _, err := paths("")
+	if err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		cfg := &Config{Version: 1, BasePort: 43170, Dialects: map[string]Dialect{}}
-		return cfg, saveConfig(cfg)
+		return defaultConfig(), nil
 	}
 	if err != nil {
 		return nil, err
@@ -232,13 +264,19 @@ func loadConfig() (*Config, error) {
 	if err = json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	if cfg.Dialects == nil {
-		cfg.Dialects = map[string]Dialect{}
-	}
-	if cfg.BasePort == 0 {
-		cfg.BasePort = 43170
-	}
+	normalizeConfig(&cfg)
 	return &cfg, nil
+}
+
+func configRevision(cfg *Config) (string, error) {
+	copy := *cfg
+	normalizeConfig(&copy)
+	data, err := json.Marshal(copy)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func saveConfig(cfg *Config) error {
@@ -249,19 +287,76 @@ func saveConfig(cfg *Config) error {
 	if err = os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
+	normalizeConfig(cfg)
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	temp := path + ".tmp"
-	if err = os.WriteFile(temp, data, 0o600); err != nil {
+	return atomicWriteFile(path, append(data, '\n'), 0o600)
+}
+
+type atomicWriteError struct {
+	err       error
+	committed bool
+}
+
+func (e *atomicWriteError) Error() string   { return e.err.Error() }
+func (e *atomicWriteError) Unwrap() error   { return e.err }
+func (e *atomicWriteError) Committed() bool { return e.committed }
+
+func atomicWriteCommitted(err error) bool {
+	var writeErr *atomicWriteError
+	return errors.As(err, &writeErr) && writeErr.committed
+}
+
+var syncParentDirectory = func(dir string) error {
+	directory, err := os.Open(dir)
+	if err != nil {
 		return err
 	}
-	if err = os.Chmod(temp, 0o600); err != nil {
+	syncErr := directory.Sync()
+	closeErr := directory.Close()
+	if syncErr != nil && !errors.Is(syncErr, syscall.EINVAL) && !errors.Is(syncErr, syscall.ENOTSUP) {
+		return syncErr
+	}
+	return closeErr
+}
+
+func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
+	dir := filepath.Dir(path)
+	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return os.Rename(temp, path)
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer func() {
+		_ = temp.Close()
+		if err != nil {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if err = temp.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err = temp.Write(data); err != nil {
+		return err
+	}
+	if err = temp.Sync(); err != nil {
+		return err
+	}
+	if err = temp.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	if syncErr := syncParentDirectory(dir); syncErr != nil {
+		return &atomicWriteError{err: syncErr, committed: true}
+	}
+	return nil
 }
 
 func writeProxyConfig(name string, dialect Dialect) (string, error) {
@@ -323,7 +418,7 @@ usage-statistics-enabled: false
 	if err = os.MkdirAll(home, 0o700); err != nil {
 		return "", err
 	}
-	if err = os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err = atomicWriteFile(path, []byte(content), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil

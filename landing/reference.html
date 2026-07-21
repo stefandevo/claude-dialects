@@ -53,7 +53,7 @@
       <span>Reference</span>
     </div>
     <h1>Reference</h1>
-    <p>Model switching, custom dialects, proxy operations, security model, and useful commands.</p>
+    <p>Model switching, custom dialects, the local web dashboard, proxy operations, security model, and useful commands.</p>
   </header>
 
   <div class="doc-layout">
@@ -63,6 +63,7 @@
         <a href="#model-switch">Model &amp; effort</a>
         <a href="#presets">Presets &amp; custom</a>
         <a href="#detect">Detect dialects</a>
+        <a href="#dashboard">Web dashboard</a>
         <a href="#proxy">Proxy lifecycle</a>
         <a href="#native">Native shortcuts</a>
         <a href="#security">Security</a>
@@ -159,6 +160,28 @@ fi</code></pre>
         <p>Exit status <code>0</code> means at least one matching dialect was found; <code>1</code> means none matched.</p>
       </section>
 
+      <section id="dashboard" class="doc-section reveal">
+        <h2>Web dashboard</h2>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Local dashboard</span>
+            <button class="copy-btn" data-copy="dashboard">Copy</button>
+          </div>
+          <pre><code id="code-dashboard">cc-dialect web
+cc-dialect web --no-browser
+cc-dialect web --listen 127.0.0.1:8765
+cc-dialect web --listen '[::1]:8765'</code></pre>
+        </div>
+        <p>Without flags, the command binds an available ephemeral port on <code>127.0.0.1</code>, prints the URL, opens the default browser, and remains in the foreground until Ctrl-C. <code>--no-browser</code> suppresses only browser launch. <code>--listen</code> accepts a numeric loopback IP and port; <code>localhost</code>, wildcard and LAN addresses, remote access, and reverse proxies are unsupported.</p>
+        <p>The dashboard shows safe views of presets, preset-backed and custom dialects, runtime health, tracked native launchers, and Cursor readiness. It can create or update dialects, start/stop/restart runtimes, manage tracked native launchers, and install or refresh the pinned Cursor runtime. A successful Cursor runtime update stops running Cursor dialects so stale bridges cannot continue; start them again explicitly.</p>
+        <p>Dialect edits validate first, stop the old runtime, save the replacement, and leave it stopped. Private local API keys, isolated auth and Claude Code state, history, shims, and stable ports are preserved where applicable. Edits replace only public dashboard fields, so use the CLI for custom configurations that rely on unexposed extra environment values, bridge/auth fields, or URL userinfo, query strings, or fragments.</p>
+        <div class="callout callout--info">
+          <div class="callout__title">Dashboard scope</div>
+          <p>OAuth login, Copilot install/login, live model listing, proxy logs, shim management, doctor diagnostics, remote access, and launching Claude Code sessions are not dashboard features.</p>
+        </div>
+        <p>Deleting a dialect or native launcher requires an exact typed-name confirmation. API responses omit credential contents and token values, expose only safe metadata, and sanitize upstream URLs.</p>
+      </section>
+
       <section id="proxy" class="doc-section reveal">
         <h2>Proxy lifecycle</h2>
         <p>Every proxied dialect has an independent lifecycle:</p>
@@ -197,13 +220,15 @@ cc-dialect auth cc-claude claude</code></pre>
 cld</code></pre>
         </div>
         <p>This launches Claude Code with <code>--dangerously-skip-permissions</code> using the regular <code>~/.claude</code> settings, authentication, and history — a shortcut for your existing Claude Max setup, not an isolated dialect. Use dangerous mode only in directories you trust.</p>
+        <p>Installed launchers are tracked with their canonical path and content digest. A tracked launcher cannot be moved in place; remove and reinstall it to choose another path. Missing or externally modified files cannot be updated or removed. Older launchers are not discovered automatically and can be adopted only when their bytes exactly match what the current executable would generate for the current <code>claude</code> path and dangerous-mode setting.</p>
       </section>
 
       <section id="security" class="doc-section reveal">
         <h2>Security</h2>
-        <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. Configuration, local API keys, and OAuth credentials use owner-only permissions. Environment variables are scoped to the launched Claude Code process.</p>
+        <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. The dashboard accepts numeric loopback listeners only and requires the exact bound Host on every request; mutations also require the exact Origin and a per-process CSRF token. It is designed for one trusted local user, not remote or reverse-proxy exposure.</p>
         <ul>
           <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
+          <li>Secret-safe dashboard API responses omit keys, tokens, credential contents, and extra environment values</li>
           <li>Checked port allocation starting at <code>:43170</code></li>
           <li>Cursor/Copilot tools forwarded with <code>cc_tool_</code> schema aliases</li>
           <li>Claude Code permission prompts remain in control</li>
@@ -219,7 +244,8 @@ cld</code></pre>
         <h2>File layout</h2>
         <p>State lives under <code>~/Library/Application Support/claude-dialects</code> on macOS (or <code>DIALECT_HOME</code> when set):</p>
         <div class="code-block">
-          <pre><code>config.json
+          <pre><code>config.json          # dialects + tracked native-launcher registry
+.state.lock          # owner-only cross-process mutation lock
 instances/
   cc-codex/
     auth/
@@ -257,6 +283,10 @@ copilot-runtime/
             <span>Show dialect details</span>
           </div>
           <div class="command-item">
+            <code>cc-dialect web</code>
+            <span>Open the local dashboard</span>
+          </div>
+          <div class="command-item">
             <code>cc-dialect doctor</code>
             <span>Diagnose configuration issues</span>
           </div>
@@ -282,6 +312,7 @@ rm -rf "$HOME/Library/Application Support/claude-dialects"</code></pre>
 
       <section id="build" class="doc-section reveal">
         <h2>Build local assets</h2>
+        <p>The compiled dashboard in <code>internal/app/dashboard/dist/</code> is committed and embedded into the one Go binary. Node.js is not required for dashboard runtime or a normal <code>make build</code>/<code>make install</code>; contributors rebuilding the frontend need npm with Node.js 22.13.x or 24+ and must commit the refreshed <code>dist/</code>.</p>
         <p>Create a shareable macOS archive instead of installing directly:</p>
         <div class="code-block">
           <div class="code-block__header">
