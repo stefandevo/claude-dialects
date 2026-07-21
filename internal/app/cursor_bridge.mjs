@@ -57,21 +57,22 @@ const server = http.createServer(async (request, response) => {
     });
   } catch (error) {
     if (!response.headersSent) {
-      // Errors that intentionally set an explicit status (e.g. 400/413 from
-      // readJSON) carry a client-safe message. Any error without an explicit
-      // status is unexpected: log it server-side and return a generic message
-      // so internal detail (SDK internals, stack traces) never reaches the client.
-      const hasSafeStatus = typeof error?.status === "number";
-      if (!hasSafeStatus) {
+      // Only errors this bridge creates for the client (400/413 from readJSON)
+      // are marked `expose` and may return their message. Everything else —
+      // including SDK/API failures that happen to carry a numeric status — is
+      // unexpected: log it server-side and return a generic message so internal
+      // detail (SDK internals, stack traces) never reaches the client.
+      const expose = error?.expose === true;
+      if (!expose) {
         process.stderr.write(
           `cursor bridge error: ${
             error instanceof Error ? error.stack || error.message : String(error)
           }\n`,
         );
       }
-      return json(response, hasSafeStatus ? error.status : 500, {
+      return json(response, expose ? error.status : 500, {
         error: {
-          message: hasSafeStatus
+          message: expose
             ? (error instanceof Error ? error.message : String(error))
             : "Internal server error",
           type: "api_error",
@@ -497,6 +498,7 @@ function readJSON(request) {
       if (raw.length > 16 * 1024 * 1024) {
         const error = new Error("Request body is too large");
         error.status = 413;
+        error.expose = true;
         reject(error);
         request.destroy();
       }
@@ -507,6 +509,7 @@ function readJSON(request) {
       } catch {
         const error = new Error("Invalid JSON request");
         error.status = 400;
+        error.expose = true;
         reject(error);
       }
     });
