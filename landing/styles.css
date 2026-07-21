@@ -1231,53 +1231,6 @@ a:not(.btn):not(.nav__logo):not(.nav__cta):not(.nav__links a):not(.nav__mobile a
 
 .callout--warning .callout__title { color: #ffb450; }
 
-/* ─── Platform strip (home) ─── */
-.platform-strip {
-  max-width: var(--max-width);
-  margin: 0 auto;
-  padding: 0 1.5rem 2rem;
-}
-
-.platform-strip__inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 1.25rem;
-  padding: 1.5rem 1.75rem;
-  background: rgba(255, 180, 80, 0.05);
-  border: 1px solid rgba(255, 180, 80, 0.18);
-  border-radius: var(--radius);
-}
-
-.platform-strip__icon {
-  font-size: 1.5rem;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.platform-strip__content h3 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0 0 0.35rem;
-  color: #ffb450;
-}
-
-.platform-strip__content p {
-  font-size: 0.88rem;
-  color: var(--text-muted);
-  margin: 0;
-  line-height: 1.6;
-  max-width: 56rem;
-}
-
-.platform-strip__content a {
-  color: var(--link);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.platform-strip__content a:hover { color: var(--link-hover); }
-
 /* ─── Scroll reveal ─── */
 .reveal {
   opacity: 0;
