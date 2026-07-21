@@ -33,7 +33,7 @@ export function Layout() {
   const sidebar = (
     <>
       <div className="flex h-20 items-center gap-3 border-b px-5">
-        <div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><TerminalSquare className="size-5" /></div>
+        <div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-xs"><TerminalSquare className="size-5" /></div>
         <div>
           <p className="font-bold tracking-tight">cc-dialect</p>
           <p className="text-xs text-muted-foreground">Local control plane</p>

@@ -1,6 +1,11 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source(none);
+
+@config '../tailwind.config.cjs';
+
+/* Restrict scanning to app sources (v3 `content` scope); the committed dist/ is
+   not gitignored, so v4 auto-detection would otherwise scan built output. */
+@source '../index.html';
+@source './**/*.{ts,tsx}';
 
 @layer base {
   :root {
@@ -80,7 +85,7 @@
   }
 
   :focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    @apply outline-hidden ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 }
 
