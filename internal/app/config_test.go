@@ -668,6 +668,11 @@ func TestExpectedAuthProvidersDerivesFromModelMapping(t *testing.T) {
 	if got := expectedAuthProviders(upstream); len(got) != 0 {
 		t.Fatalf("expectedAuthProviders(glm upstream) = %v, want empty", got)
 	}
+	// A preset with a custom, unclassified model ID must keep its stored OAuth route.
+	customModel := Dialect{Model: "o3-custom", SubagentModel: "o3-custom", OpusModel: "o3-custom", SonnetModel: "o3-custom", HaikuModel: "o3-custom", AuthProvider: "codex"}
+	if got := expectedAuthProviders(customModel); strings.Join(got, ",") != "codex" {
+		t.Fatalf("expectedAuthProviders(unclassified custom model) = %v, want [codex] (falls back to stored AuthProvider)", got)
+	}
 }
 
 func TestMissingAuthProvidersListsOnlyUncredentialedProviders(t *testing.T) {
