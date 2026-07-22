@@ -673,6 +673,12 @@ func TestExpectedAuthProvidersDerivesFromModelMapping(t *testing.T) {
 	if got := expectedAuthProviders(customModel); strings.Join(got, ",") != "codex" {
 		t.Fatalf("expectedAuthProviders(unclassified custom model) = %v, want [codex] (falls back to stored AuthProvider)", got)
 	}
+	// A recognized model for one role plus a stored provider for the unclassified
+	// roles must require both, not silently drop the stored provider.
+	partial := Dialect{Model: "o3-custom", SubagentModel: "o3-custom", OpusModel: "o3-custom", SonnetModel: "kimi-k3", HaikuModel: "o3-custom", AuthProvider: "codex"}
+	if got := expectedAuthProviders(partial); strings.Join(got, ",") != "kimi,codex" {
+		t.Fatalf("expectedAuthProviders(partial classify + stored provider) = %v, want [kimi codex]", got)
+	}
 }
 
 func TestMissingAuthProvidersListsOnlyUncredentialedProviders(t *testing.T) {
@@ -722,6 +728,12 @@ func TestNotAuthenticatedErrorListsEveryMissingProvider(t *testing.T) {
 		"  cc-dialect auth cc-mixed xai"
 	if multi.Error() != want {
 		t.Fatalf("multi-provider error =\n%q\nwant\n%q", multi.Error(), want)
+	}
+	// It must be an OperationError so the dashboard forwards the message instead
+	// of returning a generic 500.
+	var opErr *OperationError
+	if !errors.As(multi, &opErr) || opErr.Code != ErrorInvalidInput {
+		t.Fatalf("notAuthenticatedError should be an OperationError with ErrorInvalidInput, got %T", multi)
 	}
 }
 

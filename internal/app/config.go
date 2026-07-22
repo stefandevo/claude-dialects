@@ -613,9 +613,11 @@ func expectedAuthProviders(dialect Dialect) []string {
 		}
 	}
 	// A custom model ID that matches no known prefix would otherwise drop a
-	// preset's stored OAuth route, so keep the explicit provider in that case.
-	if len(providers) == 0 && dialect.AuthProvider != "" {
-		return []string{dialect.AuthProvider}
+	// preset's stored OAuth route, so always keep the explicit provider when it
+	// is not already covered by the derived models.
+	if dialect.AuthProvider != "" && !seen[dialect.AuthProvider] {
+		seen[dialect.AuthProvider] = true
+		providers = append(providers, dialect.AuthProvider)
 	}
 	return providers
 }

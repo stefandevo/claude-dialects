@@ -234,16 +234,18 @@ func authenticationSteps(name string, dialect Dialect) []string {
 // notAuthenticatedError reports the OAuth logins a dialect still needs. A single
 // missing provider keeps the original one-line message; a mixed dialect lists an
 // explicit `cc-dialect auth` command per missing provider so the fix is copyable.
+// It is an OperationError so the dashboard forwards the actionable message rather
+// than collapsing it into a generic 500.
 func notAuthenticatedError(name string, missing []string) error {
 	if len(missing) == 1 {
-		return fmt.Errorf("dialect %q is not authenticated; run: cc-dialect auth %s %s", name, name, missing[0])
+		return operationError(ErrorInvalidInput, "dialect %q is not authenticated; run: cc-dialect auth %s %s", name, name, missing[0])
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "dialect %q is missing authentication for %s; run:", name, strings.Join(missing, ", "))
 	for _, provider := range missing {
 		fmt.Fprintf(&b, "\n  cc-dialect auth %s %s", name, provider)
 	}
-	return errors.New(b.String())
+	return operationError(ErrorInvalidInput, "%s", b.String())
 }
 
 // missingAuthenticationSteps lists only the login steps still outstanding for an
