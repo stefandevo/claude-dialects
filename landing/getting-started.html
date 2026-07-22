@@ -66,6 +66,7 @@
         <a href="#workflow">Four-step workflow</a>
         <a href="#naming">Naming convention</a>
         <a href="#multi">Multiple dialects</a>
+        <a href="#mixed">Mix providers in one session</a>
         <a href="#dashboard">Web dashboard</a>
         <a href="#next">Next steps</a>
       </nav>
@@ -233,6 +234,25 @@ cc-codex-work    # embedded proxy :43170
 cc-kimi-work     # embedded proxy :43171</code></pre>
         </div>
         <p>Ports are actively checked and allocated per dialect starting at <code>:43170</code>. A port already bound by any process is skipped during creation and rejected again at startup.</p>
+      </section>
+
+      <section id="mixed" class="doc-section reveal">
+        <h2>Mix providers in one session</h2>
+        <p>A single dialect can hold OAuth credentials for several providers at once, so each model tier can point at a different provider. The <code>mixed-frontier</code> preset runs Claude Fable 5 as the main model and maps <code>opus</code> to OpenAI Sol, <code>sonnet</code> to Kimi, and <code>haiku</code> to xAI Grok — one Claude Code session whose agents run on different providers. Authenticate every provider into the same dialect:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Mixed-provider dialect</span>
+            <button class="copy-btn" data-copy="mixed">Copy</button>
+          </div>
+          <pre><code id="code-mixed">cc-dialect create cc-mixed --preset mixed-frontier
+cc-dialect auth cc-mixed claude
+cc-dialect auth cc-mixed codex
+cc-dialect auth cc-mixed kimi
+cc-dialect auth cc-mixed xai
+cc-dialect shim install cc-mixed
+cc-mixed</code></pre>
+        </div>
+        <p><code>cc-mixed</code> refuses to start until every tier's provider is authenticated, and <code>cc-dialect doctor</code> lists any provider still needing a login. See <a href="providers.html#mixed">Mixed / multi-provider dialects</a> for the full mapping table and provider terms.</p>
       </section>
 
       <section id="dashboard" class="doc-section reveal">

@@ -83,6 +83,11 @@ var presets = map[string]Dialect{
 		AuthProvider: "claude",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
+	"mixed-frontier": {
+		Model: "claude-fable-5", SubagentModel: "claude-fable-5",
+		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.5",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
 	"glm": {
 		Model: "glm-5.2", SubagentModel: "glm-5.2",
 		OpusModel: "glm-5.2", SonnetModel: "glm-5-turbo", HaikuModel: "glm-4.5-air",
@@ -571,7 +576,56 @@ func presetForDialect(dialect Dialect) string {
 	}
 }
 
+// providerForModel maps a model ID to the OAuth provider that serves it, or ""
+// for models reached through an API-key upstream or a managed bridge instead.
+func providerForModel(model string) string {
+	switch {
+	case strings.HasPrefix(model, "gpt-"):
+		return "codex"
+	case strings.HasPrefix(model, "kimi-"):
+		return "kimi"
+	case strings.HasPrefix(model, "gemini-"):
+		return "antigravity"
+	case strings.HasPrefix(model, "claude-"):
+		return "claude"
+	case strings.HasPrefix(model, "grok-"):
+		return "xai"
+	default:
+		return ""
+	}
+}
+
+// expectedAuthProviders returns the OAuth providers a dialect needs credentials
+// for, derived from its final tier model mapping so it stays correct when
+// individual tiers are overridden. A dialect spanning several providers needs
+// each authenticated; bridge and upstream API-key routes carry their own
+// credentials and return none.
+func expectedAuthProviders(dialect Dialect) []string {
+	if dialect.Bridge != "" || dialect.BaseURL != "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var providers []string
+	for _, model := range []string{dialect.Model, dialect.SubagentModel, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel} {
+		if provider := providerForModel(model); provider != "" && !seen[provider] {
+			seen[provider] = true
+			providers = append(providers, provider)
+		}
+	}
+	// A custom model ID that matches no known prefix would otherwise drop a
+	// preset's stored OAuth route, so always keep the explicit provider when it
+	// is not already covered by the derived models.
+	if dialect.AuthProvider != "" && !seen[dialect.AuthProvider] {
+		seen[dialect.AuthProvider] = true
+		providers = append(providers, dialect.AuthProvider)
+	}
+	return providers
+}
+
 func providerForDialect(dialect Dialect) string {
+	if len(expectedAuthProviders(dialect)) > 1 {
+		return "mixed"
+	}
 	switch presetForDialect(dialect) {
 	case "codex", "codex-sol":
 		return "codex"

@@ -42,6 +42,7 @@ or other user-level Claude Code settings stay inside the active dialect.
   - [Cursor](#cursor)
   - [GitHub Copilot](#github-copilot)
   - [Anthropic Claude](#anthropic-claude)
+- [Mix multiple providers in one session](#mix-multiple-providers-in-one-session)
 - [Run several dialects](#run-several-dialects)
 - [Native Claude shortcuts](#native-claude-shortcuts)
 - [Presets and custom dialects](#presets-and-custom-dialects)
@@ -126,6 +127,7 @@ named dialects.
 | [Cursor](#cursor) | `cursor-composer`, `cursor-composer-fast`, `cursor-grok`, `cursor-auto` | Cursor API key | `cc-cursor` |
 | [GitHub Copilot](#github-copilot) | `copilot-auto`, `copilot-mai`, `copilot-codex`, `copilot-claude`, `copilot-gemini` | GitHub Copilot login | `cc-copilot` |
 | [Anthropic Claude](#anthropic-claude) | `claude` | Anthropic OAuth | `cc-claude` |
+| [Mix multiple providers](#mix-multiple-providers-in-one-session) | `mixed-frontier` | Several OAuth logins | `cc-mixed` |
 
 ### OpenAI Codex
 
@@ -411,6 +413,59 @@ credentials, and history, while a native shortcut uses the regular
 `~/.claude` environment. The preset currently maps the main and `opus` routes
 to Claude Fable 5, with Claude Sonnet 4.6 and Claude Haiku 4.5 for the lower
 tiers.
+
+## Mix multiple providers in one session
+
+Claude Code pins each subagent to a model tier — `opus`, `sonnet`, or `haiku` —
+and Claude Dialects maps every tier to a model ID. Because a single dialect can
+hold OAuth credentials for more than one provider at once, you can point each
+tier at a **different** provider. The result is one Claude Code session whose
+agents run on different providers: the main agent on one model, opus-tier
+subagents on another, sonnet-tier on a third, and so on — all inside the same
+conversation.
+
+The `mixed-frontier` preset wires this up out of the box. It runs Claude Fable 5
+as the main and subagent model and spreads the tiers across OpenAI, Moonshot,
+and xAI:
+
+| Tier / role | Model | Provider | OAuth login |
+| --- | --- | --- | --- |
+| Main + subagent | `claude-fable-5` | Anthropic | `cc-dialect auth cc-mixed claude` |
+| `/model opus` | `gpt-5.6-sol` | OpenAI Codex | `cc-dialect auth cc-mixed codex` |
+| `/model sonnet` | `kimi-k3` | Moonshot Kimi | `cc-dialect auth cc-mixed kimi` |
+| `/model haiku` | `grok-4.5` | xAI Grok | `cc-dialect auth cc-mixed xai` |
+
+Because the tiers span providers, the dialect needs each provider's OAuth login.
+Authenticate them into the **same** dialect, one command per provider:
+
+```sh
+cc-dialect create cc-mixed --preset mixed-frontier
+cc-dialect auth cc-mixed claude
+cc-dialect auth cc-mixed codex
+cc-dialect auth cc-mixed kimi
+cc-dialect auth cc-mixed xai
+cc-dialect shim install cc-mixed
+cc-mixed
+```
+
+`cc-dialect create` and `cc-dialect doctor` report which providers still need a
+login, and `cc-mixed` refuses to start until every tier's provider is
+authenticated — it never silently serves a partial set. `cc-dialect models
+cc-mixed` lists the full catalog aggregated across all authenticated providers,
+and the [web dashboard](#web-dashboard) shows a per-provider authentication
+status for the dialect.
+
+Build your own mix by overriding any tier with the `--opus-model`,
+`--sonnet-model`, and `--haiku-model` flags. Mixing is currently limited to the
+five OAuth providers (Codex, Anthropic Claude, Kimi, Gemini via Antigravity, and
+xAI); the model IDs above are current defaults and roll over as each provider
+ships new versions.
+
+> **Provider terms still apply.** Mixing providers in one session runs each
+> request against that provider's own subscription and usage terms. Claude
+> Dialects is an independent, unofficial project and is not affiliated with or
+> endorsed by any provider — see the disclaimer in [Files and
+> security](#files-and-security).
 
 ## Run several dialects
 

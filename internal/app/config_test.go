@@ -619,6 +619,145 @@ func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
 	}
 }
 
+func TestMixedFrontierPresetMapsTiersAcrossProviders(t *testing.T) {
+	mixed := presets["mixed-frontier"]
+	if mixed.Model != "claude-fable-5" || mixed.SubagentModel != "claude-fable-5" {
+		t.Fatalf("mixed-frontier main/subagent model = %q/%q, want claude-fable-5", mixed.Model, mixed.SubagentModel)
+	}
+	if mixed.OpusModel != "gpt-5.6-sol" || mixed.SonnetModel != "kimi-k3" || mixed.HaikuModel != "grok-4.5" {
+		t.Fatalf("mixed-frontier tier mapping = opus %q / sonnet %q / haiku %q, want Sol/Kimi/Grok: %#v",
+			mixed.OpusModel, mixed.SonnetModel, mixed.HaikuModel, mixed)
+	}
+	if mixed.AuthProvider != "" {
+		t.Fatalf("mixed-frontier must not pin a single auth provider, got %q", mixed.AuthProvider)
+	}
+	want := []string{"claude", "codex", "kimi", "xai"}
+	if got := expectedAuthProviders(mixed); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("mixed-frontier expected auth providers = %v, want %v", got, want)
+	}
+}
+
+func TestProviderForMixedDialectReportsMixed(t *testing.T) {
+	mixed := presets["mixed-frontier"]
+	mixed.Preset = "mixed-frontier"
+	if got := providerForDialect(mixed); got != "mixed" {
+		t.Fatalf("providerForDialect(mixed-frontier) = %q, want mixed", got)
+	}
+	if got := presetForDialect(mixed); got != "mixed-frontier" {
+		t.Fatalf("presetForDialect(mixed-frontier) = %q, want mixed-frontier", got)
+	}
+}
+
+func TestExpectedAuthProvidersDerivesFromModelMapping(t *testing.T) {
+	single := Dialect{Model: "kimi-k3", SubagentModel: "kimi-k3", OpusModel: "kimi-k3", SonnetModel: "kimi-k2.7-code-highspeed", HaikuModel: "kimi-k2.6"}
+	if got := expectedAuthProviders(single); strings.Join(got, ",") != "kimi" {
+		t.Fatalf("expectedAuthProviders(single kimi) = %v, want [kimi]", got)
+	}
+	// Overriding a tier onto a different provider must add that provider (the
+	// original stale-list bug: an override to Gemini needs antigravity).
+	overridden := Dialect{Model: "claude-fable-5", SubagentModel: "claude-fable-5", OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "gemini-pro-agent"}
+	if got := expectedAuthProviders(overridden); strings.Join(got, ",") != "claude,codex,kimi,antigravity" {
+		t.Fatalf("expectedAuthProviders(overridden haiku→gemini) = %v, want [claude codex kimi antigravity]", got)
+	}
+	// Bridge and upstream API-key routes carry their own credentials.
+	bridge := Dialect{Model: "gpt-5.3-codex", OpusModel: "gpt-5.3-codex", Bridge: "copilot"}
+	if got := expectedAuthProviders(bridge); len(got) != 0 {
+		t.Fatalf("expectedAuthProviders(copilot bridge) = %v, want empty", got)
+	}
+	upstream := Dialect{Model: "glm-5.2", OpusModel: "glm-5.2", BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY"}
+	if got := expectedAuthProviders(upstream); len(got) != 0 {
+		t.Fatalf("expectedAuthProviders(glm upstream) = %v, want empty", got)
+	}
+	// A preset with a custom, unclassified model ID must keep its stored OAuth route.
+	customModel := Dialect{Model: "o3-custom", SubagentModel: "o3-custom", OpusModel: "o3-custom", SonnetModel: "o3-custom", HaikuModel: "o3-custom", AuthProvider: "codex"}
+	if got := expectedAuthProviders(customModel); strings.Join(got, ",") != "codex" {
+		t.Fatalf("expectedAuthProviders(unclassified custom model) = %v, want [codex] (falls back to stored AuthProvider)", got)
+	}
+	// A recognized model for one role plus a stored provider for the unclassified
+	// roles must require both, not silently drop the stored provider.
+	partial := Dialect{Model: "o3-custom", SubagentModel: "o3-custom", OpusModel: "o3-custom", SonnetModel: "kimi-k3", HaikuModel: "o3-custom", AuthProvider: "codex"}
+	if got := expectedAuthProviders(partial); strings.Join(got, ",") != "kimi,codex" {
+		t.Fatalf("expectedAuthProviders(partial classify + stored provider) = %v, want [kimi codex]", got)
+	}
+}
+
+func TestMissingAuthProvidersListsOnlyUncredentialedProviders(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	_, _, _, authDir, _, _, err := paths("cc-mixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := missingAuthProviders("cc-mixed", presets["mixed-frontier"])
+	if strings.Join(got, ",") != "claude,kimi,xai" {
+		t.Fatalf("missingAuthProviders = %v, want [claude kimi xai] (codex is authenticated)", got)
+	}
+}
+
+func TestCreateNextStepsForMixedDialectListsEachProvider(t *testing.T) {
+	mixed := presets["mixed-frontier"]
+	mixed.Preset = "mixed-frontier"
+	got := createNextSteps("cc-mixed", "cc-mixed", mixed)
+	want := []string{
+		"Authenticate: cc-dialect auth cc-mixed claude",
+		"Authenticate: cc-dialect auth cc-mixed codex",
+		"Authenticate: cc-dialect auth cc-mixed kimi",
+		"Authenticate: cc-dialect auth cc-mixed xai",
+		"Install the command: cc-dialect shim install cc-mixed",
+		"Run: cc-mixed",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("createNextSteps(mixed) =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestNotAuthenticatedErrorListsEveryMissingProvider(t *testing.T) {
+	single := notAuthenticatedError("cc-kimi", []string{"kimi"})
+	if single.Error() != "dialect \"cc-kimi\" is not authenticated; run: cc-dialect auth cc-kimi kimi" {
+		t.Fatalf("single-provider error = %q", single.Error())
+	}
+	multi := notAuthenticatedError("cc-mixed", []string{"claude", "codex", "xai"})
+	want := "dialect \"cc-mixed\" is missing authentication for claude, codex, xai; run:\n" +
+		"  cc-dialect auth cc-mixed claude\n" +
+		"  cc-dialect auth cc-mixed codex\n" +
+		"  cc-dialect auth cc-mixed xai"
+	if multi.Error() != want {
+		t.Fatalf("multi-provider error =\n%q\nwant\n%q", multi.Error(), want)
+	}
+	// It must be an OperationError so the dashboard forwards the message instead
+	// of returning a generic 500.
+	var opErr *OperationError
+	if !errors.As(multi, &opErr) || opErr.Code != ErrorInvalidInput {
+		t.Fatalf("notAuthenticatedError should be an OperationError with ErrorInvalidInput, got %T", multi)
+	}
+}
+
+func TestAuthCommandRejectsProviderOutsideMixedSet(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	mixed := presets["mixed-frontier"]
+	mixed.Preset = "mixed-frontier"
+	mixed.Port = 43170
+	mixed.APIKey = "local-key"
+	cfg := defaultConfig()
+	cfg.Dialects["cc-mixed"] = mixed
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// antigravity is a valid OAuth provider but not part of the mixed set.
+	err := authCommand([]string{"cc-mixed", "antigravity"})
+	if err == nil {
+		t.Fatal("expected auth to reject a provider outside the dialect's mixed set")
+	}
+	if !strings.Contains(err.Error(), "claude, codex, kimi, xai") {
+		t.Fatalf("auth rejection error = %q, want it to list the expected providers", err.Error())
+	}
+}
+
 func TestHasProviderCredentialsMatchesCredentialType(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	_, _, _, authDir, _, _, err := paths("cc-codex")

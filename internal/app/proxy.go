@@ -119,6 +119,20 @@ func hasProviderCredentials(name, provider string) bool {
 	return false
 }
 
+// missingAuthProviders returns the OAuth providers a dialect expects but has no
+// credentials for yet, preserving the order declared by the dialect. A mixed
+// dialect that maps tiers across providers returns every provider still needing
+// `cc-dialect auth`; a fully authenticated or upstream/bridge dialect returns nil.
+func missingAuthProviders(name string, dialect Dialect) []string {
+	var missing []string
+	for _, provider := range expectedAuthProviders(dialect) {
+		if !hasProviderCredentials(name, provider) {
+			missing = append(missing, provider)
+		}
+	}
+	return missing
+}
+
 func proxyPID(name string) int {
 	_, _, _, _, pidPath, _, err := paths(name)
 	if err != nil {
