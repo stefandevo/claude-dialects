@@ -27,6 +27,9 @@ var statuslineColors = map[string]string{
 }
 
 func statuslineScriptPath(name string) (string, error) {
+	if !validName(name) {
+		return "", operationError(ErrorInvalidInput, "invalid dialect name %q", name)
+	}
 	home, err := homeDir()
 	if err != nil {
 		return "", err

@@ -209,6 +209,9 @@ func paths(name string) (home, configPath, proxyPath, authDir, pidPath, logPath,
 }
 
 func claudeConfigDir(name string) (string, error) {
+	if !validName(name) {
+		return "", operationError(ErrorInvalidInput, "invalid dialect name %q", name)
+	}
 	home, err := homeDir()
 	if err != nil {
 		return "", err
