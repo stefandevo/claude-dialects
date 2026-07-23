@@ -904,7 +904,7 @@ func doctor(args []string, version string) error {
 		for _, provider := range missingAuthProviders(name, dialect) {
 			fmt.Printf("✗ %s is not authenticated for %s (run: cc-dialect auth %s %s)\n", name, provider, name, provider)
 		}
-		if dialectHealthy(dialect) {
+		if proxyHealthy(dialect) {
 			proxyVersion := proxySpawnVersion(name)
 			if proxyVersion != "" && proxyVersion != embeddedVersion {
 				fmt.Printf("✗ %s proxy is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
@@ -913,27 +913,29 @@ func doctor(args []string, version string) error {
 				fmt.Printf("✗ %s proxy is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
 				needsProxyRestart = append(needsProxyRestart, name)
 			}
+		}
 
-			if dialect.Bridge == "cursor" && cursorBridgeHealthy(dialect) {
-				bridgeVersion := cursorBridgeSpawnVersion(name)
-				if bridgeVersion != "" && bridgeVersion != embeddedVersion {
-					fmt.Printf("✗ %s Cursor bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
-					needsBridgeRestart = append(needsBridgeRestart, name)
-				} else if bridgeVersion == "" {
-					fmt.Printf("✗ %s Cursor bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
-					needsBridgeRestart = append(needsBridgeRestart, name)
-				}
-			} else if dialect.Bridge == "copilot" && copilotBridgeHealthy(dialect) {
-				bridgeVersion := copilotBridgeSpawnVersion(name)
-				if bridgeVersion != "" && bridgeVersion != embeddedVersion {
-					fmt.Printf("✗ %s Copilot bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
-					needsBridgeRestart = append(needsBridgeRestart, name)
-				} else if bridgeVersion == "" {
-					fmt.Printf("✗ %s Copilot bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
-					needsBridgeRestart = append(needsBridgeRestart, name)
-				}
+		if dialect.Bridge == "cursor" && cursorBridgeHealthy(dialect) {
+			bridgeVersion := cursorBridgeSpawnVersion(name)
+			if bridgeVersion != "" && bridgeVersion != embeddedVersion {
+				fmt.Printf("✗ %s Cursor bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			} else if bridgeVersion == "" {
+				fmt.Printf("✗ %s Cursor bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
 			}
+		} else if dialect.Bridge == "copilot" && copilotBridgeHealthy(dialect) {
+			bridgeVersion := copilotBridgeSpawnVersion(name)
+			if bridgeVersion != "" && bridgeVersion != embeddedVersion {
+				fmt.Printf("✗ %s Copilot bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			} else if bridgeVersion == "" {
+				fmt.Printf("✗ %s Copilot bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			}
+		}
 
+		if dialectHealthy(dialect) {
 			if dialect.Bridge != "" {
 				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d, %s bridge on 127.0.0.1:%d\n",
 					name, displayPreset(dialect), dialect.Port, bridgeDisplayName(dialect.Bridge), dialect.BridgePort)
