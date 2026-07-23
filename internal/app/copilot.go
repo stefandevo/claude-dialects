@@ -371,7 +371,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
-	_ = atomicWriteFile(versionPath, []byte(CurrentAppVersion()+"\n"), 0o600)
+	_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		if copilotBridgeHealthy(dialect) {
 			return nil

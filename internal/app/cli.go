@@ -815,7 +815,7 @@ func doctor(args []string, version string) error {
 		return err
 	}
 
-	embeddedVersion := CurrentAppVersion()
+	binaryIdentity := appBuildIdentity()
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -906,7 +906,7 @@ func doctor(args []string, version string) error {
 		}
 		if proxyHealthy(dialect) {
 			proxyVersion := proxySpawnVersion(name)
-			if proxyVersion != "" && proxyVersion != embeddedVersion {
+			if proxyVersion != "" && proxyVersion != binaryIdentity {
 				fmt.Printf("✗ %s proxy is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
 				needsProxyRestart = append(needsProxyRestart, name)
 			} else if proxyVersion == "" {
@@ -917,7 +917,7 @@ func doctor(args []string, version string) error {
 
 		if dialect.Bridge == "cursor" && cursorBridgeHealthy(dialect) {
 			bridgeVersion := cursorBridgeSpawnVersion(name)
-			if bridgeVersion != "" && bridgeVersion != embeddedVersion {
+			if bridgeVersion != "" && bridgeVersion != binaryIdentity {
 				fmt.Printf("✗ %s Cursor bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
 				needsBridgeRestart = append(needsBridgeRestart, name)
 			} else if bridgeVersion == "" {
@@ -926,7 +926,7 @@ func doctor(args []string, version string) error {
 			}
 		} else if dialect.Bridge == "copilot" && copilotBridgeHealthy(dialect) {
 			bridgeVersion := copilotBridgeSpawnVersion(name)
-			if bridgeVersion != "" && bridgeVersion != embeddedVersion {
+			if bridgeVersion != "" && bridgeVersion != binaryIdentity {
 				fmt.Printf("✗ %s Copilot bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
 				needsBridgeRestart = append(needsBridgeRestart, name)
 			} else if bridgeVersion == "" {
