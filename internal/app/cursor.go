@@ -94,15 +94,15 @@ func cursorRuntimePaths() (runtimeDir, bridgePath, packagePath string, err error
 	return
 }
 
-func cursorInstancePaths(name string) (pidPath, logPath, workspace string, err error) {
+func cursorInstancePaths(name string) (pidPath, logPath, workspace, versionPath string, err error) {
 	home, err := homeDir()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	instanceDir := filepath.Join(home, "instances", name)
 	return filepath.Join(instanceDir, "cursor-bridge.pid"),
 		filepath.Join(instanceDir, "cursor-bridge.log"),
-		filepath.Join(instanceDir, "cursor-workspace"), nil
+		filepath.Join(instanceDir, "cursor-workspace"), filepath.Join(instanceDir, "cursor-bridge.version"), nil
 }
 
 type CursorRuntimeStatus struct {
@@ -290,7 +290,7 @@ process.stdout.write(JSON.stringify(items.map((item) => item.id).filter(Boolean)
 }
 
 func cursorBridgePID(name string) int {
-	pidPath, _, _, err := cursorInstancePaths(name)
+	pidPath, _, _, _, err := cursorInstancePaths(name)
 	if err != nil {
 		return 0
 	}
@@ -341,7 +341,7 @@ func startCursorBridge(name string, dialect Dialect) error {
 	if err = writeCursorBridge(bridgePath); err != nil {
 		return err
 	}
-	pidPath, logPath, workspace, err := cursorInstancePaths(name)
+	pidPath, logPath, workspace, versionPath, err := cursorInstancePaths(name)
 	if err != nil {
 		return err
 	}
@@ -384,6 +384,7 @@ func startCursorBridge(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
+	_ = atomicWriteFile(versionPath, []byte(embeddedProxyVersion()+"\n"), 0o600)
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
 		if cursorBridgeHealthy(dialect) {
 			return nil
@@ -428,7 +429,7 @@ func stopCursorBridge(name string, dialect Dialect) error {
 	if dialect.Bridge != "cursor" {
 		return nil
 	}
-	pidPath, _, _, err := cursorInstancePaths(name)
+	pidPath, _, _, _, err := cursorInstancePaths(name)
 	if err != nil {
 		return err
 	}

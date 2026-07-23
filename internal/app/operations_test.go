@@ -362,7 +362,7 @@ func TestStartDialectBlocksPartiallyAuthenticatedMixedDialect(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Authenticate only one of the four providers the mapping requires.
-	_, _, _, authDir, _, _, err := paths("cc-mixed")
+	_, _, _, authDir, _, _, _, err := paths("cc-mixed")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -867,6 +867,9 @@ cc-dialect remove cc-codex
 cc-dialect --version
 ```
 
+`cc-dialect doctor` detects misconfigurations (shadowed shims, missing API keys, incorrect SDK versions). Add the `--fix` flag (`cc-dialect doctor --fix`) to automatically apply deterministic repairs: it will restart any proxies or Node bridges that are running stale binaries (e.g. after you updated `cc-dialect`), and it will re-install any Node SDK bridge runtimes that do not match the current required version. Interactive steps like OAuth logins are left for you to complete.
+
+
 When upgrading from the former `dialect` executable, `make install` removes that
 old command. Existing configuration, OAuth credentials, and conversations are
 preserved. Regenerate any older shims so they point directly to `cc-dialect`:

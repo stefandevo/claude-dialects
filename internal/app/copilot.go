@@ -59,15 +59,15 @@ func copilotRuntimePaths() (runtimeDir, bridgePath, packagePath, cliPath string,
 	return
 }
 
-func copilotInstancePaths(name string) (pidPath, logPath, stateDir string, err error) {
+func copilotInstancePaths(name string) (pidPath, logPath, stateDir, versionPath string, err error) {
 	home, err := homeDir()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	instanceDir := filepath.Join(home, "instances", name)
 	return filepath.Join(instanceDir, "copilot-bridge.pid"),
 		filepath.Join(instanceDir, "copilot-bridge.log"),
-		filepath.Join(instanceDir, "copilot-home"), nil
+		filepath.Join(instanceDir, "copilot-home"), filepath.Join(instanceDir, "copilot-bridge.version"), nil
 }
 
 func installCopilotRuntime() error {
@@ -270,7 +270,7 @@ try { ` + action + ` } finally { await client.stop(); }`
 }
 
 func copilotBridgePID(name string) int {
-	pidPath, _, _, err := copilotInstancePaths(name)
+	pidPath, _, _, _, err := copilotInstancePaths(name)
 	if err != nil {
 		return 0
 	}
@@ -318,7 +318,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	if err = writeCopilotBridge(bridgePath); err != nil {
 		return err
 	}
-	pidPath, logPath, stateDir, err := copilotInstancePaths(name)
+	pidPath, logPath, stateDir, versionPath, err := copilotInstancePaths(name)
 	if err != nil {
 		return err
 	}
@@ -358,6 +358,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
+	_ = atomicWriteFile(versionPath, []byte(embeddedProxyVersion()+"\n"), 0o600)
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		if copilotBridgeHealthy(dialect) {
 			return nil
@@ -391,7 +392,7 @@ func stopCopilotBridge(name string, dialect Dialect) error {
 	if dialect.Bridge != "copilot" {
 		return nil
 	}
-	pidPath, _, _, err := copilotInstancePaths(name)
+	pidPath, _, _, _, err := copilotInstancePaths(name)
 	if err != nil {
 		return err
 	}

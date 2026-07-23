@@ -93,7 +93,7 @@ func fetchBridgeModels(dialect Dialect) ([]string, error) {
 }
 
 func hasProviderCredentials(name, provider string) bool {
-	_, _, _, authDir, _, _, err := paths(name)
+	_, _, _, authDir, _, _, _, err := paths(name)
 	if err != nil {
 		return false
 	}
@@ -134,7 +134,7 @@ func missingAuthProviders(name string, dialect Dialect) []string {
 }
 
 func proxyPID(name string) int {
-	_, _, _, _, pidPath, _, err := paths(name)
+	_, _, _, _, pidPath, _, _, err := paths(name)
 	if err != nil {
 		return 0
 	}
@@ -158,7 +158,7 @@ func startProxy(name string, dialect Dialect) error {
 			return fmt.Errorf("proxy process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`", pid, dialect.Port, name)
 		}
 		// The PID was reused by an unrelated process. Never signal it.
-		_, _, _, _, pidPath, _, _ := paths(name)
+		_, _, _, _, pidPath, _, _, _ := paths(name)
 		_ = os.Remove(pidPath)
 	}
 	if !portAvailable(dialect.Port) {
@@ -171,7 +171,7 @@ func startProxy(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	_, _, _, _, pidPath, logPath, err := paths(name)
+	_, _, _, _, pidPath, logPath, versionPath, err := paths(name)
 	if err != nil {
 		return err
 	}
@@ -193,6 +193,7 @@ func startProxy(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
+	_ = atomicWriteFile(versionPath, []byte(embeddedProxyVersion()+"\n"), 0o600)
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
 		if proxyHealthy(dialect) {
 			return nil
@@ -213,7 +214,7 @@ func stopProxy(name string) error {
 	dialect, exists := cfg.Dialects[name]
 	if !exists {
 		// Without the private key there is no safe way to prove PID ownership.
-		_, _, _, _, pidPath, _, _ := paths(name)
+		_, _, _, _, pidPath, _, _, _ := paths(name)
 		_ = os.Remove(pidPath)
 		return nil
 	}
@@ -228,7 +229,7 @@ func stopProxyDialect(name string, dialect Dialect) (err error) {
 	if pid == 0 {
 		return nil
 	}
-	_, _, _, _, pidPath, _, pathErr := paths(name)
+	_, _, _, _, pidPath, _, _, pathErr := paths(name)
 	if pathErr != nil {
 		return pathErr
 	}
@@ -349,7 +350,7 @@ func authenticate(name, provider string, noBrowser bool) error {
 }
 
 func tailLog(name string) error {
-	_, _, _, _, _, path, err := paths(name)
+	_, _, _, _, _, path, _, err := paths(name)
 	if err != nil {
 		return err
 	}
@@ -363,7 +364,7 @@ func tailLog(name string) error {
 		}
 		printed = true
 	}
-	_, cursorLog, _, cursorErr := cursorInstancePaths(name)
+	_, cursorLog, _, _, cursorErr := cursorInstancePaths(name)
 	if cursorErr == nil && fileExists(cursorLog) {
 		if file, openErr := os.Open(cursorLog); openErr == nil {
 			fmt.Println("== Cursor bridge ==")
@@ -375,7 +376,7 @@ func tailLog(name string) error {
 			printed = true
 		}
 	}
-	_, copilotLog, _, copilotErr := copilotInstancePaths(name)
+	_, copilotLog, _, _, copilotErr := copilotInstancePaths(name)
 	if copilotErr == nil && fileExists(copilotLog) {
 		if file, openErr := os.Open(copilotLog); openErr == nil {
 			fmt.Println("== Copilot bridge ==")

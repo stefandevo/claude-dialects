@@ -520,7 +520,7 @@ func (service *appService) RemoveDialect(name, expectedRevision string) error {
 		if err = saveConfig(cfg); err != nil {
 			return err
 		}
-		home, _, _, _, _, _, err := paths(name)
+		home, _, _, _, _, _, _, err := paths(name)
 		if err != nil {
 			return err
 		}
