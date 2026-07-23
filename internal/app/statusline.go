@@ -75,9 +75,11 @@ func seedStatusline(name string, dialect Dialect) error {
 	}
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 	settings := map[string]any{}
+	settingsExists := false
 	settingsData, readErr := os.ReadFile(settingsPath)
 	switch {
 	case readErr == nil:
+		settingsExists = true
 		// A settings file Claude Code cannot have written (malformed JSON) must
 		// not be clobbered; leave the instance untouched and let the caller warn.
 		if err = json.Unmarshal(settingsData, &settings); err != nil {
@@ -92,7 +94,11 @@ func seedStatusline(name string, dialect Dialect) error {
 	if scriptErr != nil && !errors.Is(scriptErr, os.ErrNotExist) {
 		return scriptErr
 	}
-	seeded := scriptErr == nil
+	// Opting out means removing the statusLine key, which requires the settings
+	// file to exist — a leftover script with no settings file is an interrupted
+	// seed (e.g. a settings write lost to a crash), so rewire instead of
+	// reading it as an opt-out forever.
+	seeded := scriptErr == nil && settingsExists
 	if !seeded || string(current) != content {
 		if err = atomicWriteFile(scriptPath, []byte(content), 0o755); err != nil {
 			return err

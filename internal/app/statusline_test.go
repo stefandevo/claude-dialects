@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,6 +147,55 @@ func TestSeedStatuslineRetriesAfterFailedSettingsWrite(t *testing.T) {
 	settings := readSettings(t, filepath.Join(claudeDir, "settings.json"))
 	if _, exists := settings["statusLine"]; !exists {
 		t.Fatalf("retry after failed settings write did not seed statusLine: %#v", settings)
+	}
+}
+
+// A leftover script with no settings file is an interrupted seed, not an
+// opt-out: opting out means removing the statusLine key, which requires the
+// settings file to exist. Seeding must rewire instead of skipping forever.
+func TestSeedStatuslineRewiresWhenSettingsFileMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := seedStatusline("cc-test", presets["codex"]); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(home, "instances", "cc-test", "claude", "settings.json")
+	if err := os.Remove(settingsPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStatusline("cc-test", presets["codex"]); err != nil {
+		t.Fatal(err)
+	}
+	settings := readSettings(t, settingsPath)
+	if _, exists := settings["statusLine"]; !exists {
+		t.Fatalf("script-present, settings-missing seed did not rewire statusLine: %#v", settings)
+	}
+}
+
+// A committed settings write (rename landed, parent-dir sync failed) leaves
+// the statusLine key in place, so the script must be kept — removing it would
+// discard a successful seed.
+func TestSeedStatuslineCommittedSettingsWriteLandsKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	original := syncParentDirectory
+	syncParentDirectory = func(dir string) error {
+		if filepath.Base(dir) == "claude" {
+			return errors.New("sync failed")
+		}
+		return original(dir)
+	}
+	t.Cleanup(func() { syncParentDirectory = original })
+	err := seedStatusline("cc-test", presets["codex"])
+	if err == nil || !atomicWriteCommitted(err) {
+		t.Fatalf("expected committed settings write error, got %v", err)
+	}
+	settings := readSettings(t, filepath.Join(home, "instances", "cc-test", "claude", "settings.json"))
+	if _, exists := settings["statusLine"]; !exists {
+		t.Fatalf("committed settings write did not land the statusLine key: %#v", settings)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, "instances", "cc-test", "statusline.sh")); statErr != nil {
+		t.Fatalf("committed settings write rolled back the script: %v", statErr)
 	}
 }
 
