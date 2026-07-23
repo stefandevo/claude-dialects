@@ -102,9 +102,6 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if _, err = ensureClaudeConfigDir(name); err != nil {
-		return err
-	}
 	return atomicWriteFile(settingsPath, append(merged, '\n'), 0o600)
 }
 
