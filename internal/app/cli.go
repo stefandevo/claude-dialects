@@ -46,6 +46,13 @@ Example:
 
 func Run(args []string, version string) error {
 	SetAppVersion(version)
+	// Capture the build identity now, while the executable on disk is still the
+	// binary this process was started from. A long-lived process (e.g.
+	// `cc-dialect web`) can outlive a `make install` that replaces the binary;
+	// hashing the executable lazily at spawn time would then stamp bridges
+	// spawned by the old process with the replacement binary's identity, hiding
+	// their staleness from `doctor`.
+	_ = appBuildIdentity()
 	if len(args) > 0 && args[0] == "__proxy" {
 		if len(args) != 2 {
 			return errors.New("missing embedded proxy instance name")

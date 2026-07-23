@@ -42,6 +42,10 @@ func copilotCommand(args []string) error {
 			return err
 		}
 		fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+		if len(result.StoppedDialects) > 0 {
+			fmt.Printf("Stopped stale Copilot dialect runtime(s): %s\n", strings.Join(result.StoppedDialects, ", "))
+			fmt.Println("Launch the dialect again to use the updated bridge.")
+		}
 		return nil
 	case "login":
 		return copilotLogin()

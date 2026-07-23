@@ -21,6 +21,10 @@ var (
 // verbatim; dev builds (the default `make install` path stamps VERSION=dev)
 // derive the identity from the binary content instead, so `git pull && make
 // install` always produces a distinct stamp.
+//
+// The identity is computed once per process — `Run` warms it at startup so the
+// hash reflects the binary this process was started from, not whatever later
+// replaces it on disk.
 func appBuildIdentity() string {
 	buildIdentityOnce.Do(func() {
 		buildIdentityCached = buildIdentity(CurrentAppVersion(), os.Executable)
