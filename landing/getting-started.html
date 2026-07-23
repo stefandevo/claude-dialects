@@ -117,6 +117,7 @@ export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc</code></pre>
         </div>
         <p>This produces one static executable at <code>~/.local/bin/cc-dialect</code>. There are no prebuilt binaries or GitHub releases — everyone builds from the checked-out source.</p>
+        <p>To update later, run <code>cc-dialect upgrade</code> — it fetches the latest source into a temporary directory, rebuilds, atomically replaces the installed binary, and finishes with <code>cc-dialect doctor --fix</code> to restart stale proxies and bridge runtimes. It needs the same git and Go toolchain as the install; the original clone is not required.</p>
         <div class="callout callout--info">
           <div class="callout__title">ℹ No global config changes</div>
           <p>Claude Dialects does not modify <code>~/.claude/settings.json</code>. The embedded CLIProxyAPI is linked into the executable — no separate proxy download, container, or global configuration required.</p>
