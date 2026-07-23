@@ -171,7 +171,7 @@ func startProxy(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	_, _, _, _, pidPath, logPath, versionPath, err := paths(name)
+	_, _, _, _, pidPath, logPath, _, err := paths(name)
 	if err != nil {
 		return err
 	}
@@ -193,7 +193,9 @@ func startProxy(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
-	_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
+	// The version sidecar is written by the __proxy child (runEmbeddedProxy):
+	// exec.Command re-executes the on-disk binary, which can be newer than this
+	// parent process, so only the child knows the identity actually serving.
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
 		if proxyHealthy(dialect) {
 			return nil
@@ -272,6 +274,12 @@ func runEmbeddedProxy(name string) error {
 	dialect, ok := cfg.Dialects[name]
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", name)
+	}
+	// Stamp this process's own identity before serving: the spawning parent may
+	// be an older cc-dialect build that re-executed a newer on-disk binary, so
+	// only this child knows which build is actually running the proxy.
+	if _, _, _, _, _, _, versionPath, pathErr := paths(name); pathErr == nil {
+		_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
 	}
 	path, err := writeProxyConfig(name, dialect)
 	if err != nil {

@@ -978,9 +978,9 @@ func doctor(args []string, version string) error {
 				if dialect.Bridge != bridge || !(proxyHealthy(dialect) || managedBridgeHealthy(dialect)) {
 					continue
 				}
-				if envName := missingStartEnv(dialect); envName != "" {
-					return fmt.Errorf("%s SDK reinstall would stop running dialect %s, but %s is not set in this shell (set it, then re-run: cc-dialect doctor --fix)",
-						bridgeDisplayName(bridge), name, envName)
+				if requirement := missingStartRequirement(dialect); requirement != "" {
+					return fmt.Errorf("%s SDK reinstall would stop running dialect %s, but %s (fix that, then re-run: cc-dialect doctor --fix)",
+						bridgeDisplayName(bridge), name, requirement)
 				}
 			}
 			return nil
@@ -1024,11 +1024,11 @@ func doctor(args []string, version string) error {
 		sort.Strings(restartNames)
 		for _, name := range restartNames {
 			// RestartDialect stops the runtime before start-time requirements
-			// are checked, so a missing env var would strand a running dialect
-			// in the stopped state. Preflight those requirements instead.
-			if envName := missingStartEnv(cfg.Dialects[name]); envName != "" {
+			// are checked, so a missing env var or Node runtime would strand a
+			// running dialect in the stopped state. Preflight instead.
+			if requirement := missingStartRequirement(cfg.Dialects[name]); requirement != "" {
 				fixErrors = append(fixErrors,
-					fmt.Errorf("cannot restart %s: %s is not set in this shell (set it, then run: cc-dialect proxy %s restart)", name, envName, name))
+					fmt.Errorf("cannot restart %s: %s (fix that, then run: cc-dialect proxy %s restart)", name, requirement, name))
 				continue
 			}
 			fmt.Printf("\nApplying fix: restarting stale dialect %s...\n", name)
@@ -1048,16 +1048,36 @@ func doctor(args []string, version string) error {
 	return nil
 }
 
-// missingStartEnv returns the environment variable a dialect requires at start
-// time that is not set in the current shell, or "" when nothing is missing.
-// Restarting a dialect without it would stop the running process and then fail
-// to start the replacement.
-func missingStartEnv(dialect Dialect) string {
+// bridgeNodeProbe checks whether the Node.js runtime a bridge requires is
+// available in the current shell. A variable so tests can stub it.
+var bridgeNodeProbe = func(bridge string) error {
+	switch bridge {
+	case "cursor":
+		_, _, err := cursorNode()
+		return err
+	case "copilot":
+		_, _, err := copilotNode()
+		return err
+	}
+	return nil
+}
+
+// missingStartRequirement returns a human-readable description of a start-time
+// requirement the dialect needs that is not satisfied in the current shell, or
+// "" when everything is available. Restarting a dialect with an unsatisfied
+// requirement would stop the running process and then fail to start the
+// replacement, so callers must check this before stopping anything.
+func missingStartRequirement(dialect Dialect) string {
 	if dialect.Bridge == "cursor" && os.Getenv("CURSOR_API_KEY") == "" {
-		return "CURSOR_API_KEY"
+		return "CURSOR_API_KEY is not set"
+	}
+	if dialect.Bridge != "" {
+		if err := bridgeNodeProbe(dialect.Bridge); err != nil {
+			return err.Error()
+		}
 	}
 	if dialect.BaseURL != "" && dialect.AuthTokenEnv != "" && os.Getenv(dialect.AuthTokenEnv) == "" {
-		return dialect.AuthTokenEnv
+		return dialect.AuthTokenEnv + " is not set"
 	}
 	return ""
 }
