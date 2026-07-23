@@ -773,28 +773,34 @@ instances/
     proxy.yaml
     proxy.pid
     proxy.log
+    proxy.version
   cc-kimi/
     auth/
     claude/
     proxy.yaml
     proxy.pid
     proxy.log
+    proxy.version
   cc-cursor/
     claude/
     cursor-workspace/
     cursor-bridge.pid
     cursor-bridge.log
+    cursor-bridge.version
     proxy.yaml
     proxy.pid
     proxy.log
+    proxy.version
   cc-copilot-mai/
     claude/
     copilot-home/
     copilot-bridge.pid
     copilot-bridge.log
+    copilot-bridge.version
     proxy.yaml
     proxy.pid
     proxy.log
+    proxy.version
 cursor-runtime/
   cursor_bridge.mjs
   node_modules/@cursor/sdk/
