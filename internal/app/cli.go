@@ -35,7 +35,7 @@ Usage:
   cc-dialect native install <command> [--dangerous] [--dir <path>]
   cc-dialect proxy <dialect> <start|stop|restart|status|logs>
   cc-dialect web [--listen 127.0.0.1:0] [--no-browser]
-  cc-dialect doctor
+  cc-dialect doctor [--fix]
 
 Example:
   cc-dialect create cc-codex --preset codex-sol
@@ -968,27 +968,52 @@ func doctor(args []string, version string) error {
 			restarts[name] = true
 		}
 		service := newAppService()
+		// A bridge SDK reinstall stops every running dialect for that bridge.
+		// Verify those dialects can be started again from this shell before
+		// stopping anything, so --fix never turns a healthy runtime into a
+		// stopped one it cannot bring back.
+		installPreflight := func(bridge string) error {
+			for _, name := range names {
+				dialect := cfg.Dialects[name]
+				if dialect.Bridge != bridge || !(proxyHealthy(dialect) || managedBridgeHealthy(dialect)) {
+					continue
+				}
+				if envName := missingStartEnv(dialect); envName != "" {
+					return fmt.Errorf("%s SDK reinstall would stop running dialect %s, but %s is not set in this shell (set it, then re-run: cc-dialect doctor --fix)",
+						bridgeDisplayName(bridge), name, envName)
+				}
+			}
+			return nil
+		}
 		if needsCopilotInstall {
-			fmt.Println("\nApplying fix: installing Copilot bridge SDK...")
-			if result, installErr := installCopilotRuntime(); installErr != nil {
-				fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", installErr))
+			if preflightErr := installPreflight("copilot"); preflightErr != nil {
+				fixErrors = append(fixErrors, preflightErr)
 			} else {
-				fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
-				// The install stops running Copilot dialects; restart them below
-				// so --fix does not leave previously running dialects stopped.
-				for _, name := range result.StoppedDialects {
-					restarts[name] = true
+				fmt.Println("\nApplying fix: installing Copilot bridge SDK...")
+				if result, installErr := installCopilotRuntime(); installErr != nil {
+					fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", installErr))
+				} else {
+					fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+					// The install stops running Copilot dialects; restart them below
+					// so --fix does not leave previously running dialects stopped.
+					for _, name := range result.StoppedDialects {
+						restarts[name] = true
+					}
 				}
 			}
 		}
 		if needsCursorInstall {
-			fmt.Println("\nApplying fix: installing Cursor bridge SDK...")
-			if result, installErr := service.InstallCursorRuntime(); installErr != nil {
-				fixErrors = append(fixErrors, fmt.Errorf("Cursor install failed: %w", installErr))
+			if preflightErr := installPreflight("cursor"); preflightErr != nil {
+				fixErrors = append(fixErrors, preflightErr)
 			} else {
-				fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
-				for _, name := range result.StoppedDialects {
-					restarts[name] = true
+				fmt.Println("\nApplying fix: installing Cursor bridge SDK...")
+				if result, installErr := service.InstallCursorRuntime(); installErr != nil {
+					fixErrors = append(fixErrors, fmt.Errorf("Cursor install failed: %w", installErr))
+				} else {
+					fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+					for _, name := range result.StoppedDialects {
+						restarts[name] = true
+					}
 				}
 			}
 		}
