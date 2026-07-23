@@ -303,6 +303,9 @@ func (service *appService) mutateDialect(input DialectInput, expectedRevision st
 		if saveErr := saveConfig(cfg); saveErr != nil {
 			return saveErr
 		}
+		if seedErr := seedStatusline(input.Name, dialect); seedErr != nil {
+			warnStatuslineSeed(input.Name, seedErr)
+		}
 		revision, revisionErr := configRevision(cfg)
 		if revisionErr != nil {
 			return revisionErr

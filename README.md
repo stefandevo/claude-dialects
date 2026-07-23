@@ -524,6 +524,31 @@ cc-codex --permission-mode plan
 cc-kimi --allowedTools "Bash,Read"
 ```
 
+### Per-dialect statusline
+
+Because each dialect runs with an isolated `CLAUDE_CONFIG_DIR`, the global
+`~/.claude` statusline never applies. Instead every dialect gets a generated
+statusline that names the dialect, so parallel terminals are easy to tell
+apart:
+
+```text
+cc-codex · GPT-5.6 Sol · effort:auto · ctx 42%
+```
+
+`cc-dialect create` writes `instances/<name>/statusline.sh` and wires it into
+the dialect's isolated `claude/settings.json`; dialects created before this
+feature are backfilled the next time they run. The dialect name is colored per
+provider route. The script uses `jq` (preinstalled on recent macOS); when `jq`
+is missing the statusline stays empty instead of erroring.
+
+- **Customize:** point the `statusLine` key in
+  `instances/<name>/claude/settings.json` at your own script — a `statusLine`
+  you set yourself is never overwritten. Avoid editing the generated
+  `statusline.sh` in place: outdated generated scripts are refreshed on run
+  after upgrades.
+- **Remove:** delete the `statusLine` key from that `settings.json`. Once the
+  generated script exists, the key is never re-added.
+
 ## Native Claude shortcuts
 
 Claude Dialects can also install a lightweight shortcut for the normal Claude
@@ -791,6 +816,7 @@ instances/
   cc-codex/
     auth/
     claude/
+    statusline.sh
     proxy.yaml
     proxy.pid
     proxy.log
@@ -798,12 +824,14 @@ instances/
   cc-kimi/
     auth/
     claude/
+    statusline.sh
     proxy.yaml
     proxy.pid
     proxy.log
     proxy.version
   cc-cursor/
     claude/
+    statusline.sh
     cursor-workspace/
     cursor-bridge.pid
     cursor-bridge.log
@@ -814,6 +842,7 @@ instances/
     proxy.version
   cc-copilot-mai/
     claude/
+    statusline.sh
     copilot-home/
     copilot-bridge.pid
     copilot-bridge.log

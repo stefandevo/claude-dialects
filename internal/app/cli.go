@@ -489,6 +489,11 @@ func runDialect(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Backfill the per-dialect statusline for instances created before it
+	// existed, and refresh an outdated generated script after upgrades.
+	if seedErr := seedStatusline(name, d); seedErr != nil {
+		warnStatuslineSeed(name, seedErr)
+	}
 	env := append([]string{}, os.Environ()...)
 	if _, err = newAppService().StartDialect(name); err != nil {
 		return err
