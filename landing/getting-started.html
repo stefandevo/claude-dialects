@@ -235,6 +235,7 @@ cc-codex-work    # embedded proxy :43170
 cc-kimi-work     # embedded proxy :43171</code></pre>
         </div>
         <p>Ports are actively checked and allocated per dialect starting at <code>:43170</code>. A port already bound by any process is skipped during creation and rejected again at startup.</p>
+        <p>Every dialect also gets a generated statusline that names the dialect — e.g. <code>cc-codex · GPT-5.6 Sol · effort:auto · ctx 42%</code> — with the name colored per provider route, so parallel terminals are easy to tell apart. <code>cc-dialect create</code> writes <code>instances/&lt;name&gt;/statusline.sh</code> and wires it into the dialect's isolated <code>claude/settings.json</code>; older dialects are backfilled the next time they run. The script uses <code>jq</code> (preinstalled on recent macOS) and stays empty when it is missing. To customize, point the <code>statusLine</code> key in that <code>settings.json</code> at your own script — a user-set <code>statusLine</code> is never overwritten. To remove it, delete the <code>statusLine</code> key; it is never re-added once the generated script exists.</p>
       </section>
 
       <section id="mixed" class="doc-section reveal">
