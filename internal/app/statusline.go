@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // statuslineColors maps a provider route to an ANSI SGR attribute for the
@@ -61,6 +62,9 @@ jq -r '"%s · \(.model.display_name)\(if .effort then " · effort:\(.effort.leve
 // has opted out, so the key is not re-added. Outdated script content is
 // regenerated so binary upgrades propagate template improvements.
 func seedStatusline(name string, dialect Dialect) error {
+	if !validName(name) {
+		return operationError(ErrorInvalidInput, "invalid dialect name %q", name)
+	}
 	scriptPath, err := statuslineScriptPath(name)
 	if err != nil {
 		return err
@@ -97,12 +101,21 @@ func seedStatusline(name string, dialect Dialect) error {
 	if _, exists := settings["statusLine"]; exists || seeded {
 		return nil
 	}
-	settings["statusLine"] = map[string]any{"type": "command", "command": scriptPath}
+	// statusLine.command is executed by a shell, and the default config root
+	// (~/Library/Application Support/claude-dialects) contains a space — the
+	// stored command must be quoted to survive word splitting.
+	settings["statusLine"] = map[string]any{"type": "command", "command": shellQuote(scriptPath)}
 	merged, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
 	}
 	return atomicWriteFile(settingsPath, append(merged, '\n'), 0o600)
+}
+
+// shellQuote wraps a string in single quotes for safe use as a shell word,
+// escaping any embedded single quotes.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // warnStatuslineSeed reports a failed statusline seed without failing the

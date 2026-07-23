@@ -61,8 +61,8 @@ func TestCreateDialectSeedsStatusline(t *testing.T) {
 		t.Fatalf("statusline script does not embed the dialect name:\n%s", script)
 	}
 	settingsPath := filepath.Join(home, "instances", "cc-test", "claude", "settings.json")
-	if command := statuslineCommand(t, readSettings(t, settingsPath)); command != scriptPath {
-		t.Fatalf("statusLine command = %q, want %q", command, scriptPath)
+	if command, want := statuslineCommand(t, readSettings(t, settingsPath)), "'"+scriptPath+"'"; command != want {
+		t.Fatalf("statusLine command = %q, want %q", command, want)
 	}
 }
 
@@ -88,8 +88,43 @@ func TestSeedStatuslinePreservesExistingSettings(t *testing.T) {
 		t.Fatalf("seeding dropped nested settings: %#v", settings)
 	}
 	scriptPath := filepath.Join(home, "instances", "cc-test", "statusline.sh")
-	if command := statuslineCommand(t, settings); command != scriptPath {
-		t.Fatalf("statusLine command = %q, want %q", command, scriptPath)
+	if command, want := statuslineCommand(t, settings), "'"+scriptPath+"'"; command != want {
+		t.Fatalf("statusLine command = %q, want %q", command, want)
+	}
+}
+
+// The default config root (~/Library/Application Support/claude-dialects)
+// contains a space, and statusLine.command is executed by a shell — the stored
+// command must be quoted or every default install gets a broken statusline.
+func TestSeedStatuslineCommandSurvivesSpacesInHome(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not installed")
+	}
+	home := filepath.Join(t.TempDir(), "Application Support", "claude-dialects")
+	t.Setenv("DIALECT_HOME", home)
+	if err := seedStatusline("cc-test", presets["codex"]); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(home, "instances", "cc-test", "claude", "settings.json")
+	command := exec.Command("sh", "-c", statuslineCommand(t, readSettings(t, settingsPath)))
+	command.Stdin = strings.NewReader(`{"model":{"display_name":"GPT-5.6 Sol"}}`)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("statusLine command failed under a path with spaces: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "cc-test") {
+		t.Fatalf("statusLine command output %q missing dialect name", output)
+	}
+}
+
+func TestSeedStatuslineRejectsInvalidName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := seedStatusline("../evil", presets["codex"]); err == nil {
+		t.Fatal("seedStatusline should reject an invalid dialect name")
+	}
+	if _, err := os.Stat(filepath.Join(home, "evil")); !os.IsNotExist(err) {
+		t.Fatalf("invalid name escaped the instances directory: %v", err)
 	}
 }
 
