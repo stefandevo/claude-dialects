@@ -292,6 +292,65 @@ func TestSeedStatuslineSkipsMalformedSettings(t *testing.T) {
 	}
 }
 
+// settings.json containing literal `null` unmarshals into a nil map without
+// error; seeding must reject it like any other unusable settings shape instead
+// of panicking on the statusLine assignment.
+func TestSeedStatuslineSkipsNullSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	settingsPath := filepath.Join(home, "instances", "cc-test", "claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte("null\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStatusline("cc-test", presets["codex"]); err == nil {
+		t.Fatal("seeding with null settings.json should fail")
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil || string(data) != "null\n" {
+		t.Fatalf("null settings were modified: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "instances", "cc-test", "statusline.sh")); !os.IsNotExist(err) {
+		t.Fatalf("script written despite null settings: %v", err)
+	}
+}
+
+// A committed script-write error (rename landed, parent-dir sync failed) must
+// not abort the backfill: the settings still need the statusLine key, or the
+// leftover script plus keyless settings reads as an opt-out on the next run.
+func TestSeedStatuslineWiresSettingsAfterCommittedScriptWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	settingsPath := filepath.Join(home, "instances", "cc-test", "claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := syncParentDirectory
+	syncParentDirectory = func(dir string) error {
+		if filepath.Base(dir) == "cc-test" {
+			return errors.New("sync failed")
+		}
+		return original(dir)
+	}
+	t.Cleanup(func() { syncParentDirectory = original })
+	err := seedStatusline("cc-test", presets["codex"])
+	if err == nil || !atomicWriteCommitted(err) {
+		t.Fatalf("expected committed script write error, got %v", err)
+	}
+	settings := readSettings(t, settingsPath)
+	if _, exists := settings["statusLine"]; !exists {
+		t.Fatalf("committed script write aborted settings wiring: %#v", settings)
+	}
+	if settings["theme"] != "dark" {
+		t.Fatalf("settings wiring dropped existing keys: %#v", settings)
+	}
+}
+
 func TestStatuslineScriptRendersStatusJSON(t *testing.T) {
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq not installed")

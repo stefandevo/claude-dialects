@@ -88,6 +88,11 @@ func seedStatusline(name string, dialect Dialect) error {
 		if err = json.Unmarshal(settingsData, &settings); err != nil {
 			return fmt.Errorf("parse %s: %w", settingsPath, err)
 		}
+		// Literal `null` unmarshals into a nil map without error; treat it as an
+		// unusable settings shape rather than panicking on assignment below.
+		if settings == nil {
+			return fmt.Errorf("parse %s: settings must be a JSON object", settingsPath)
+		}
 	case errors.Is(readErr, os.ErrNotExist):
 	default:
 		return readErr
@@ -102,13 +107,20 @@ func seedStatusline(name string, dialect Dialect) error {
 	// seed (e.g. a settings write lost to a crash), so rewire instead of
 	// reading it as an opt-out forever.
 	seeded := scriptErr == nil && settingsExists
+	var committedScriptErr error
 	if !seeded || string(current) != content {
-		if err = atomicWriteFile(scriptPath, []byte(content), 0o755); err != nil {
-			return err
+		if writeErr := atomicWriteFile(scriptPath, []byte(content), 0o755); writeErr != nil {
+			if !atomicWriteCommitted(writeErr) {
+				return writeErr
+			}
+			// The script rename landed; keep going so the settings still get
+			// wired — aborting here would leave a script that reads as an
+			// opt-out on the next run.
+			committedScriptErr = writeErr
 		}
 	}
 	if _, exists := settings["statusLine"]; exists || seeded {
-		return nil
+		return committedScriptErr
 	}
 	// statusLine.command is executed by a shell, and the default config root
 	// (~/Library/Application Support/claude-dialects) contains a space — the
@@ -125,9 +137,9 @@ func seedStatusline(name string, dialect Dialect) error {
 		if !atomicWriteCommitted(writeErr) {
 			_ = os.Remove(scriptPath)
 		}
-		return writeErr
+		return errors.Join(committedScriptErr, writeErr)
 	}
-	return nil
+	return committedScriptErr
 }
 
 // shellQuote wraps a string in single quotes for safe use as a shell word,
