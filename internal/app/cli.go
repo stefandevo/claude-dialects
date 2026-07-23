@@ -960,18 +960,6 @@ func doctor(args []string, version string) error {
 	}
 	if *fix {
 		var fixErrors []error
-		if needsCopilotInstall {
-			fmt.Println("\nApplying fix: installing Copilot bridge SDK...")
-			if err := copilotCommand([]string{"install"}); err != nil {
-				fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", err))
-			}
-		}
-		if needsCursorInstall {
-			fmt.Println("\nApplying fix: installing Cursor bridge SDK...")
-			if err := cursorCommand([]string{"install"}); err != nil {
-				fixErrors = append(fixErrors, fmt.Errorf("Cursor install failed: %w", err))
-			}
-		}
 		restarts := make(map[string]bool)
 		for _, name := range needsProxyRestart {
 			restarts[name] = true
@@ -980,7 +968,44 @@ func doctor(args []string, version string) error {
 			restarts[name] = true
 		}
 		service := newAppService()
+		if needsCopilotInstall {
+			fmt.Println("\nApplying fix: installing Copilot bridge SDK...")
+			if result, installErr := installCopilotRuntime(); installErr != nil {
+				fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", installErr))
+			} else {
+				fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+				// The install stops running Copilot dialects; restart them below
+				// so --fix does not leave previously running dialects stopped.
+				for _, name := range result.StoppedDialects {
+					restarts[name] = true
+				}
+			}
+		}
+		if needsCursorInstall {
+			fmt.Println("\nApplying fix: installing Cursor bridge SDK...")
+			if result, installErr := service.InstallCursorRuntime(); installErr != nil {
+				fixErrors = append(fixErrors, fmt.Errorf("Cursor install failed: %w", installErr))
+			} else {
+				fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+				for _, name := range result.StoppedDialects {
+					restarts[name] = true
+				}
+			}
+		}
+		restartNames := make([]string, 0, len(restarts))
 		for name := range restarts {
+			restartNames = append(restartNames, name)
+		}
+		sort.Strings(restartNames)
+		for _, name := range restartNames {
+			// RestartDialect stops the runtime before start-time requirements
+			// are checked, so a missing env var would strand a running dialect
+			// in the stopped state. Preflight those requirements instead.
+			if envName := missingStartEnv(cfg.Dialects[name]); envName != "" {
+				fixErrors = append(fixErrors,
+					fmt.Errorf("cannot restart %s: %s is not set in this shell (set it, then run: cc-dialect proxy %s restart)", name, envName, name))
+				continue
+			}
 			fmt.Printf("\nApplying fix: restarting stale dialect %s...\n", name)
 			_, err := service.RestartDialect(name)
 			if err != nil {
@@ -996,6 +1021,20 @@ func doctor(args []string, version string) error {
 		}
 	}
 	return nil
+}
+
+// missingStartEnv returns the environment variable a dialect requires at start
+// time that is not set in the current shell, or "" when nothing is missing.
+// Restarting a dialect without it would stop the running process and then fail
+// to start the replacement.
+func missingStartEnv(dialect Dialect) string {
+	if dialect.Bridge == "cursor" && os.Getenv("CURSOR_API_KEY") == "" {
+		return "CURSOR_API_KEY"
+	}
+	if dialect.BaseURL != "" && dialect.AuthTokenEnv != "" && os.Getenv(dialect.AuthTokenEnv) == "" {
+		return dialect.AuthTokenEnv
+	}
+	return ""
 }
 
 func displayPreset(dialect Dialect) string {
