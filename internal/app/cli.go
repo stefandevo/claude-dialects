@@ -36,6 +36,7 @@ Usage:
   cc-dialect proxy <dialect> <start|stop|restart|status|logs>
   cc-dialect web [--listen 127.0.0.1:0] [--no-browser]
   cc-dialect doctor [--fix]
+  cc-dialect upgrade [--ref <branch-or-tag>]
 
 Example:
   cc-dialect create cc-codex --preset codex-sol
@@ -100,6 +101,8 @@ func Run(args []string, version string) error {
 		return webCommand(args[1:], version)
 	case "doctor":
 		return doctor(args[1:], version)
+	case "upgrade":
+		return upgradeCommand(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}

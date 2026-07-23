@@ -81,6 +81,27 @@ To make that PATH change persist across terminal restarts:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
+### Update Claude Dialects
+
+Once installed, update to the latest version without keeping the original
+clone around:
+
+```sh
+cc-dialect upgrade
+```
+
+This shallow-clones the repository into a temporary directory, builds the
+latest `main` (use `--ref <branch-or-tag>` for a specific ref), atomically
+replaces the installed `cc-dialect` binary, and then runs
+`cc-dialect doctor --fix` with the new binary to restart any proxies or
+bridges still running the old build and reinstall bridge SDK runtimes whose
+pinned versions changed. It needs the same git and Go toolchain as the
+initial install — Node.js is not required. Existing dialects, credentials,
+and installed shims are untouched; if anything fails before the replacement
+step, the installed binary is left as it was. From a source checkout, use
+`git pull && make install` instead — `upgrade` refuses to overwrite a
+development build inside a checkout.
+
 ## Create your first dialect
 
 Every dialect follows the same sequence:
@@ -540,7 +561,7 @@ dialects. Updating and reinstalling the `cc-dialect` executable does not silentl
 change an existing dialect. Apply the latest preset explicitly:
 
 ```sh
-make install
+cc-dialect upgrade
 cc-dialect create cc-kimi --preset kimi
 ```
 
@@ -869,11 +890,17 @@ cc-dialect list
 cc-dialect show cc-codex
 cc-dialect web
 cc-dialect doctor
+cc-dialect upgrade
 cc-dialect remove cc-codex
 cc-dialect --version
 ```
 
 `cc-dialect doctor` detects misconfigurations (shadowed shims, missing API keys, incorrect SDK versions). Add the `--fix` flag (`cc-dialect doctor --fix`) to automatically apply deterministic repairs: it will restart any proxies or Node bridges that are running stale binaries (e.g. after you updated `cc-dialect`), and it will re-install any Node SDK bridge runtimes that do not match the current required version. Interactive steps like OAuth logins are left for you to complete.
+
+`cc-dialect upgrade` fetches the latest source, rebuilds and atomically
+replaces the installed binary, and finishes with `cc-dialect doctor --fix` so
+stale runtimes are restarted in the same pass. See
+[Update Claude Dialects](#update-claude-dialects).
 
 
 When upgrading from the former `dialect` executable, `make install` removes that
