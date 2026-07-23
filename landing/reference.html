@@ -253,15 +253,34 @@ instances/
     proxy.yaml
     proxy.pid
     proxy.log
+    proxy.version
   cc-kimi/
     auth/
     claude/
     proxy.yaml
+    proxy.pid
+    proxy.log
+    proxy.version
   cc-cursor/
     claude/
     cursor-workspace/
     cursor-bridge.pid
+    cursor-bridge.log
+    cursor-bridge.version
     proxy.yaml
+    proxy.pid
+    proxy.log
+    proxy.version
+  cc-copilot-mai/
+    claude/
+    copilot-home/
+    copilot-bridge.pid
+    copilot-bridge.log
+    copilot-bridge.version
+    proxy.yaml
+    proxy.pid
+    proxy.log
+    proxy.version
 cursor-runtime/
   cursor_bridge.mjs
   node_modules/@cursor/sdk/
@@ -287,8 +306,8 @@ copilot-runtime/
             <span>Open the local dashboard</span>
           </div>
           <div class="command-item">
-            <code>cc-dialect doctor</code>
-            <span>Diagnose configuration issues</span>
+            <code>cc-dialect doctor [--fix]</code>
+            <span>Diagnose configuration issues and apply deterministic repairs</span>
           </div>
           <div class="command-item">
             <code>cc-dialect remove cc-codex</code>

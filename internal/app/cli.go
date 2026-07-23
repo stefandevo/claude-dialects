@@ -35,7 +35,7 @@ Usage:
   cc-dialect native install <command> [--dangerous] [--dir <path>]
   cc-dialect proxy <dialect> <start|stop|restart|status|logs>
   cc-dialect web [--listen 127.0.0.1:0] [--no-browser]
-  cc-dialect doctor
+  cc-dialect doctor [--fix]
 
 Example:
   cc-dialect create cc-codex --preset codex-sol
@@ -45,6 +45,14 @@ Example:
 `
 
 func Run(args []string, version string) error {
+	SetAppVersion(version)
+	// Capture the build identity now, while the executable on disk is still the
+	// binary this process was started from. A long-lived process (e.g.
+	// `cc-dialect web`) can outlive a `make install` that replaces the binary;
+	// hashing the executable lazily at spawn time would then stamp bridges
+	// spawned by the old process with the replacement binary's identity, hiding
+	// their staleness from `doctor`.
+	_ = appBuildIdentity()
 	if len(args) > 0 && args[0] == "__proxy" {
 		if len(args) != 2 {
 			return errors.New("missing embedded proxy instance name")
@@ -91,11 +99,30 @@ func Run(args []string, version string) error {
 	case "web":
 		return webCommand(args[1:], version)
 	case "doctor":
-		return doctor()
+		return doctor(args[1:], version)
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}
 	return nil
+}
+
+var currentAppVersion string
+
+// SetAppVersion is called by main.go to store the current binary version
+func SetAppVersion(version string) {
+	currentAppVersion = version
+}
+
+// CurrentAppVersion returns the version stored by main.go, or the build info fallback
+func CurrentAppVersion() string {
+	if currentAppVersion != "" {
+		return currentAppVersion
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
 }
 
 func embeddedProxyVersion() string {
@@ -788,7 +815,15 @@ func preferredShimName(name string) string {
 	return "cc-" + name
 }
 
-func doctor() error {
+func doctor(args []string, version string) error {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fix := fs.Bool("fix", false, "apply deterministic fixes (e.g. restart stale proxies, install bridge SDKs)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	binaryIdentity := appBuildIdentity()
+
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -804,6 +839,10 @@ func doctor() error {
 	}
 	hasCursor := false
 	hasCopilot := false
+	needsProxyRestart := make([]string, 0)
+	needsBridgeRestart := make([]string, 0)
+	needsCopilotInstall := false
+	needsCursorInstall := false
 	for _, dialect := range cfg.Dialects {
 		if dialect.Bridge == "cursor" {
 			hasCursor = true
@@ -819,9 +858,11 @@ func doctor() error {
 			} else {
 				fmt.Printf("✗ Copilot bridge runtime has @github/copilot-sdk %s; %s is required (run: cc-dialect copilot install)\n",
 					version, copilotSDKVersion)
+				needsCopilotInstall = true
 			}
 		} else {
 			fmt.Println("✗ Copilot bridge runtime is not installed (run: cc-dialect copilot install)")
+			needsCopilotInstall = true
 		}
 		if status, statusErr := copilotSDKStatus(); statusErr == nil && status.IsAuthenticated {
 			fmt.Println("✓ GitHub Copilot authentication")
@@ -836,9 +877,11 @@ func doctor() error {
 			} else {
 				fmt.Printf("✗ Cursor bridge runtime has @cursor/sdk %s; %s is required (run: cc-dialect cursor install)\n",
 					version, cursorSDKVersion)
+				needsCursorInstall = true
 			}
 		} else {
 			fmt.Println("✗ Cursor bridge runtime is not installed (run: cc-dialect cursor install)")
+			needsCursorInstall = true
 		}
 		if os.Getenv("CURSOR_API_KEY") == "" {
 			fmt.Println("✗ CURSOR_API_KEY is not set")
@@ -868,6 +911,37 @@ func doctor() error {
 		for _, provider := range missingAuthProviders(name, dialect) {
 			fmt.Printf("✗ %s is not authenticated for %s (run: cc-dialect auth %s %s)\n", name, provider, name, provider)
 		}
+		if proxyHealthy(dialect) {
+			proxyVersion := proxySpawnVersion(name)
+			if proxyVersion != "" && proxyVersion != binaryIdentity {
+				fmt.Printf("✗ %s proxy is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsProxyRestart = append(needsProxyRestart, name)
+			} else if proxyVersion == "" {
+				fmt.Printf("✗ %s proxy is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsProxyRestart = append(needsProxyRestart, name)
+			}
+		}
+
+		if dialect.Bridge == "cursor" && cursorBridgeHealthy(dialect) {
+			bridgeVersion := cursorBridgeSpawnVersion(name)
+			if bridgeVersion != "" && bridgeVersion != binaryIdentity {
+				fmt.Printf("✗ %s Cursor bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			} else if bridgeVersion == "" {
+				fmt.Printf("✗ %s Cursor bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			}
+		} else if dialect.Bridge == "copilot" && copilotBridgeHealthy(dialect) {
+			bridgeVersion := copilotBridgeSpawnVersion(name)
+			if bridgeVersion != "" && bridgeVersion != binaryIdentity {
+				fmt.Printf("✗ %s Copilot bridge is running an older cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			} else if bridgeVersion == "" {
+				fmt.Printf("✗ %s Copilot bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			}
+		}
+
 		if dialectHealthy(dialect) {
 			if dialect.Bridge != "" {
 				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d, %s bridge on 127.0.0.1:%d\n",
@@ -884,7 +958,128 @@ func doctor() error {
 			}
 		}
 	}
+	if *fix {
+		var fixErrors []error
+		restarts := make(map[string]bool)
+		for _, name := range needsProxyRestart {
+			restarts[name] = true
+		}
+		for _, name := range needsBridgeRestart {
+			restarts[name] = true
+		}
+		service := newAppService()
+		// A bridge SDK reinstall stops every running dialect for that bridge.
+		// Verify those dialects can be started again from this shell before
+		// stopping anything, so --fix never turns a healthy runtime into a
+		// stopped one it cannot bring back.
+		installPreflight := func(bridge string) error {
+			for _, name := range names {
+				dialect := cfg.Dialects[name]
+				if dialect.Bridge != bridge || !(proxyHealthy(dialect) || managedBridgeHealthy(dialect)) {
+					continue
+				}
+				if requirement := missingStartRequirement(dialect); requirement != "" {
+					return fmt.Errorf("%s SDK reinstall would stop running dialect %s, but %s (fix that, then re-run: cc-dialect doctor --fix)",
+						bridgeDisplayName(bridge), name, requirement)
+				}
+			}
+			return nil
+		}
+		if needsCopilotInstall {
+			if preflightErr := installPreflight("copilot"); preflightErr != nil {
+				fixErrors = append(fixErrors, preflightErr)
+			} else {
+				fmt.Println("\nApplying fix: installing Copilot bridge SDK...")
+				if result, installErr := installCopilotRuntime(); installErr != nil {
+					fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", installErr))
+				} else {
+					fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+					// The install stops running Copilot dialects; restart them below
+					// so --fix does not leave previously running dialects stopped.
+					for _, name := range result.StoppedDialects {
+						restarts[name] = true
+					}
+				}
+			}
+		}
+		if needsCursorInstall {
+			if preflightErr := installPreflight("cursor"); preflightErr != nil {
+				fixErrors = append(fixErrors, preflightErr)
+			} else {
+				fmt.Println("\nApplying fix: installing Cursor bridge SDK...")
+				if result, installErr := service.InstallCursorRuntime(); installErr != nil {
+					fixErrors = append(fixErrors, fmt.Errorf("Cursor install failed: %w", installErr))
+				} else {
+					fmt.Printf("Cursor bridge ready (@cursor/sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+					for _, name := range result.StoppedDialects {
+						restarts[name] = true
+					}
+				}
+			}
+		}
+		restartNames := make([]string, 0, len(restarts))
+		for name := range restarts {
+			restartNames = append(restartNames, name)
+		}
+		sort.Strings(restartNames)
+		for _, name := range restartNames {
+			// RestartDialect stops the runtime before start-time requirements
+			// are checked, so a missing env var or Node runtime would strand a
+			// running dialect in the stopped state. Preflight instead.
+			if requirement := missingStartRequirement(cfg.Dialects[name]); requirement != "" {
+				fixErrors = append(fixErrors,
+					fmt.Errorf("cannot restart %s: %s (fix that, then run: cc-dialect proxy %s restart)", name, requirement, name))
+				continue
+			}
+			fmt.Printf("\nApplying fix: restarting stale dialect %s...\n", name)
+			_, err := service.RestartDialect(name)
+			if err != nil {
+				fixErrors = append(fixErrors, fmt.Errorf("failed to restart %s: %w", name, err))
+			}
+		}
+		if len(fixErrors) > 0 {
+			fmt.Println("\n✗ Some fixes failed to apply:")
+			for _, err := range fixErrors {
+				fmt.Printf("  - %v\n", err)
+			}
+			return errors.New("one or more deterministic fixes failed")
+		}
+	}
 	return nil
+}
+
+// bridgeNodeProbe checks whether the Node.js runtime a bridge requires is
+// available in the current shell. A variable so tests can stub it.
+var bridgeNodeProbe = func(bridge string) error {
+	switch bridge {
+	case "cursor":
+		_, _, err := cursorNode()
+		return err
+	case "copilot":
+		_, _, err := copilotNode()
+		return err
+	}
+	return nil
+}
+
+// missingStartRequirement returns a human-readable description of a start-time
+// requirement the dialect needs that is not satisfied in the current shell, or
+// "" when everything is available. Restarting a dialect with an unsatisfied
+// requirement would stop the running process and then fail to start the
+// replacement, so callers must check this before stopping anything.
+func missingStartRequirement(dialect Dialect) string {
+	if dialect.Bridge == "cursor" && os.Getenv("CURSOR_API_KEY") == "" {
+		return "CURSOR_API_KEY is not set"
+	}
+	if dialect.Bridge != "" {
+		if err := bridgeNodeProbe(dialect.Bridge); err != nil {
+			return err.Error()
+		}
+	}
+	if dialect.BaseURL != "" && dialect.AuthTokenEnv != "" && os.Getenv(dialect.AuthTokenEnv) == "" {
+		return dialect.AuthTokenEnv + " is not set"
+	}
+	return ""
 }
 
 func displayPreset(dialect Dialect) string {

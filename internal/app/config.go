@@ -191,7 +191,7 @@ func homeDir() (string, error) {
 	return filepath.Join(cfg, "claude-dialects"), nil
 }
 
-func paths(name string) (home, configPath, proxyPath, authDir, pidPath, logPath string, err error) {
+func paths(name string) (home, configPath, proxyPath, authDir, pidPath, logPath, versionPath string, err error) {
 	home, err = homeDir()
 	if err != nil {
 		return
@@ -203,6 +203,7 @@ func paths(name string) (home, configPath, proxyPath, authDir, pidPath, logPath 
 		authDir = filepath.Join(instanceDir, "auth")
 		pidPath = filepath.Join(instanceDir, "proxy.pid")
 		logPath = filepath.Join(instanceDir, "proxy.log")
+		versionPath = filepath.Join(instanceDir, "proxy.version")
 	}
 	return
 }
@@ -254,7 +255,7 @@ func normalizeConfig(cfg *Config) {
 }
 
 func loadConfig() (*Config, error) {
-	_, path, _, _, _, _, err := paths("")
+	_, path, _, _, _, _, _, err := paths("")
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +286,7 @@ func configRevision(cfg *Config) (string, error) {
 }
 
 func saveConfig(cfg *Config) error {
-	home, path, _, _, _, _, err := paths("")
+	home, path, _, _, _, _, _, err := paths("")
 	if err != nil {
 		return err
 	}
@@ -365,7 +366,7 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
 }
 
 func writeProxyConfig(name string, dialect Dialect) (string, error) {
-	home, _, path, authDir, _, _, err := paths(name)
+	home, _, path, authDir, _, _, _, err := paths(name)
 	if err != nil {
 		return "", err
 	}

@@ -683,7 +683,7 @@ func TestExpectedAuthProvidersDerivesFromModelMapping(t *testing.T) {
 
 func TestMissingAuthProvidersListsOnlyUncredentialedProviders(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	_, _, _, authDir, _, _, err := paths("cc-mixed")
+	_, _, _, authDir, _, _, _, err := paths("cc-mixed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -760,7 +760,7 @@ func TestAuthCommandRejectsProviderOutsideMixedSet(t *testing.T) {
 
 func TestHasProviderCredentialsMatchesCredentialType(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	_, _, _, authDir, _, _, err := paths("cc-codex")
+	_, _, _, authDir, _, _, _, err := paths("cc-codex")
 	if err != nil {
 		t.Fatal(err)
 	}

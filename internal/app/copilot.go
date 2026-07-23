@@ -24,13 +24,29 @@ const (
 //go:embed copilot_bridge.mjs
 var copilotBridgeSource []byte
 
+type CopilotInstallResult struct {
+	NodePath         string
+	NodeVersion      string
+	InstalledVersion string
+	StoppedDialects  []string
+}
+
 func copilotCommand(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: cc-dialect copilot <install|login|status|models>")
 	}
 	switch args[0] {
 	case "install":
-		return installCopilotRuntime()
+		result, err := installCopilotRuntime()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+		if len(result.StoppedDialects) > 0 {
+			fmt.Printf("Stopped stale Copilot dialect runtime(s): %s\n", strings.Join(result.StoppedDialects, ", "))
+			fmt.Println("Launch the dialect again to use the updated bridge.")
+		}
+		return nil
 	case "login":
 		return copilotLogin()
 	case "status":
@@ -59,57 +75,58 @@ func copilotRuntimePaths() (runtimeDir, bridgePath, packagePath, cliPath string,
 	return
 }
 
-func copilotInstancePaths(name string) (pidPath, logPath, stateDir string, err error) {
+func copilotInstancePaths(name string) (pidPath, logPath, stateDir, versionPath string, err error) {
 	home, err := homeDir()
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	instanceDir := filepath.Join(home, "instances", name)
 	return filepath.Join(instanceDir, "copilot-bridge.pid"),
 		filepath.Join(instanceDir, "copilot-bridge.log"),
-		filepath.Join(instanceDir, "copilot-home"), nil
+		filepath.Join(instanceDir, "copilot-home"), filepath.Join(instanceDir, "copilot-bridge.version"), nil
 }
 
-func installCopilotRuntime() error {
+func installCopilotRuntime() (CopilotInstallResult, error) {
 	nodePath, version, err := copilotNode()
 	if err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
 	npmPath, err := exec.LookPath("npm")
 	if err != nil {
-		return errors.New("npm was not found in PATH; install Node.js 22.13 or newer first")
+		return CopilotInstallResult{}, errors.New("npm was not found in PATH; install Node.js 22.13 or newer first")
 	}
 	runtimeDir, bridgePath, _, _, err := copilotRuntimePaths()
 	if err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
 	if err = os.MkdirAll(runtimeDir, 0o700); err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
 	if err = os.Chmod(runtimeDir, 0o700); err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
 	if err = writeCopilotBridge(bridgePath); err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
 	packageJSON := fmt.Sprintf("{\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@github/copilot-sdk\": %q\n  }\n}\n", copilotSDKVersion)
 	if err = atomicWriteFile(filepath.Join(runtimeDir, "package.json"), []byte(packageJSON), 0o600); err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
 	fmt.Printf("Installing official @github/copilot-sdk %s with Node %s…\n", copilotSDKVersion, version)
 	cmd := exec.Command(npmPath, "install", "--ignore-scripts", "--no-audit", "--no-fund", "--omit=dev")
 	cmd.Dir = runtimeDir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("install @github/copilot-sdk: %w", err)
+		return CopilotInstallResult{}, fmt.Errorf("install @github/copilot-sdk: %w", err)
 	}
 	installed, err := copilotRuntimeVersion()
 	if err != nil {
-		return err
+		return CopilotInstallResult{}, err
 	}
-	fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", installed, nodePath)
-	fmt.Println("Next: cc-dialect copilot login")
-	return nil
+	return CopilotInstallResult{
+		NodePath: nodePath, NodeVersion: version, InstalledVersion: installed,
+		StoppedDialects: stopCopilotDialects(),
+	}, nil
 }
 
 func copilotLogin() error {
@@ -270,7 +287,7 @@ try { ` + action + ` } finally { await client.stop(); }`
 }
 
 func copilotBridgePID(name string) int {
-	pidPath, _, _, err := copilotInstancePaths(name)
+	pidPath, _, _, _, err := copilotInstancePaths(name)
 	if err != nil {
 		return 0
 	}
@@ -318,7 +335,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	if err = writeCopilotBridge(bridgePath); err != nil {
 		return err
 	}
-	pidPath, logPath, stateDir, err := copilotInstancePaths(name)
+	pidPath, logPath, stateDir, versionPath, err := copilotInstancePaths(name)
 	if err != nil {
 		return err
 	}
@@ -358,6 +375,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
+	_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		if copilotBridgeHealthy(dialect) {
 			return nil
@@ -387,11 +405,32 @@ func copilotBridgeEnvironment(bridgeKey, stateDir string) []string {
 	return env
 }
 
+func stopCopilotDialects() []string {
+	cfg, err := loadConfig()
+	if err != nil {
+		return []string{}
+	}
+	names := make([]string, 0)
+	for name, dialect := range cfg.Dialects {
+		if dialect.Bridge == "copilot" && (proxyHealthy(dialect) || copilotBridgeHealthy(dialect)) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	stopped := make([]string, 0, len(names))
+	for _, name := range names {
+		if stopProxyDialect(name, cfg.Dialects[name]) == nil {
+			stopped = append(stopped, name)
+		}
+	}
+	return stopped
+}
+
 func stopCopilotBridge(name string, dialect Dialect) error {
 	if dialect.Bridge != "copilot" {
 		return nil
 	}
-	pidPath, _, _, err := copilotInstancePaths(name)
+	pidPath, _, _, _, err := copilotInstancePaths(name)
 	if err != nil {
 		return err
 	}
