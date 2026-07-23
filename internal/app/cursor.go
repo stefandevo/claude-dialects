@@ -384,7 +384,7 @@ func startCursorBridge(name string, dialect Dialect) error {
 		_ = cmd.Process.Kill()
 		return err
 	}
-	_ = atomicWriteFile(versionPath, []byte(embeddedProxyVersion()+"\n"), 0o600)
+	_ = atomicWriteFile(versionPath, []byte(CurrentAppVersion()+"\n"), 0o600)
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
 		if cursorBridgeHealthy(dialect) {
 			return nil

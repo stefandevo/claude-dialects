@@ -45,6 +45,7 @@ Example:
 `
 
 func Run(args []string, version string) error {
+	SetAppVersion(version)
 	if len(args) > 0 && args[0] == "__proxy" {
 		if len(args) != 2 {
 			return errors.New("missing embedded proxy instance name")
@@ -96,6 +97,25 @@ func Run(args []string, version string) error {
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
 	}
 	return nil
+}
+
+var currentAppVersion string
+
+// SetAppVersion is called by main.go to store the current binary version
+func SetAppVersion(version string) {
+	currentAppVersion = version
+}
+
+// CurrentAppVersion returns the version stored by main.go, or the build info fallback
+func CurrentAppVersion() string {
+	if currentAppVersion != "" {
+		return currentAppVersion
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
 }
 
 func embeddedProxyVersion() string {
@@ -795,7 +815,7 @@ func doctor(args []string, version string) error {
 		return err
 	}
 
-	embeddedVersion := embeddedProxyVersion()
+	embeddedVersion := CurrentAppVersion()
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -930,13 +950,18 @@ func doctor(args []string, version string) error {
 		}
 	}
 	if *fix {
+		var fixErrors []error
 		if needsCopilotInstall {
 			fmt.Println("\nApplying fix: installing Copilot bridge SDK...")
-			_ = copilotCommand([]string{"install"})
+			if err := copilotCommand([]string{"install"}); err != nil {
+				fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", err))
+			}
 		}
 		if needsCursorInstall {
 			fmt.Println("\nApplying fix: installing Cursor bridge SDK...")
-			_ = cursorCommand([]string{"install"})
+			if err := cursorCommand([]string{"install"}); err != nil {
+				fixErrors = append(fixErrors, fmt.Errorf("Cursor install failed: %w", err))
+			}
 		}
 		restarts := make(map[string]bool)
 		for _, name := range needsProxyRestart {
@@ -950,8 +975,15 @@ func doctor(args []string, version string) error {
 			fmt.Printf("\nApplying fix: restarting stale dialect %s...\n", name)
 			_, err := service.RestartDialect(name)
 			if err != nil {
-				fmt.Printf("Failed to restart %s: %v\n", name, err)
+				fixErrors = append(fixErrors, fmt.Errorf("failed to restart %s: %w", name, err))
 			}
+		}
+		if len(fixErrors) > 0 {
+			fmt.Println("\n✗ Some fixes failed to apply:")
+			for _, err := range fixErrors {
+				fmt.Printf("  - %v\n", err)
+			}
+			return errors.New("one or more deterministic fixes failed")
 		}
 	}
 	return nil

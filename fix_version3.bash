@@ -1,0 +1,28 @@
+cat << 'INNER_EOF' > temp_patch.go
+var currentAppVersion string
+
+// SetAppVersion is called by main.go to store the current binary version
+func SetAppVersion(version string) {
+	currentAppVersion = version
+}
+
+// CurrentAppVersion returns the version stored by main.go, or the build info fallback
+func CurrentAppVersion() string {
+	if currentAppVersion != "" {
+		return currentAppVersion
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
+}
+
+func embeddedProxyVersion() string {
+	info, ok := debug.ReadBuildInfo()
+INNER_EOF
+sed -i '' -e '/^func embeddedProxyVersion() string {/,/	info, ok := debug.ReadBuildInfo()/d' internal/app/cli.go
+sed -i '' -e '/^func proxyVersionFromBuildInfo/i\
+' internal/app/cli.go
+sed -i '' -e '/^func proxyVersionFromBuildInfo/r temp_patch.go' internal/app/cli.go
+rm temp_patch.go
