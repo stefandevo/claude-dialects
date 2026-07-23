@@ -117,6 +117,38 @@ func TestSeedStatuslineCommandSurvivesSpacesInHome(t *testing.T) {
 	}
 }
 
+// A first-time seed that writes the script but fails the settings write must
+// not leave the script behind: its presence would read as an opt-out and the
+// dialect would stay unconfigured permanently.
+func TestSeedStatuslineRetriesAfterFailedSettingsWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	claudeDir := filepath.Join(home, "instances", "cc-test", "claude")
+	if err := os.MkdirAll(claudeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(claudeDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStatusline("cc-test", presets["codex"]); err == nil {
+		t.Fatal("seeding should fail when settings.json cannot be written")
+	}
+	scriptPath := filepath.Join(home, "instances", "cc-test", "statusline.sh")
+	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
+		t.Fatalf("failed seed left a script behind, blocking retry: %v", err)
+	}
+	if err := os.Chmod(claudeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStatusline("cc-test", presets["codex"]); err != nil {
+		t.Fatal(err)
+	}
+	settings := readSettings(t, filepath.Join(claudeDir, "settings.json"))
+	if _, exists := settings["statusLine"]; !exists {
+		t.Fatalf("retry after failed settings write did not seed statusLine: %#v", settings)
+	}
+}
+
 func TestSeedStatuslineRejectsInvalidName(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)

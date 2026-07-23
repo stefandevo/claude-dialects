@@ -109,7 +109,16 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(settingsPath, append(merged, '\n'), 0o600)
+	if writeErr := atomicWriteFile(settingsPath, append(merged, '\n'), 0o600); writeErr != nil {
+		// Roll back the script written moments ago on a failed first-time
+		// settings write, so the next run retries the full seed instead of
+		// reading the leftover script as an opt-out.
+		if !atomicWriteCommitted(writeErr) {
+			_ = os.Remove(scriptPath)
+		}
+		return writeErr
+	}
+	return nil
 }
 
 // shellQuote wraps a string in single quotes for safe use as a shell word,
