@@ -222,15 +222,15 @@ func roundTripsThroughMutations(dialect Dialect) bool {
 	if len(dialect.ExtraEnv) > 0 {
 		return false
 	}
-	if preset, presetBacked := presets[presetSupplyingRoute(dialect)]; presetBacked {
+	if preset, presetBacked := presets[presetRestatingRoute(dialect)]; presetBacked {
 		return dialect.Bridge == preset.Bridge && dialect.AuthProvider == preset.AuthProvider
 	}
 	return dialect.Bridge == "" && dialect.AuthProvider == ""
 }
 
-// presetSupplyingRoute names the preset a create command would restate a dialect
-// through: the label it carries, or — for a dialect written before that label
-// existed — the preset whose route it matches exactly.
+// presetSupplyingRoute names the preset that supplies a dialect's route: the
+// label it carries, or — for a dialect written before that label existed — the
+// preset whose route it matches exactly.
 //
 // A label still wins over an exact match, because a labeled dialect that has
 // since diverged has to keep being judged against what it claims to be: the
@@ -241,6 +241,23 @@ func presetSupplyingRoute(dialect Dialect) string {
 		return dialect.Preset
 	}
 	return presetByContextRoute(dialect)
+}
+
+// presetRestatingRoute names the preset a create command may restate a dialect
+// through, which is narrower than the one supplying its route: a label this
+// build does not recognize blocks the match rather than being resolved past.
+//
+// Such a label may name a preset a newer build owns, and `--preset` rewrites the
+// name along with the route. Reading a window through the match costs that name
+// nothing, because backfill leaves it untouched; printing a command would trade
+// it for a route the dialect already has. So the window still reaches an
+// unrecognized label, and the command does not — which is what it got before any
+// of this could be resolved.
+func presetRestatingRoute(dialect Dialect) string {
+	if _, known := presets[dialect.Preset]; !known && dialect.Preset != "" {
+		return ""
+	}
+	return presetSupplyingRoute(dialect)
 }
 
 // shellArg renders a value for a command line the user is expected to copy into
@@ -276,7 +293,7 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 		return ""
 	}
 	command := "cc-dialect create " + shellArg(name)
-	source := presetSupplyingRoute(dialect)
+	source := presetRestatingRoute(dialect)
 	base, presetBacked := presets[source]
 	switch {
 	case presetBacked:

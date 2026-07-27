@@ -75,6 +75,25 @@ func TestContextWindowRemedyDoesNotReResolveALabeledDialect(t *testing.T) {
 	}
 }
 
+// A label this build does not recognize may name a preset a newer one owns, so
+// backfill leaves it alone rather than downgrading it to whatever matches today.
+// A command carries that same weight: `create --preset codex-sol` would write
+// the older name over the newer one, discarding what the dialect claims to be
+// for a route it already has. No command is the honest answer — the same one
+// this dialect got before its route could be resolved at all.
+func TestContextWindowRemedyDoesNotRelabelAnUnrecognizedPreset(t *testing.T) {
+	newer := presets["codex-sol"]
+	newer.Preset = "codex-sol-v2"
+	newer.ContextWindow = 0
+
+	if roundTripsThroughMutations(newer) {
+		t.Fatal("a dialect labeled by a newer build was declared round-trippable")
+	}
+	if command := contextWindowFixCommand("cc-codex", newer); command != "" {
+		t.Fatalf("recommended %q, which would rename the dialect's preset", command)
+	}
+}
+
 // The remedy is copied into a shell, so every interpolated value has to survive
 // that trip verbatim. Model IDs and upstream URLs are arbitrary strings.
 func TestContextWindowFixCommandQuotesShellUnsafeValues(t *testing.T) {

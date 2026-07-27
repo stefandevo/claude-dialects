@@ -315,6 +315,43 @@ func TestBackfillIgnoresUnknownPresets(t *testing.T) {
 	}
 }
 
+// A label this build does not recognize withholds no capacity. The dialect
+// still selects exactly a known preset's models over exactly its upstream, and
+// the reviewed window describes those models whatever the configuration calls
+// them — refusing it would leave the dialect uncalibrated over a name. The name
+// itself is what must survive: it may belong to a newer build, so it is neither
+// overwritten here nor rewritten by the command doctor offers.
+func TestBackfillCalibratesAnUnrecognizedLabelWithoutRenamingIt(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "preset": "codex-sol-v2",
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "port": 43170,
+          "apiKey": "local-secret"
+        }
+      }
+    }`)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 372000 {
+		t.Errorf("context window = %d, want the route's reviewed 372000", got)
+	}
+	if got := cfg.Dialects["cc-codex"].Preset; got != "codex-sol-v2" {
+		t.Errorf("preset = %q, want the stored \"codex-sol-v2\" left untouched", got)
+	}
+}
+
 // The migrated value must survive to disk with the existing private permissions
 // and without disturbing the dialect's credentials or ports.
 func TestBackfillPersistsAtomicallyWithPrivatePermissions(t *testing.T) {
