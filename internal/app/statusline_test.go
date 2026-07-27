@@ -178,14 +178,14 @@ func TestSeedStatuslineRewiresWhenSettingsFileMissing(t *testing.T) {
 func TestSeedStatuslineCommittedSettingsWriteLandsKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
-	original := syncParentDirectory
-	syncParentDirectory = func(dir string) error {
+	original := syncParentDirectoryAt
+	syncParentDirectoryAt = func(root *os.Root, dir string) error {
 		if filepath.Base(dir) == "claude" {
 			return errors.New("sync failed")
 		}
-		return original(dir)
+		return original(root, dir)
 	}
-	t.Cleanup(func() { syncParentDirectory = original })
+	t.Cleanup(func() { syncParentDirectoryAt = original })
 	err := seedStatusline("cc-test", presets["codex"])
 	if err == nil || !atomicWriteCommitted(err) {
 		t.Fatalf("expected committed settings write error, got %v", err)
@@ -330,14 +330,14 @@ func TestSeedStatuslineWiresSettingsAfterCommittedScriptWrite(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original := syncParentDirectory
-	syncParentDirectory = func(dir string) error {
+	original := syncParentDirectoryAt
+	syncParentDirectoryAt = func(root *os.Root, dir string) error {
 		if filepath.Base(dir) == "cc-test" {
 			return errors.New("sync failed")
 		}
-		return original(dir)
+		return original(root, dir)
 	}
-	t.Cleanup(func() { syncParentDirectory = original })
+	t.Cleanup(func() { syncParentDirectoryAt = original })
 	err := seedStatusline("cc-test", presets["codex"])
 	if err == nil || !atomicWriteCommitted(err) {
 		t.Fatalf("expected committed script write error, got %v", err)

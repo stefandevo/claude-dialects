@@ -341,17 +341,29 @@ func atomicWriteCommitted(err error) bool {
 	return errors.As(err, &writeErr) && writeErr.committed
 }
 
-var syncParentDirectory = func(dir string) error {
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
+func syncDirectory(directory *os.File) error {
 	syncErr := directory.Sync()
 	closeErr := directory.Close()
 	if syncErr != nil && !errors.Is(syncErr, syscall.EINVAL) && !errors.Is(syncErr, syscall.ENOTSUP) {
 		return syncErr
 	}
 	return closeErr
+}
+
+var syncParentDirectory = func(dir string) error {
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	return syncDirectory(directory)
+}
+
+var syncParentDirectoryAt = func(root *os.Root, dir string) error {
+	directory, err := root.Open(dir)
+	if err != nil {
+		return err
+	}
+	return syncDirectory(directory)
 }
 
 func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
@@ -392,18 +404,16 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
 }
 
 // atomicWriteFileAt is the root-confined counterpart of atomicWriteFile: it
-// writes data to root/relPath atomically, refusing to traverse symlinks or
-// escape the instances root. relPath is resolved entirely through root; absPath
-// is the same file's absolute location, used only for the parent-directory sync
-// (a durability best-effort that runs only after a successful confined rename,
-// and is routed through syncParentDirectory so the existing sync-failure
-// injection — keyed on filepath.Base of the absolute dir — keeps working).
+// writes data to root/relPath atomically, refusing to escape the instances root.
+// Every filesystem operation, including the parent-directory sync, is resolved
+// through root.
 //
-// os.Root has no CreateTemp, so the temp file is created with OpenFile using
-// O_RDWR|O_CREATE|O_EXCL and a random suffix, retrying on EEXIST to mirror
-// os.CreateTemp's contract. The atomicWriteError/atomicWriteCommitted semantics
-// are preserved exactly: seedStatusline relies on them for its opt-out logic.
-func atomicWriteFileAt(root *os.Root, relPath, absPath string, data []byte, mode os.FileMode) (err error) {
+// os.Root has no CreateTemp, so the temp file is created beside the destination
+// with OpenFile using O_RDWR|O_CREATE|O_EXCL and a random suffix, retrying on
+// EEXIST to mirror os.CreateTemp's contract. The atomicWriteError/
+// atomicWriteCommitted semantics are preserved exactly: seedStatusline relies
+// on them for its opt-out logic.
+func atomicWriteFileAt(root *os.Root, relPath string, data []byte, mode os.FileMode) (err error) {
 	relDir := filepath.Dir(relPath)
 	if err = root.MkdirAll(relDir, 0o700); err != nil {
 		return err
@@ -416,7 +426,7 @@ func atomicWriteFileAt(root *os.Root, relPath, absPath string, data []byte, mode
 		if sErr != nil {
 			return sErr
 		}
-		tempName = "." + base + ".tmp-" + suffix
+		tempName = filepath.Join(relDir, "."+base+".tmp-"+suffix)
 		temp, err = root.OpenFile(tempName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil || !errors.Is(err, os.ErrExist) {
 			break
@@ -446,7 +456,7 @@ func atomicWriteFileAt(root *os.Root, relPath, absPath string, data []byte, mode
 	if err = root.Rename(tempName, relPath); err != nil {
 		return err
 	}
-	if syncErr := syncParentDirectory(filepath.Dir(absPath)); syncErr != nil {
+	if syncErr := syncParentDirectoryAt(root, relDir); syncErr != nil {
 		return &atomicWriteError{err: syncErr, committed: true}
 	}
 	return nil
@@ -563,7 +573,7 @@ usage-statistics-enabled: false
 	if err = root.MkdirAll(filepath.Join(name, "auth"), 0o700); err != nil {
 		return "", err
 	}
-	if err = atomicWriteFileAt(root, filepath.Join(name, "proxy.yaml"), path, []byte(content), 0o600); err != nil {
+	if err = atomicWriteFileAt(root, filepath.Join(name, "proxy.yaml"), []byte(content), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil

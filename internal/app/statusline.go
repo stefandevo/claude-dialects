@@ -120,7 +120,7 @@ func seedStatusline(name string, dialect Dialect) error {
 	seeded := scriptErr == nil && settingsExists
 	var committedScriptErr error
 	if !seeded || string(current) != content {
-		if writeErr := atomicWriteFileAt(root, scriptRel, scriptPath, []byte(content), 0o755); writeErr != nil {
+		if writeErr := atomicWriteFileAt(root, scriptRel, []byte(content), 0o755); writeErr != nil {
 			if !atomicWriteCommitted(writeErr) {
 				return writeErr
 			}
@@ -141,7 +141,7 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if writeErr := atomicWriteFileAt(root, settingsRel, settingsPath, append(merged, '\n'), 0o600); writeErr != nil {
+	if writeErr := atomicWriteFileAt(root, settingsRel, append(merged, '\n'), 0o600); writeErr != nil {
 		// Roll back the script written moments ago on a failed first-time
 		// settings write, so the next run retries the full seed instead of
 		// reading the leftover script as an opt-out.
