@@ -222,10 +222,42 @@ func roundTripsThroughMutations(dialect Dialect) bool {
 	if len(dialect.ExtraEnv) > 0 {
 		return false
 	}
-	if preset, presetBacked := presets[dialect.Preset]; presetBacked {
+	if preset, presetBacked := presets[presetRestatingRoute(dialect)]; presetBacked {
 		return dialect.Bridge == preset.Bridge && dialect.AuthProvider == preset.AuthProvider
 	}
 	return dialect.Bridge == "" && dialect.AuthProvider == ""
+}
+
+// presetSupplyingRoute names the preset that supplies a dialect's route: the
+// label it carries, or — for a dialect written before that label existed — the
+// preset whose route it matches exactly.
+//
+// A label still wins over an exact match, because a labeled dialect that has
+// since diverged has to keep being judged against what it claims to be: the
+// divergence is the reason its remedy is refused, and quietly re-resolving it to
+// some other preset would bless the very command that would replace its route.
+func presetSupplyingRoute(dialect Dialect) string {
+	if _, labeled := presets[dialect.Preset]; labeled {
+		return dialect.Preset
+	}
+	return presetByContextRoute(dialect)
+}
+
+// presetRestatingRoute names the preset a create command may restate a dialect
+// through, which is narrower than the one supplying its route: a label this
+// build does not recognize blocks the match rather than being resolved past.
+//
+// Such a label may name a preset a newer build owns, and `--preset` rewrites the
+// name along with the route. Reading a window through the match costs that name
+// nothing, because backfill leaves it untouched; printing a command would trade
+// it for a route the dialect already has. So the window still reaches an
+// unrecognized label, and the command does not — which is what it got before any
+// of this could be resolved.
+func presetRestatingRoute(dialect Dialect) string {
+	if _, known := presets[dialect.Preset]; !known && dialect.Preset != "" {
+		return ""
+	}
+	return presetSupplyingRoute(dialect)
 }
 
 // shellArg renders a value for a command line the user is expected to copy into
@@ -251,20 +283,21 @@ func shellArg(value string) string {
 // `create` rebuilds a dialect from the flags it is given rather than patching
 // it, so a command naming only the model would quietly delete tier overrides,
 // the upstream URL and token variable, and any non-default behavior settings.
-// A preset-backed dialect is restated through its preset, which restores the
-// whole route in one flag; a custom one restates every flag it actually differs
-// on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth route no
-// preset supplies — has no faithful command at all, so this returns "" rather
-// than print one that would break the dialect.
+// A dialect a preset can supply is restated through that preset, which restores
+// the whole route in one flag; a custom one restates every flag it actually
+// differs on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth
+// route no preset supplies — has no faithful command at all, so this returns ""
+// rather than print one that would break the dialect.
 func contextWindowFixCommand(name string, dialect Dialect) string {
 	if !roundTripsThroughMutations(dialect) {
 		return ""
 	}
 	command := "cc-dialect create " + shellArg(name)
-	base, presetBacked := presets[dialect.Preset]
+	source := presetRestatingRoute(dialect)
+	base, presetBacked := presets[source]
 	switch {
 	case presetBacked:
-		command += " --preset " + shellArg(dialect.Preset)
+		command += " --preset " + shellArg(source)
 	default:
 		// prepareDialect fills empty tiers from the primary model, so an
 		// unmentioned tier round-trips unchanged.

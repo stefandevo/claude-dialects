@@ -326,12 +326,13 @@ func normalizeConfig(cfg *Config) {
 // backfillContextWindows gives dialects written before capacity metadata existed
 // the reviewed window of the preset they were created from.
 //
-// It fills only where the answer is unambiguous: the dialect must name a known
-// preset and still carry that preset's exact model, tier, and route mapping. A
-// dialect that was re-pointed at other models, or that never named a preset, is
-// left unknown and reported by doctor instead — a capacity guessed from a model
-// name could be larger than the route really supports, which is worse than no
-// calibration at all. An explicit stored value is never overwritten.
+// It fills only where the answer is unambiguous: the dialect must carry a known
+// preset's exact model, tier, and route mapping, whether it names that preset or
+// — having been written before the preset field existed — is simply identical to
+// it. A dialect that was re-pointed at other models is left unknown and reported
+// by doctor instead: a capacity guessed from a model name could be larger than
+// the route really supports, which is worse than no calibration at all. An
+// explicit stored value is never overwritten.
 //
 // Migration runs once per load rather than inside normalizeConfig, which
 // configRevision applies to a shallow copy that still shares the dialect map —
@@ -346,11 +347,22 @@ func backfillContextWindows(cfg *Config) []string {
 		if dialect.ContextWindow != 0 {
 			continue
 		}
-		preset, ok := presets[dialect.Preset]
-		if !ok || !sharesContextRoute(dialect, preset) {
+		source := presetSupplyingRoute(dialect)
+		preset, ok := presets[source]
+		if !ok || !sharesContextRoute(dialect, preset) || !validContextWindow(preset.ContextWindow) {
 			continue
 		}
 		dialect.ContextWindow = preset.ContextWindow
+		// Record the preset alongside the window when the dialect carries no
+		// label at all, so the configuration stops lagging behind what this
+		// match already established and later operations — the doctor remedy,
+		// a dashboard save — restate the route instead of rediscovering it. A
+		// label that is merely unrecognized is left alone: it may name a preset
+		// a newer build owns, and overwriting it would downgrade the dialect to
+		// whatever today's build happens to match.
+		if dialect.Preset == "" {
+			dialect.Preset = source
+		}
 		cfg.Dialects[name] = dialect
 		migrated = append(migrated, name)
 	}
@@ -407,6 +419,35 @@ func sharesContextRoute(dialect, other Dialect) bool {
 		dialect.BaseURL == other.BaseURL &&
 		dialect.AuthTokenEnv == other.AuthTokenEnv &&
 		len(dialect.ExtraEnv) == 0 && len(other.ExtraEnv) == 0
+}
+
+// presetByContextRoute names the preset a dialect is field-for-field identical
+// to, or "" when none is or more than one is.
+//
+// The stored preset name is a label, and dialects created before that label
+// existed carry none — but a dialect that selects exactly a preset's models over
+// exactly its upstream *is* that route, and the preset's reviewed capacity
+// describes it as faithfully as if the name had been written down. Equality is
+// what makes that true, so this asks for nothing weaker: presetForDialect, which
+// exists to display a likely preset, matches on the primary model alone and
+// would hand a dialect with one hand-swapped tier a window larger than its
+// smallest model supports.
+//
+// Two presets sharing one route would make the answer arbitrary, so a second
+// match yields "" — the dialect stays unknown and doctor keeps reporting it,
+// which is the same outcome as before any of this could be resolved.
+func presetByContextRoute(dialect Dialect) string {
+	var match string
+	for name, preset := range presets {
+		if !sharesContextRoute(dialect, preset) {
+			continue
+		}
+		if match != "" {
+			return ""
+		}
+		match = name
+	}
+	return match
 }
 
 // readStoredConfig returns the configuration exactly as it sits on disk. Only
