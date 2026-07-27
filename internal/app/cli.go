@@ -1009,6 +1009,14 @@ func doctor(args []string, version string) error {
 	}
 	if *fix {
 		var fixErrors []error
+		// Record migrated context windows before anything else: it is the
+		// cheapest repair, touches no runtime, and takes the state lock on its
+		// own, so it must not run inside another locked operation below.
+		if migrated, migrateErr := persistContextWindowBackfill(); migrateErr != nil {
+			fixErrors = append(fixErrors, fmt.Errorf("record migrated context windows: %w", migrateErr))
+		} else if len(migrated) > 0 {
+			fmt.Printf("\nApplying fix: recorded the context window for %s.\n", strings.Join(migrated, ", "))
+		}
 		restarts := make(map[string]bool)
 		for _, name := range needsProxyRestart {
 			restarts[name] = true

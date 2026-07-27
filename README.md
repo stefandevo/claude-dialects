@@ -724,7 +724,12 @@ preset adopts that preset's current value.
 Dialects created before this field existed are migrated on first read: a dialect
 that still carries its preset's exact model and route mapping adopts that
 preset's value, while a modified or genuinely custom mapping is left unset and
-reported by `doctor`.
+reported by `doctor`. The migrated value takes effect immediately at launch;
+`cc-dialect doctor --fix` records it in `config.json` so the file stops lagging
+behind. Presets themselves are compiled into the executable, so a revised preset
+window arrives with `cc-dialect upgrade` and is applied to an existing dialect by
+re-running `cc-dialect create <name> --preset <preset>` — an already recorded
+value is never overwritten silently, since it may be one you measured yourself.
 
 ### Check the calibration
 
@@ -734,7 +739,9 @@ cc-dialect doctor
 
 `doctor` reports dialects with a missing or invalid context window, the fill
 level of the most recent request per dialect, and a Claude Code build that no
-longer references `CLAUDE_CODE_AUTO_COMPACT_WINDOW`.
+longer references `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Adding `--fix` records
+migrated windows in `config.json`; it never invents one for a custom or
+re-pointed dialect, which stays reported until you set it yourself.
 
 Each dialect's embedded proxy also records the latest request's input usage to
 `instances/<name>/context.json` and warns once per 80%, 90%, and 95% threshold.

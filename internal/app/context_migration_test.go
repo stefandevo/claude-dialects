@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -220,6 +221,170 @@ func TestBackfillPersistsAtomicallyWithPrivatePermissions(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("config permissions = %o, want 600", info.Mode().Perm())
+	}
+}
+
+// `doctor --fix` records the migrated capacity on disk so the configuration
+// file stops lagging behind the value already used at launch. The repair stays
+// deterministic: only unambiguous preset-backed dialects are written.
+func TestPersistContextWindowBackfillWritesOnlyUnambiguousDialects(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "preset": "codex-sol",
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "port": 43170,
+          "apiKey": "codex-secret"
+        },
+        "cc-tweaked": {
+          "preset": "codex-sol",
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-sol",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "port": 43171,
+          "apiKey": "tweaked-secret"
+        },
+        "cc-measured": {
+          "preset": "kimi",
+          "model": "kimi-k3",
+          "subagentModel": "kimi-k3",
+          "opusModel": "kimi-k3",
+          "sonnetModel": "kimi-k2.7-code-highspeed",
+          "haikuModel": "kimi-k2.6",
+          "authProvider": "kimi",
+          "contextWindow": 100000,
+          "port": 43172,
+          "apiKey": "kimi-secret"
+        }
+      }
+    }`)
+
+	migrated, err := persistContextWindowBackfill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated) != 1 || migrated[0] != "cc-codex" {
+		t.Fatalf("migrated = %v, want only [cc-codex]", migrated)
+	}
+
+	_, path, _, _, _, _, _, err := paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored struct {
+		Dialects map[string]struct {
+			ContextWindow int    `json:"contextWindow"`
+			APIKey        string `json:"apiKey"`
+			Port          int    `json:"port"`
+		} `json:"dialects"`
+	}
+	if err = json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.Dialects["cc-codex"].ContextWindow; got != 372000 {
+		t.Errorf("cc-codex context window = %d, want 372000 written to disk", got)
+	}
+	if got := stored.Dialects["cc-tweaked"].ContextWindow; got != 0 {
+		t.Errorf("cc-tweaked context window = %d, want it left unwritten", got)
+	}
+	if got := stored.Dialects["cc-measured"].ContextWindow; got != 100000 {
+		t.Errorf("cc-measured context window = %d, want the operator's 100000 preserved", got)
+	}
+	for name, want := range map[string]string{"cc-codex": "codex-secret", "cc-tweaked": "tweaked-secret", "cc-measured": "kimi-secret"} {
+		if got := stored.Dialects[name].APIKey; got != want {
+			t.Errorf("%s api key = %q, want the preserved %q", name, got, want)
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("config permissions = %o, want 600", info.Mode().Perm())
+	}
+}
+
+// Repeating the repair must be a no-op rather than rewriting the configuration
+// on every doctor run.
+func TestPersistContextWindowBackfillIsIdempotent(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "preset": "codex-sol",
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "port": 43170,
+          "apiKey": "codex-secret"
+        }
+      }
+    }`)
+
+	if migrated, err := persistContextWindowBackfill(); err != nil || len(migrated) != 1 {
+		t.Fatalf("first run: migrated=%v err=%v", migrated, err)
+	}
+	_, path, _, _, _, _, _, err := paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := persistContextWindowBackfill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated) != 0 {
+		t.Fatalf("second run migrated %v, want nothing left to repair", migrated)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("second run rewrote an already-migrated configuration")
+	}
+}
+
+// Nothing to repair must not create a configuration file for a user who has no
+// dialects yet.
+func TestPersistContextWindowBackfillIsQuietWithNothingToRepair(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+
+	migrated, err := persistContextWindowBackfill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated) != 0 {
+		t.Fatalf("migrated = %v, want nothing", migrated)
+	}
+	_, path, _, _, _, _, _, err := paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Fatal("repair created a configuration file where none existed")
 	}
 }
 

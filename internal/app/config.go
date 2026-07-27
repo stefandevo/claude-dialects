@@ -278,7 +278,9 @@ func normalizeConfig(cfg *Config) {
 // that needs it: every writer starts from a loaded configuration, so the value
 // reaches disk on the next saveConfig, which is already atomic and owner-only,
 // and the revision stays stable across that write.
-func backfillContextWindows(cfg *Config) {
+// It returns the names it filled, sorted, so doctor can report the repair.
+func backfillContextWindows(cfg *Config) []string {
+	var migrated []string
 	for name, dialect := range cfg.Dialects {
 		if dialect.ContextWindow != 0 {
 			continue
@@ -289,7 +291,40 @@ func backfillContextWindows(cfg *Config) {
 		}
 		dialect.ContextWindow = preset.ContextWindow
 		cfg.Dialects[name] = dialect
+		migrated = append(migrated, name)
 	}
+	sort.Strings(migrated)
+	return migrated
+}
+
+// persistContextWindowBackfill records migrated capacity values on disk, so the
+// configuration file stops lagging behind the value already used at launch.
+//
+// This is a deterministic repair, which is what `doctor --fix` promises: it
+// writes only the value a load already resolves in memory, for dialects whose
+// mapping still matches their preset. Custom and re-pointed dialects stay
+// unwritten and keep being reported, because inventing a capacity for them is
+// exactly what makes a window unsafe. It takes the state lock itself, so callers
+// must not already hold it.
+func persistContextWindowBackfill() ([]string, error) {
+	var migrated []string
+	err := withStateLock(func() error {
+		cfg, err := readStoredConfig()
+		if err != nil {
+			return err
+		}
+		migrated = backfillContextWindows(cfg)
+		if len(migrated) == 0 {
+			// Nothing to record. Returning early also keeps a user with no
+			// dialects from having a configuration file created for them.
+			return nil
+		}
+		return saveConfig(cfg)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return migrated, nil
 }
 
 // matchesPresetRoute reports whether a dialect still selects exactly the models
@@ -307,7 +342,11 @@ func matchesPresetRoute(dialect, preset Dialect) bool {
 		dialect.AuthTokenEnv == preset.AuthTokenEnv
 }
 
-func loadConfig() (*Config, error) {
+// readStoredConfig returns the configuration exactly as it sits on disk. Only
+// migration needs this unmigrated view, so it can tell what is already recorded
+// apart from what a load would have supplied in memory; every other caller wants
+// loadConfig.
+func readStoredConfig() (*Config, error) {
 	_, path, _, _, _, _, _, err := paths("")
 	if err != nil {
 		return nil, err
@@ -324,8 +363,16 @@ func loadConfig() (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	normalizeConfig(&cfg)
-	backfillContextWindows(&cfg)
 	return &cfg, nil
+}
+
+func loadConfig() (*Config, error) {
+	cfg, err := readStoredConfig()
+	if err != nil {
+		return nil, err
+	}
+	backfillContextWindows(cfg)
+	return cfg, nil
 }
 
 func configRevision(cfg *Config) (string, error) {
