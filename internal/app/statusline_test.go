@@ -391,3 +391,32 @@ func TestStatuslineScriptDegradesWithoutJq(t *testing.T) {
 		t.Fatalf("statusline script should stay silent without jq, got %q", output)
 	}
 }
+
+// A symlink planted at <home>/instances/<name> pointing outside the tree must
+// not be followed: per-dialect writes are confined to an os.Root over
+// <home>/instances, so seeding refuses the symlinked instance and writes
+// nothing through it into the escape target. validName blocks path traversal
+// but cannot block symlink escape — the root confinement is what closes it.
+func TestSeedStatuslineRejectsSymlinkedInstance(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Escape target lives outside the <home>/instances tree entirely. It must
+	// exist as a real directory so that naive os.* calls can follow the symlink
+	// and write into it — that is exactly the bug the root confinement closes.
+	target := filepath.Join(t.TempDir(), "escape")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, "instances", "cc-test")); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStatusline("cc-test", presets["codex"]); err == nil {
+		t.Fatal("seedStatusline should refuse a symlinked instance directory")
+	}
+	if _, err := os.Stat(filepath.Join(target, "statusline.sh")); !os.IsNotExist(err) {
+		t.Fatalf("seedStatusline wrote through the symlink into the escape target: %v", err)
+	}
+}

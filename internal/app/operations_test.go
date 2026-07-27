@@ -493,6 +493,43 @@ func TestRemoveDialectDeletesOnlyValidatedMemberState(t *testing.T) {
 	}
 }
 
+// Removing a dialect whose instance directory is a symlink must unlink the
+// link, not descend into and delete its target outside the tree. removeAllAt
+// lstats each entry so symlinks are removed rather than followed.
+func TestRemoveDialectUnlinksSymlinkedInstance(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	cfg := defaultConfig()
+	cfg.Dialects["cc-link"] = Dialect{Model: "model", Port: 43170, APIKey: "key"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "escape")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "keep"), []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, "instances", "cc-link")); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	service.stopRuntime = func(string, Dialect) error { return nil }
+	if err := service.RemoveDialect("cc-link", ""); err != nil {
+		t.Fatalf("RemoveDialect failed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, "instances", "cc-link")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlinked instance still present: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "keep")); err != nil || string(data) != "keep me" {
+		t.Fatalf("symlink target was deleted through the instance: %q, %v", data, err)
+	}
+}
+
 func TestNativeLauncherTrackingAndHashProtection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)

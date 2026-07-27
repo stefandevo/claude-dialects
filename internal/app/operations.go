@@ -523,11 +523,12 @@ func (service *appService) RemoveDialect(name, expectedRevision string) error {
 		if err = saveConfig(cfg); err != nil {
 			return err
 		}
-		home, _, _, _, _, _, _, err := paths(name)
+		root, err := instancesRoot()
 		if err != nil {
 			return err
 		}
-		return os.RemoveAll(filepath.Join(home, "instances", name))
+		defer root.Close()
+		return removeAllAt(root, name)
 	})
 }
 

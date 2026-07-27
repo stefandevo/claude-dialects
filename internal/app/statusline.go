@@ -77,9 +77,20 @@ func seedStatusline(name string, dialect Dialect) error {
 		return err
 	}
 	settingsPath := filepath.Join(claudeDir, "settings.json")
+	// The absolute paths above are needed for the parent-dir sync and for the
+	// statusLine command embedded in settings.json (Claude Code executes it).
+	// All file I/O is confined to the instances root so a symlinked instance
+	// cannot escape the tree.
+	root, err := instancesRoot()
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	scriptRel := filepath.Join(name, "statusline.sh")
+	settingsRel := filepath.Join(name, "claude", "settings.json")
 	settings := map[string]any{}
 	settingsExists := false
-	settingsData, readErr := os.ReadFile(settingsPath)
+	settingsData, readErr := root.ReadFile(settingsRel)
 	switch {
 	case readErr == nil:
 		settingsExists = true
@@ -98,7 +109,7 @@ func seedStatusline(name string, dialect Dialect) error {
 		return readErr
 	}
 	content := statuslineScriptContent(name, dialect)
-	current, scriptErr := os.ReadFile(scriptPath)
+	current, scriptErr := root.ReadFile(scriptRel)
 	if scriptErr != nil && !errors.Is(scriptErr, os.ErrNotExist) {
 		return scriptErr
 	}
@@ -109,7 +120,7 @@ func seedStatusline(name string, dialect Dialect) error {
 	seeded := scriptErr == nil && settingsExists
 	var committedScriptErr error
 	if !seeded || string(current) != content {
-		if writeErr := atomicWriteFile(scriptPath, []byte(content), 0o755); writeErr != nil {
+		if writeErr := atomicWriteFileAt(root, scriptRel, scriptPath, []byte(content), 0o755); writeErr != nil {
 			if !atomicWriteCommitted(writeErr) {
 				return writeErr
 			}
@@ -130,12 +141,12 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if writeErr := atomicWriteFile(settingsPath, append(merged, '\n'), 0o600); writeErr != nil {
+	if writeErr := atomicWriteFileAt(root, settingsRel, settingsPath, append(merged, '\n'), 0o600); writeErr != nil {
 		// Roll back the script written moments ago on a failed first-time
 		// settings write, so the next run retries the full seed instead of
 		// reading the leftover script as an opt-out.
 		if !atomicWriteCommitted(writeErr) {
-			_ = os.Remove(scriptPath)
+			_ = root.Remove(scriptRel)
 		}
 		return errors.Join(committedScriptErr, writeErr)
 	}

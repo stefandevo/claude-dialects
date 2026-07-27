@@ -224,13 +224,36 @@ func ensureClaudeConfigDir(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err = os.MkdirAll(path, 0o700); err != nil {
+	root, err := instancesRoot()
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	rel := filepath.Join(name, "claude")
+	if err = root.MkdirAll(rel, 0o700); err != nil {
 		return "", fmt.Errorf("create isolated Claude config for %q: %w", name, err)
 	}
-	if err = os.Chmod(path, 0o700); err != nil {
+	if err = rootChmod(root, rel, 0o700); err != nil {
 		return "", fmt.Errorf("secure isolated Claude config for %q: %w", name, err)
 	}
 	return path, nil
+}
+
+// instancesRoot returns an os.Root confined to <home>/instances, creating the
+// directory when it does not yet exist. os.Root refuses to traverse symlinks or
+// escape its root, which closes the symlink-escape gap that validName (a
+// path-traversal guard) cannot. It is opened per operation so DIALECT_HOME can
+// change between calls (as it does under test); callers Close it when done.
+func instancesRoot() (*os.Root, error) {
+	home, err := homeDir()
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(home, "instances")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenRoot(dir)
 }
 
 func defaultConfig() *Config {
@@ -368,12 +391,117 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
 	return nil
 }
 
+// atomicWriteFileAt is the root-confined counterpart of atomicWriteFile: it
+// writes data to root/relPath atomically, refusing to traverse symlinks or
+// escape the instances root. relPath is resolved entirely through root; absPath
+// is the same file's absolute location, used only for the parent-directory sync
+// (a durability best-effort that runs only after a successful confined rename,
+// and is routed through syncParentDirectory so the existing sync-failure
+// injection — keyed on filepath.Base of the absolute dir — keeps working).
+//
+// os.Root has no CreateTemp, so the temp file is created with OpenFile using
+// O_RDWR|O_CREATE|O_EXCL and a random suffix, retrying on EEXIST to mirror
+// os.CreateTemp's contract. The atomicWriteError/atomicWriteCommitted semantics
+// are preserved exactly: seedStatusline relies on them for its opt-out logic.
+func atomicWriteFileAt(root *os.Root, relPath, absPath string, data []byte, mode os.FileMode) (err error) {
+	relDir := filepath.Dir(relPath)
+	if err = root.MkdirAll(relDir, 0o700); err != nil {
+		return err
+	}
+	base := filepath.Base(relPath)
+	var tempName string
+	var temp *os.File
+	for {
+		suffix, sErr := randomSuffix()
+		if sErr != nil {
+			return sErr
+		}
+		tempName = "." + base + ".tmp-" + suffix
+		temp, err = root.OpenFile(tempName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil || !errors.Is(err, os.ErrExist) {
+			break
+		}
+	}
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = temp.Close()
+		if err != nil {
+			_ = root.Remove(tempName)
+		}
+	}()
+	if err = temp.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err = temp.Write(data); err != nil {
+		return err
+	}
+	if err = temp.Sync(); err != nil {
+		return err
+	}
+	if err = temp.Close(); err != nil {
+		return err
+	}
+	if err = root.Rename(tempName, relPath); err != nil {
+		return err
+	}
+	if syncErr := syncParentDirectory(filepath.Dir(absPath)); syncErr != nil {
+		return &atomicWriteError{err: syncErr, committed: true}
+	}
+	return nil
+}
+
+// rootChmod changes the mode of root/rel. os.Root has no Chmod method, so the
+// entry is opened through the root (which keeps it confined) and chmod'd via
+// the file descriptor; on Unix fchmod does not require write access.
+func rootChmod(root *os.Root, rel string, mode os.FileMode) error {
+	entry, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer entry.Close()
+	return entry.Chmod(mode)
+}
+
+// removeAllAt removes root/rel recursively, like os.RemoveAll but confined to
+// the instances root. It lstats each entry so a symlinked instance (or a
+// symlink within it) is unlinked rather than followed — os.RemoveAll would
+// descend into and delete the symlink's target outside the tree.
+func removeAllAt(root *os.Root, rel string) error {
+	info, err := root.Lstat(rel)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return root.Remove(rel)
+	}
+	dir, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	entries, readErr := dir.ReadDir(-1)
+	dir.Close()
+	if readErr != nil {
+		return readErr
+	}
+	for _, entry := range entries {
+		if err := removeAllAt(root, filepath.Join(rel, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return root.Remove(rel)
+}
+
 func writeProxyConfig(name string, dialect Dialect) (string, error) {
 	home, _, path, authDir, _, _, _, err := paths(name)
 	if err != nil {
 		return "", err
 	}
-	if err = os.MkdirAll(authDir, 0o700); err != nil {
+	if err = os.MkdirAll(home, 0o700); err != nil {
 		return "", err
 	}
 	content := fmt.Sprintf(`host: "127.0.0.1"
@@ -424,10 +552,18 @@ usage-statistics-enabled: false
 			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
 		}
 	}
-	if err = os.MkdirAll(home, 0o700); err != nil {
+	// Confine the auth directory and proxy config write to the instances root so
+	// a symlinked instance cannot escape the tree. authDir (absolute) is still
+	// embedded in the config for the proxy process to read.
+	root, err := instancesRoot()
+	if err != nil {
 		return "", err
 	}
-	if err = atomicWriteFile(path, []byte(content), 0o600); err != nil {
+	defer root.Close()
+	if err = root.MkdirAll(filepath.Join(name, "auth"), 0o700); err != nil {
+		return "", err
+	}
+	if err = atomicWriteFileAt(root, filepath.Join(name, "proxy.yaml"), path, []byte(content), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -439,6 +575,17 @@ func newAPIKey() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(key), nil
+}
+
+// randomSuffix returns a short hex string for a uniquely-named temp file inside
+// the instances root, replacing the random component os.CreateTemp would
+// normally generate (os.Root has no CreateTemp).
+func randomSuffix() (string, error) {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf[:]), nil
 }
 
 func nextPort(cfg *Config) int {
