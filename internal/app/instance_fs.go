@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -261,6 +262,68 @@ func (instance *instanceFS) AtomicWrite(rel string, data []byte, mode os.FileMod
 		return err
 	}
 	return atomicWriteFileAt(root, path, data, mode)
+}
+
+// StillPinned reports whether this handle's directory is still the one the
+// dialect name resolves to. A spawned child re-opens the instance by name, so a
+// rename between the parent's open and the child's leaves the two working in
+// different directories — the child serving from one while the parent records
+// its PID in the other.
+func (instance *instanceFS) StillPinned() (bool, error) {
+	root, err := instance.dir()
+	if err != nil {
+		return false, err
+	}
+	pinned, err := root.Stat(".")
+	if err != nil {
+		return false, err
+	}
+	current, err := openInstanceFS(instance.name)
+	if err != nil {
+		return false, err
+	}
+	defer current.Close()
+	currentRoot, err := current.dir()
+	if err != nil {
+		return false, err
+	}
+	live, err := currentRoot.Stat(".")
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(pinned, live), nil
+}
+
+// ConfirmWrittenInside reports whether abs — a pathname an external dependency
+// wrote — is the very file rel resolves to through the pinned root. RelUnder
+// only compares strings, and a string cannot distinguish a path inside the
+// dialect from one that merely reads like it: if a component was replaced while
+// the dependency held the pathname, the returned path still looks right while
+// the bytes landed somewhere else. Comparing the identity of the two files is
+// what tells them apart.
+func (instance *instanceFS) ConfirmWrittenInside(rel, abs string) error {
+	path, err := instance.path(rel)
+	if err != nil {
+		return err
+	}
+	root, err := instance.dir()
+	if err != nil {
+		return err
+	}
+	confined, err := root.Stat(path)
+	if err != nil {
+		return err
+	}
+	// Lstat: a symlink at the final component is not the file we confined, so it
+	// must fail the comparison rather than be followed to something that passes.
+	written, err := os.Lstat(abs)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(confined, written) {
+		return fmt.Errorf("%s is not the file %s resolves to inside dialect %q", abs, rel, instance.name)
+	}
+	return nil
 }
 
 func (instance *instanceFS) ReadPID(rel string) int {

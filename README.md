@@ -883,10 +883,13 @@ Two limits on that guarantee are worth stating plainly:
   never follows it, so the link's target is left untouched.
 - **Credentials written during OAuth are not root-confined.** `cc-dialect auth`
   hands the embedded CLIProxyAPI an absolute `auth-dir` and that dependency
-  writes the token itself, so the write is guarded by the pathname rather than by
-  the root. The CLI verifies afterwards that the file landed under the dialect's
-  own `auth/` and refuses to secure it otherwise, but the write has happened by
-  then.
+  writes the token itself through provider-specific code, so the write is guarded
+  by the pathname rather than by the root. Afterwards the CLI checks that the
+  file it was handed back really is the one the dialect's own `auth/` resolves
+  to — comparing file identity, not just the path string — and fails the login
+  naming the file to inspect if it is not. That is detection, not confinement:
+  the token has already been written by the time it runs. Closing this properly
+  needs a root-aware persistence API in CLIProxyAPI.
 
 The dashboard accepts only numeric loopback listeners. Every request must use
 the exact bound `Host`; state-changing API requests must also use the exact local

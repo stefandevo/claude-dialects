@@ -323,6 +323,82 @@ func TestRemoveAllDoesNotReResolveTheDialectName(t *testing.T) {
 	}
 }
 
+// A spawned child re-opens the instance by name. If the directory that name
+// resolves to is swapped after the parent pinned its root, the two are working
+// in different places and the parent must notice.
+func TestStillPinnedDetectsASwappedDialectDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	dir := filepath.Join(home, "instances", "cc-test")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	if err = instance.AtomicWrite("proxy.pid", []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	pinned, err := instance.StillPinned()
+	if err != nil || !pinned {
+		t.Fatalf("StillPinned() = %v, %v before any swap", pinned, err)
+	}
+
+	// Replace the directory with a different real one, as a rename would.
+	if err = os.Rename(dir, filepath.Join(home, "instances", "cc-moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err = instance.StillPinned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned {
+		t.Fatal("StillPinned() did not notice the dialect directory was replaced")
+	}
+}
+
+// The lexical RelUnder check passes for a path that merely reads as being inside
+// the dialect; only comparing file identity catches a write that actually landed
+// elsewhere.
+func TestConfirmWrittenInsideRejectsALookalikePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	authDir := filepath.Join(home, "instances", "cc-test", "auth")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	confined := filepath.Join(authDir, "codex.json")
+	if err = os.WriteFile(confined, []byte(`{"in":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = instance.ConfirmWrittenInside(filepath.Join("auth", "codex.json"), confined); err != nil {
+		t.Fatalf("a genuinely confined file was rejected: %v", err)
+	}
+
+	// The pathname still passes RelUnder, but the bytes are a different file.
+	outside := filepath.Join(t.TempDir(), "codex.json")
+	if err = os.WriteFile(outside, []byte(`{"out":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, relErr := instance.RelUnder(confined, "auth"); relErr != nil {
+		t.Fatalf("lexical check should accept the in-dialect pathname: %v", relErr)
+	}
+	if err = instance.ConfirmWrittenInside(filepath.Join("auth", "codex.json"), outside); err == nil {
+		t.Fatal("a file outside the dialect passed the identity check")
+	}
+}
+
 func TestInstanceFSAbsRejectsNonLocalPaths(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	instance, err := openInstanceFS("cc-test")

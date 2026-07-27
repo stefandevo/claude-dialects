@@ -208,7 +208,19 @@ func startProxy(name string, dialect Dialect) error {
 		default:
 		}
 		if proxyHealthy(dialect) {
-			return nil
+			// The child re-opened the instance by name to serve, while the PID
+			// above was recorded through this root. If the directory the name
+			// resolves to has changed since, the two no longer agree and a later
+			// stop would find no PID and leave the proxy running — refuse the
+			// startup instead of leaking a process nothing owns.
+			pinned, pinErr := instance.StillPinned()
+			if pinErr == nil && pinned {
+				return nil
+			}
+			cleanupErr := cleanupStartedProcess(cmd, exited, instance, "proxy.pid")
+			return errors.Join(
+				fmt.Errorf("dialect directory for %q changed while the proxy was starting", name),
+				pinErr, cleanupErr)
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
@@ -373,9 +385,18 @@ func authenticate(name, provider string, noBrowser bool) error {
 	}
 	fmt.Println("Authenticated", provider)
 	if saved != "" {
+		// CLIProxyAPI has already written the token by now, through the absolute
+		// auth-dir rather than this root, so the check below is a detection and
+		// not a confinement — see the limits documented in README "Files and
+		// security". It compares file identity rather than the pathname, because
+		// a path that reads as being inside the dialect proves nothing if a
+		// component was replaced while the dependency held it.
 		rel, relErr := instance.RelUnder(saved, "auth")
 		if relErr != nil {
-			return fmt.Errorf("secure saved credentials: %w", relErr)
+			return fmt.Errorf("credentials were written outside dialect %q; inspect and remove %s: %w", name, saved, relErr)
+		}
+		if confirmErr := instance.ConfirmWrittenInside(rel, saved); confirmErr != nil {
+			return fmt.Errorf("credentials were written outside dialect %q; inspect and remove %s: %w", name, saved, confirmErr)
 		}
 		if chmodErr := instance.Chmod(rel, 0o600); chmodErr != nil {
 			return fmt.Errorf("secure saved credentials: %w", chmodErr)
