@@ -317,13 +317,18 @@ func copilotBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func startCopilotBridge(instance *instanceFS, dialect Dialect) error {
-	if dialect.Bridge != "copilot" {
-		return nil
+// startCopilotBridge reports whether it launched the bridge, so a caller whose
+// own startup fails afterwards can stop what this call started. The single
+// health probe here decides both questions at one instant: asking again inside
+// the launch would reopen the gap between "already serving" and "mine to stop".
+func startCopilotBridge(instance *instanceFS, dialect Dialect) (bool, error) {
+	if dialect.Bridge != "copilot" || copilotBridgeHealthy(dialect) {
+		return false, nil
 	}
-	if copilotBridgeHealthy(dialect) {
-		return nil
-	}
+	return true, launchCopilotBridge(instance, dialect)
+}
+
+func launchCopilotBridge(instance *instanceFS, dialect Dialect) error {
 	name := instance.name
 	nodePath, _, err := copilotNode()
 	if err != nil {

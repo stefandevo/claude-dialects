@@ -610,3 +610,42 @@ func TestInstanceFSAtomicWriteCommittedAfterDirectorySyncFailure(t *testing.T) {
 		t.Fatalf("committed data = %q, %v", data, readErr)
 	}
 }
+
+// A refused pin must stay refused for every later operation on the handle, not
+// just for removal. Otherwise the entry the pin rejected can be replaced with a
+// real directory and the stop path — which only ran because the pin let it —
+// reads, removes or signals whatever moved into the name.
+func TestARefusedPinIsNotRetriedByLaterOperations(t *testing.T) {
+	home, _ := symlinkedInstance(t, "cc-link")
+	instance, err := openInstanceFS("cc-link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	if instance.Pin() {
+		t.Fatal("Pin accepted a symlinked instance")
+	}
+
+	// A real directory takes the refused entry's place, as one racing the
+	// operation the pin was meant to guard would.
+	entry := filepath.Join(home, "instances", "cc-link")
+	if err = os.Remove(entry); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(entry, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(entry, "proxy.pid"), []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if pid, readErr := instance.ReadPID("proxy.pid"); readErr == nil {
+		t.Fatalf("a read after a refused pin resolved the name again and returned %d", pid)
+	}
+	if removeErr := instance.RemoveIfExists("proxy.pid"); removeErr == nil {
+		t.Fatal("a remove after a refused pin resolved the name again")
+	}
+	if _, statErr := os.Stat(filepath.Join(entry, "proxy.pid")); statErr != nil {
+		t.Fatalf("the replacement's PID record was touched through a refused pin: %v", statErr)
+	}
+}

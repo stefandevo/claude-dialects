@@ -142,7 +142,7 @@ func proxyPID(name string) int {
 	return instance.runningPID("proxy.pid")
 }
 
-func startProxy(name string, dialect Dialect) error {
+func startProxy(name string, dialect Dialect) (err error) {
 	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
@@ -154,11 +154,35 @@ func startProxy(name string, dialect Dialect) error {
 	if _, err = instance.ensureDir(); err != nil {
 		return err
 	}
-	if err = startManagedBridge(instance, dialect); err != nil {
+	bridgeStarted, err := startManagedBridge(instance, dialect)
+	if err != nil {
 		return err
 	}
+	if bridgeStarted {
+		// The bridge is started before the proxy, so every proxy failure below
+		// leaves a process this call launched listening with its PID in the pinned
+		// directory — and if that directory is what moved, a later stop resolving
+		// the name cannot find it at all. Unwind exactly what this call started; a
+		// bridge that was already serving is left alone because bridgeStarted is
+		// false for it.
+		defer func() {
+			if err != nil {
+				err = errors.Join(err, stopManagedBridge(instance, dialect))
+			}
+		}()
+	}
 	if proxyHealthy(dialect) {
-		return nil
+		// A proxy that is already serving still has to be the one this directory
+		// owns. Without the same pin check the spawn path below makes, a name
+		// replaced since the pin reports success while the running proxy and its
+		// PID stay behind in the old directory, where a later stop by name will
+		// not look.
+		pinned, pinErr := instance.StillPinned()
+		if pinErr == nil && pinned {
+			return nil
+		}
+		return errors.Join(
+			fmt.Errorf("dialect directory for %q changed while the proxy was starting", name), pinErr)
 	}
 	if pid := instance.runningPID("proxy.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.Port) {
@@ -505,16 +529,20 @@ func tailLog(name string) error {
 // opening its own: a second handle would resolve the dialect name again, so a
 // directory replaced in between would leave the bridge and its PID in one
 // directory while the proxy serves from another.
-func startManagedBridge(instance *instanceFS, dialect Dialect) error {
+//
+// It reports whether this call is the one that launched the bridge, which is
+// what lets a caller unwind its own bridge on a later failure without stopping
+// one that was already serving.
+func startManagedBridge(instance *instanceFS, dialect Dialect) (bool, error) {
 	switch dialect.Bridge {
 	case "":
-		return nil
+		return false, nil
 	case "cursor":
 		return startCursorBridge(instance, dialect)
 	case "copilot":
 		return startCopilotBridge(instance, dialect)
 	default:
-		return fmt.Errorf("unsupported managed bridge %q", dialect.Bridge)
+		return false, fmt.Errorf("unsupported managed bridge %q", dialect.Bridge)
 	}
 }
 

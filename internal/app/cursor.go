@@ -320,13 +320,18 @@ func cursorBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func startCursorBridge(instance *instanceFS, dialect Dialect) error {
-	if dialect.Bridge != "cursor" {
-		return nil
+// startCursorBridge reports whether it launched the bridge, so a caller whose
+// own startup fails afterwards can stop what this call started. The single
+// health probe here decides both questions at one instant: asking again inside
+// the launch would reopen the gap between "already serving" and "mine to stop".
+func startCursorBridge(instance *instanceFS, dialect Dialect) (bool, error) {
+	if dialect.Bridge != "cursor" || cursorBridgeHealthy(dialect) {
+		return false, nil
 	}
-	if cursorBridgeHealthy(dialect) {
-		return nil
-	}
+	return true, launchCursorBridge(instance, dialect)
+}
+
+func launchCursorBridge(instance *instanceFS, dialect Dialect) error {
 	if os.Getenv("CURSOR_API_KEY") == "" {
 		return errors.New("CURSOR_API_KEY is not set")
 	}
