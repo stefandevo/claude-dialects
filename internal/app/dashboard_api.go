@@ -71,6 +71,7 @@ type dialectRequest struct {
 	HaikuModel    string `json:"haikuModel"`
 	EffortLevel   string `json:"effortLevel"`
 	Concurrency   int    `json:"concurrency"`
+	ContextWindow int    `json:"contextWindow"`
 	Port          int    `json:"port"`
 	BridgePort    int    `json:"bridgePort"`
 	BaseURL       string `json:"baseUrl"`
@@ -427,7 +428,8 @@ func (request dialectRequest) dialectInput(name string) DialectInput {
 		SubagentModel: request.SubagentModel, OpusModel: request.OpusModel,
 		SonnetModel: request.SonnetModel, HaikuModel: request.HaikuModel,
 		EffortLevel: request.EffortLevel, Concurrency: request.Concurrency,
-		Port: request.Port, BridgePort: request.BridgePort, BaseURL: request.BaseURL,
+		ContextWindow: request.ContextWindow,
+		Port:          request.Port, BridgePort: request.BridgePort, BaseURL: request.BaseURL,
 		AuthTokenEnv: request.AuthTokenEnv, Effort: request.Effort, ToolSearch: request.ToolSearch,
 	}
 }

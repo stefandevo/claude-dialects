@@ -25,6 +25,8 @@ export interface DialectView {
   effortLevel?: string;
   concurrency: number;
   toolSearch: boolean;
+  /** Model context capacity in tokens. Omitted when unknown or unconfigured. */
+  contextWindow?: number;
   port: number;
   baseUrl?: string;
   authTokenEnv?: string;
@@ -47,6 +49,8 @@ export interface DialectInput {
   haikuModel: string;
   effortLevel: string;
   concurrency: number;
+  /** Model context capacity in tokens. Zero keeps the preset or stored value. */
+  contextWindow: number;
   port: number;
   bridgePort: number;
   baseUrl: string;

@@ -45,6 +45,9 @@ type DialectInput struct {
 	HaikuModel    string
 	EffortLevel   string
 	Concurrency   int
+	// ContextWindow declares the route's capacity in tokens. Zero leaves the
+	// resolved value to the preset or, on update, to the stored value.
+	ContextWindow int
 	Port          int
 	BridgePort    int
 	BaseURL       string
@@ -54,18 +57,22 @@ type DialectInput struct {
 }
 
 type DialectView struct {
-	Name          string   `json:"name"`
-	Preset        string   `json:"preset"`
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model"`
-	SubagentModel string   `json:"subagentModel,omitempty"`
-	OpusModel     string   `json:"opusModel,omitempty"`
-	SonnetModel   string   `json:"sonnetModel,omitempty"`
-	HaikuModel    string   `json:"haikuModel,omitempty"`
-	Effort        bool     `json:"effort"`
-	EffortLevel   string   `json:"effortLevel,omitempty"`
-	Concurrency   int      `json:"concurrency"`
-	ToolSearch    bool     `json:"toolSearch"`
+	Name          string `json:"name"`
+	Preset        string `json:"preset"`
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
+	SubagentModel string `json:"subagentModel,omitempty"`
+	OpusModel     string `json:"opusModel,omitempty"`
+	SonnetModel   string `json:"sonnetModel,omitempty"`
+	HaikuModel    string `json:"haikuModel,omitempty"`
+	Effort        bool   `json:"effort"`
+	EffortLevel   string `json:"effortLevel,omitempty"`
+	Concurrency   int    `json:"concurrency"`
+	ToolSearch    bool   `json:"toolSearch"`
+	// ContextWindow is the capacity Claude Code is calibrated with, in tokens.
+	// It is omitted when unknown so clients can tell "unconfigured" apart from a
+	// real value.
+	ContextWindow int      `json:"contextWindow,omitempty"`
 	Port          int      `json:"port"`
 	BaseURL       string   `json:"baseUrl,omitempty"`
 	AuthTokenEnv  string   `json:"authTokenEnv,omitempty"`
@@ -188,7 +195,8 @@ func safeDialectView(name string, dialect Dialect) DialectView {
 		Model: dialect.Model, SubagentModel: dialect.SubagentModel,
 		OpusModel: dialect.OpusModel, SonnetModel: dialect.SonnetModel, HaikuModel: dialect.HaikuModel,
 		Effort: dialect.Effort, EffortLevel: dialect.EffortLevel, Concurrency: dialect.Concurrency,
-		ToolSearch: dialect.ToolSearch, Port: dialect.Port, BaseURL: dialect.BaseURL,
+		ToolSearch: dialect.ToolSearch, ContextWindow: dialect.ContextWindow,
+		Port: dialect.Port, BaseURL: dialect.BaseURL,
 		AuthTokenEnv: dialect.AuthTokenEnv, AuthProvider: dialect.AuthProvider,
 		AuthProviders: expectedAuthProviders(dialect),
 		Bridge:        dialect.Bridge, BridgePort: dialect.BridgePort, ExtraEnvKeys: extraEnvKeys,
@@ -430,6 +438,22 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	if err := validateCustomUpstream(dialect); err != nil {
 		return Dialect{}, err
 	}
+	// Resolved last, because it can only be judged once the whole route —
+	// models, tiers, and upstream — is known.
+	if input.ContextWindow != 0 {
+		if !validContextWindow(input.ContextWindow) {
+			return Dialect{}, operationError(ErrorInvalidInput,
+				"--context-window must be between 1 and %d tokens", maxContextWindow)
+		}
+		dialect.ContextWindow = input.ContextWindow
+	} else {
+		dialect.ContextWindow = inheritedContextWindow(dialect, input.Preset, existing, exists)
+	}
+	// A hand-edited configuration can carry a nonsensical capacity. Treat it as
+	// unknown rather than refusing every later operation; doctor reports it.
+	if !validContextWindow(dialect.ContextWindow) {
+		dialect.ContextWindow = 0
+	}
 	dialect.Effort = input.Effort
 	dialect.ToolSearch = input.ToolSearch
 	if exists {
@@ -497,6 +521,38 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 		return Dialect{}, operationError(ErrorInvalidInput, "proxy and provider bridge cannot share port %d", dialect.Port)
 	}
 	return dialect, nil
+}
+
+// inheritedContextWindow returns the capacity a dialect may keep when the
+// request did not state one.
+//
+// Capacity describes a specific set of models, so it only carries over while the
+// resolved route is still that same set: a preset's reviewed value when the
+// request did not move off the preset's mapping, or the stored value when an
+// update left the mapping untouched. Anything else leaves it unknown.
+//
+// Carrying a window across a model change would be the more damaging default. A
+// window larger than the new route supports lets a conversation run past the
+// provider's real limit before compacting — the exact failure this metadata
+// exists to prevent — while an unknown one only returns to uncalibrated
+// behavior, which create warns about and doctor keeps reporting.
+//
+// A stored value is consulted before the preset for the same reason. An operator
+// who measured a lower capacity than the preset advertises keeps it through an
+// update that leaves the route alone: naming the same preset again asks for its
+// models, not for its window to be raised. Nothing distinguishes a stored value
+// the operator chose from one a preset supplied, so preferring the stored one is
+// what keeps the unsafe direction — silently increasing a window — out of the
+// default. A preset whose window later changes therefore does not reach an
+// already-calibrated dialect; passing --context-window is how that is adopted.
+func inheritedContextWindow(resolved Dialect, preset string, existing Dialect, exists bool) int {
+	if exists && validContextWindow(existing.ContextWindow) && sharesContextRoute(resolved, existing) {
+		return existing.ContextWindow
+	}
+	if source, ok := presets[preset]; ok && sharesContextRoute(resolved, source) {
+		return source.ContextWindow
+	}
+	return 0
 }
 
 func requireConfigRevision(cfg *Config, expected string) error {

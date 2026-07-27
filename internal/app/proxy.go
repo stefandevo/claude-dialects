@@ -410,6 +410,13 @@ func runEmbeddedProxy(name string) error {
 	if err != nil {
 		return err
 	}
+	// Observe how full each request leaves the dialect's context window. This is
+	// diagnostics only: Claude Code remains solely responsible for /compact and
+	// auto-compaction, and the proxy never rewrites a conversation.
+	// The instance directory is already resolved and identity-checked above, so
+	// the monitor writes its readings through that pinned root instead of
+	// re-resolving the dialect name on every request.
+	service.RegisterUsagePlugin(newContextMonitor(instance, dialect))
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	err = service.Run(ctx)

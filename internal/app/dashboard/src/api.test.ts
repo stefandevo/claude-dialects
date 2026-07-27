@@ -12,6 +12,7 @@ const input: DialectInput = {
   haikuModel: '',
   effortLevel: 'auto',
   concurrency: 3,
+  contextWindow: 262144,
   port: 0,
   bridgePort: 0,
   baseUrl: '',
