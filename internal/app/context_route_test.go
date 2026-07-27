@@ -273,7 +273,7 @@ func TestContextWindowDiagnosticsOnlyPrintsASafeCommand(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("got %d diagnostics, want 1", len(lines))
 	}
-	if strings.Contains(lines[0], "cc-dialect create") {
+	if strings.Contains(lines[0], "run: cc-dialect create") {
 		t.Errorf("diagnostic %q recommends a command that would erase the bridge route", lines[0])
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // autoCompactWindowEnv is the Claude Code environment variable that declares the
@@ -187,6 +188,41 @@ func applyAutoCompactWindow(env []string, window int) []string {
 	return setEnv(env, autoCompactWindowEnv, strconv.Itoa(window))
 }
 
+// effectiveContextWindow returns the window the launched Claude Code process
+// actually receives.
+//
+// claudeEnvironment applies ExtraEnv last, so an entry for the auto-compact
+// variable replaces the stored capacity — that override, not the stored field,
+// is the denominator the session runs against. An override that is not a usable
+// window leaves the real denominator unknown; reporting zero keeps callers from
+// measuring against a number that is certainly wrong.
+func effectiveContextWindow(dialect Dialect) int {
+	override, overridden := dialect.ExtraEnv[autoCompactWindowEnv]
+	if !overridden {
+		return dialect.ContextWindow
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(override))
+	if err != nil || !validContextWindow(parsed) {
+		return 0
+	}
+	return parsed
+}
+
+// roundTripsThroughMutations reports whether a dialect's configuration can
+// survive being rebuilt by create or by a dashboard save. Neither carries
+// ExtraEnv across, and neither can express a bridge or OAuth route that no
+// preset supplies, so a dialect holding any of that has state no supported
+// mutation preserves.
+func roundTripsThroughMutations(dialect Dialect) bool {
+	if len(dialect.ExtraEnv) > 0 {
+		return false
+	}
+	if _, presetBacked := presets[dialect.Preset]; presetBacked {
+		return true
+	}
+	return dialect.Bridge == "" && dialect.AuthProvider == ""
+}
+
 // contextWindowFixCommand renders a command that records a capacity for a
 // dialect without losing the rest of its configuration.
 //
@@ -195,17 +231,18 @@ func applyAutoCompactWindow(env []string, window int) []string {
 // the upstream URL and token variable, and any non-default behavior settings.
 // A preset-backed dialect is restated through its preset, which restores the
 // whole route in one flag; a custom one restates every flag it actually differs
-// on. A bridge or OAuth route has no flag to express it, so rather than print a
-// command that would break the dialect this returns "" and the caller says to
-// use the dashboard instead.
+// on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth route no
+// preset supplies — has no faithful command at all, so this returns "" rather
+// than print one that would break the dialect.
 func contextWindowFixCommand(name string, dialect Dialect) string {
+	if !roundTripsThroughMutations(dialect) {
+		return ""
+	}
 	command := "cc-dialect create " + name
 	base, presetBacked := presets[dialect.Preset]
 	switch {
 	case presetBacked:
 		command += " --preset " + dialect.Preset
-	case dialect.Bridge != "" || dialect.AuthProvider != "":
-		return ""
 	default:
 		// prepareDialect fills empty tiers from the primary model, so an
 		// unmentioned tier round-trips unchanged.
@@ -260,13 +297,20 @@ func contextWindowDiagnostics(name string, dialect Dialect) []string {
 	return []string{"✗ " + problem + " (" + contextWindowRemedy(name, dialect) + ")"}
 }
 
-// contextWindowRemedy phrases how to record a capacity for a dialect, falling
-// back to the dashboard when no command can express its route faithfully.
+// contextWindowRemedy phrases how to record a capacity for a dialect.
+//
+// A dashboard save is no safer than a create for the dialects create cannot
+// express: its request carries neither ExtraEnv nor the bridge and OAuth fields,
+// so saving would drop exactly the state that made the command unsafe. Editing
+// the stored configuration is then the only lossless option, so that is what it
+// says rather than recommending a different kind of damage.
 func contextWindowRemedy(name string, dialect Dialect) string {
 	if command := contextWindowFixCommand(name, dialect); command != "" {
 		return "run: " + command
 	}
-	return "set a context window for " + name + " in cc-dialect web"
+	return fmt.Sprintf(
+		"add \"contextWindow\" to the %q entry in config.json; this dialect holds settings "+
+			"that cc-dialect create and the dashboard would both drop", name)
 }
 
 // autoCompactSupportProbe reports whether an installed Claude Code build still

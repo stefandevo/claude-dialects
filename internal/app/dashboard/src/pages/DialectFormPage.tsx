@@ -22,6 +22,15 @@ const emptyInput: DialectInput = {
 // request rather than surfacing as a server-side validation error.
 const maxContextWindow = 20_000_000;
 
+// Fields that describe which models a dialect talks to. A capacity is only valid
+// for one such route, and the server re-derives it only when the request omits
+// it — but this form loads the stored value into every mutation, which would make
+// it look explicit and carry a stale window past that rule. Editing any of these
+// therefore clears the capacity unless the user has stated one themselves.
+const routeFields: ReadonlySet<keyof DialectInput> = new Set([
+  'model', 'subagentModel', 'opusModel', 'sonnetModel', 'haikuModel', 'baseUrl', 'authTokenEnv',
+]);
+
 function inputFromView(view: DialectView): DialectInput {
   return {
     name: view.name,
@@ -52,7 +61,7 @@ export function DialectFormPage() {
   const editing = Boolean(name);
   const navigate = useNavigate();
   const { api, presets, dialectRevision, refresh, refreshAfterMutation, registerRefreshHandler, reportError, notify } = useDashboard();
-  const [snapshot, setSnapshot] = useState<{ input: DialectInput; revision: string }>({ input: emptyInput, revision: '' });
+  const [snapshot, setSnapshot] = useState<{ input: DialectInput; revision: string; contextWindowStated: boolean }>({ input: emptyInput, revision: '', contextWindowStated: false });
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string>();
@@ -70,7 +79,7 @@ export function DialectFormPage() {
     try {
       const result = await api.getDialect(name);
       if (request !== loadRequest.current) return;
-      setSnapshot({ input: inputFromView(result.data), revision: result.revision || '' });
+      setSnapshot({ input: inputFromView(result.data), revision: result.revision || '', contextWindowStated: false });
       setLoadError(undefined);
     } catch (caught) {
       if (request !== loadRequest.current) return;
@@ -88,17 +97,28 @@ export function DialectFormPage() {
   }, [editing, loadDialect, registerRefreshHandler]);
 
   function update<K extends keyof DialectInput>(key: K, value: DialectInput[K]) {
-    setSnapshot((current) => ({ ...current, input: { ...current.input, [key]: value } }));
+    setSnapshot((current) => {
+      const input = { ...current.input, [key]: value };
+      if (key === 'contextWindow') {
+        return { ...current, input, contextWindowStated: true };
+      }
+      // Moving the route invalidates a capacity the user did not state: it was
+      // measured for the models this dialect used to select.
+      if (routeFields.has(key) && !current.contextWindowStated) {
+        input.contextWindow = 0;
+      }
+      return { ...current, input };
+    });
   }
 
   function choosePreset(presetName: string) {
     if (!presetName) {
-      setSnapshot((current) => ({ ...current, input: { ...emptyInput, name: current.input.name, port: editing ? current.input.port : 0 } }));
+      setSnapshot((current) => ({ ...current, contextWindowStated: false, input: { ...emptyInput, name: current.input.name, port: editing ? current.input.port : 0 } }));
       return;
     }
     const preset = presets.find((item) => item.name === presetName);
     if (!preset) return;
-    setSnapshot((current) => ({ ...current, input: { ...inputFromView(preset), name: current.input.name, preset: presetName, port: editing ? current.input.port : 0 } }));
+    setSnapshot((current) => ({ ...current, contextWindowStated: false, input: { ...inputFromView(preset), name: current.input.name, preset: presetName, port: editing ? current.input.port : 0 } }));
   }
 
   async function submit(event: FormEvent) {

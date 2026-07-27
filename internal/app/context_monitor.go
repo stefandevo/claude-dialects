@@ -88,8 +88,11 @@ type contextMonitor struct {
 // inert for it.
 func newContextMonitor(name string, dialect Dialect) *contextMonitor {
 	return &contextMonitor{
-		name:   name,
-		window: dialect.ContextWindow,
+		name: name,
+		// The effective window, not the stored field: ExtraEnv is applied last at
+		// launch and can replace it, and a percentage measured against a window
+		// the session never received would be misleading rather than diagnostic.
+		window: effectiveContextWindow(dialect),
 		warn:   func(message string) { fmt.Fprintln(os.Stderr, message) },
 	}
 }

@@ -84,6 +84,65 @@ describe('dialect context window', () => {
     expect(updateDialect.mock.calls[0][1]).toMatchObject({ contextWindow: 0 });
   });
 
+  // The server only re-derives capacity when the request omits it. The form
+  // loads the stored value into every mutation, so without this it would always
+  // look explicit and a route edit would carry a stale window straight past the
+  // server-side rule.
+  it('clears the capacity when a route field changes', async () => {
+    getDialect.mockResolvedValueOnce({ data: dialect(1000000), revision: 'revision-1' });
+    updateDialect.mockResolvedValueOnce({ data: { dialect: dialect(0), created: false, revision: 'revision-2' }, revision: 'revision-2' });
+    renderForm();
+    await waitFor(() => expect(screen.getByLabelText('Context window')).toHaveValue(1000000));
+
+    fireEvent.change(screen.getByLabelText('Primary model'), { target: { value: 'cramped-model' } });
+
+    expect(screen.getByLabelText('Context window')).toHaveValue(null);
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateDialect).toHaveBeenCalled());
+    expect(updateDialect.mock.calls[0][1]).toMatchObject({ model: 'cramped-model', contextWindow: 0 });
+  });
+
+  it.each([
+    ['Subagent model', 'subagentModel'],
+    ['Haiku alias', 'haikuModel'],
+    ['Base URL', 'baseUrl'],
+  ])('clears the capacity when %s changes', async (label) => {
+    getDialect.mockResolvedValueOnce({ data: dialect(1000000), revision: 'revision-1' });
+    renderForm();
+    await waitFor(() => expect(screen.getByLabelText('Context window')).toHaveValue(1000000));
+
+    fireEvent.change(screen.getByLabelText(label), { target: { value: 'changed' } });
+
+    expect(screen.getByLabelText('Context window')).toHaveValue(null);
+  });
+
+  // An operator who states a capacity for the new route must keep it.
+  it('keeps a capacity the user typed after changing the route', async () => {
+    getDialect.mockResolvedValueOnce({ data: dialect(1000000), revision: 'revision-1' });
+    updateDialect.mockResolvedValueOnce({ data: { dialect: dialect(128000), created: false, revision: 'revision-2' }, revision: 'revision-2' });
+    renderForm();
+    await waitFor(() => expect(screen.getByLabelText('Context window')).toHaveValue(1000000));
+
+    fireEvent.change(screen.getByLabelText('Context window'), { target: { value: '128000' } });
+    fireEvent.change(screen.getByLabelText('Primary model'), { target: { value: 'cramped-model' } });
+
+    expect(screen.getByLabelText('Context window')).toHaveValue(128000);
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+    await waitFor(() => expect(updateDialect).toHaveBeenCalled());
+    expect(updateDialect.mock.calls[0][1]).toMatchObject({ contextWindow: 128000 });
+  });
+
+  // Settings that do not describe the route leave the capacity alone.
+  it('keeps the capacity when a non-route setting changes', async () => {
+    getDialect.mockResolvedValueOnce({ data: dialect(262144), revision: 'revision-1' });
+    renderForm();
+    await waitFor(() => expect(screen.getByLabelText('Context window')).toHaveValue(262144));
+
+    fireEvent.change(screen.getByLabelText('Concurrency'), { target: { value: '5' } });
+
+    expect(screen.getByLabelText('Context window')).toHaveValue(262144);
+  });
+
   it('flags an uncalibrated dialect on the detail page', async () => {
     getDialect.mockResolvedValueOnce({ data: dialect(undefined), revision: 'revision-1' });
     render(
