@@ -72,13 +72,10 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	claudeDir, err := claudeConfigDir(name)
+	settingsPath, err := claudeSettingsPath(name)
 	if err != nil {
 		return err
 	}
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	// The absolute paths above are needed for user-facing errors and for the
-	// statusLine command embedded in settings.json (Claude Code executes it).
 	// All file I/O is confined to this dialect's own directory, so neither a
 	// symlink out of the tree nor one pointing at a sibling dialect is followed.
 	instance, err := openInstanceFS(name)
@@ -87,26 +84,11 @@ func seedStatusline(name string, dialect Dialect) error {
 	}
 	defer instance.Close()
 	const scriptRel = "statusline.sh"
-	settingsRel := filepath.Join("claude", "settings.json")
-	settings := map[string]any{}
-	settingsExists := false
-	settingsData, readErr := instance.ReadFile(settingsRel)
-	switch {
-	case readErr == nil:
-		settingsExists = true
-		// A settings file Claude Code cannot have written (malformed JSON) must
-		// not be clobbered; leave the instance untouched and let the caller warn.
-		if err = json.Unmarshal(settingsData, &settings); err != nil {
-			return fmt.Errorf("parse %s: %w", settingsPath, err)
-		}
-		// Literal `null` unmarshals into a nil map without error; treat it as an
-		// unusable settings shape rather than panicking on assignment below.
-		if settings == nil {
-			return fmt.Errorf("parse %s: settings must be a JSON object", settingsPath)
-		}
-	case errors.Is(readErr, os.ErrNotExist):
-	default:
-		return readErr
+	// A settings file Claude Code cannot have written must not be clobbered;
+	// leave the instance untouched and let the caller warn.
+	settings, settingsExists, err := readClaudeSettings(instance, settingsPath)
+	if err != nil {
+		return err
 	}
 	content := statuslineScriptContent(name, dialect)
 	current, scriptErr := instance.ReadFile(scriptRel)
@@ -141,7 +123,7 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if writeErr := instance.AtomicWrite(settingsRel, append(merged, '\n'), 0o600); writeErr != nil {
+	if writeErr := instance.AtomicWrite(claudeSettingsRel, append(merged, '\n'), 0o600); writeErr != nil {
 		// Roll back the script written moments ago on a failed first-time
 		// settings write, so the next run retries the full seed instead of
 		// reading the leftover script as an opt-out.

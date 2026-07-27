@@ -514,6 +514,11 @@ func runDialect(args []string) error {
 	if seedErr := seedStatusline(name, d); seedErr != nil {
 		warnStatuslineSeed(name, seedErr)
 	}
+	// Backfill the attribution opt-out the same way, after the statusline so it
+	// merges into the file that seed just wrote.
+	if seedErr := seedAttribution(name); seedErr != nil {
+		warnAttributionSeed(name, seedErr)
+	}
 	env := append([]string{}, os.Environ()...)
 	if _, err = newAppService().StartDialect(name); err != nil {
 		return err
@@ -926,6 +931,7 @@ func doctor(args []string, version string) error {
 	needsBridgeRestart := make([]string, 0)
 	needsCopilotInstall := false
 	needsCursorInstall := false
+	needsAttributionSeed := make([]string, 0)
 	for _, dialect := range cfg.Dialects {
 		if dialect.Bridge == "cursor" {
 			hasCursor = true
@@ -997,6 +1003,10 @@ func doctor(args []string, version string) error {
 		for _, problem := range contextWindowDiagnostics(name, dialect) {
 			fmt.Println(problem)
 		}
+		if problem := attributionDiagnostic(name); problem != "" {
+			fmt.Println(problem)
+			needsAttributionSeed = append(needsAttributionSeed, name)
+		}
 		if line := contextUsageReport(name); line != "" {
 			fmt.Println(line)
 		}
@@ -1056,6 +1066,18 @@ func doctor(args []string, version string) error {
 			fixErrors = append(fixErrors, fmt.Errorf("record migrated context windows: %w", migrateErr))
 		} else if len(migrated) > 0 {
 			fmt.Printf("\nApplying fix: recorded the context window for %s.\n", strings.Join(migrated, ", "))
+		}
+		// Seed the attribution opt-out into dialects predating it. This is what
+		// reconciles every dialect on upgrade, including ones not launched since:
+		// upgrade shells out to doctor --fix, while dialects the user does launch
+		// are backfilled by run regardless.
+		if len(needsAttributionSeed) > 0 {
+			fmt.Printf("\nApplying fix: disabling Claude commit attribution for %s.\n", strings.Join(needsAttributionSeed, ", "))
+			for _, name := range needsAttributionSeed {
+				if seedErr := seedAttribution(name); seedErr != nil {
+					fixErrors = append(fixErrors, fmt.Errorf("disable commit attribution for %s: %w", name, seedErr))
+				}
+			}
 		}
 		restarts := make(map[string]bool)
 		for _, name := range needsProxyRestart {
