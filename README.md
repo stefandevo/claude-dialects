@@ -550,6 +550,38 @@ is missing the statusline stays empty instead of erroring.
 - **Remove:** delete the `statusLine` key from that `settings.json`. Once the
   generated script exists, the key is never re-added.
 
+### No Claude attribution in commits
+
+Claude Code adds a `Co-Authored-By: Claude <noreply@anthropic.com>` trailer to
+commits, and an attribution block to pull request bodies, unless you turn it
+off. The isolated `CLAUDE_CONFIG_DIR` means an opt-out in your global
+`~/.claude/settings.json` never reaches a dialect, so each dialect gets its own:
+
+```json
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  }
+}
+```
+
+An empty string hides the attribution. The key is only seeded when the dialect
+has no attribution preference of its own — neither `attribution` nor the
+deprecated `includeCoAuthoredBy` — so a value you set is never overwritten.
+
+- **Customize:** set `attribution.commit` / `attribution.pr` in
+  `instances/<name>/claude/settings.json` to your own trailer text.
+- **Restore the trailer:** set an explicit value rather than deleting the key,
+  e.g. `"attribution": {"commit": "Co-Authored-By: Claude <noreply@anthropic.com>"}`
+  or `"includeCoAuthoredBy": true`. A missing key is re-seeded on the next run.
+- **Backfill:** existing dialects are updated the next time they run, or all at
+  once with `cc-dialect doctor --fix` — which `cc-dialect upgrade` invokes for
+  you, so dialects you have not launched are covered too.
+
+Project-level `.claude/settings.json` in a repository still takes precedence
+over these per-dialect user settings.
+
 ## Native Claude shortcuts
 
 Claude Dialects can also install a lightweight shortcut for the normal Claude

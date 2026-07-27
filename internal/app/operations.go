@@ -327,6 +327,11 @@ func (service *appService) mutateDialect(input DialectInput, expectedRevision st
 		if seedErr := seedStatusline(input.Name, dialect); seedErr != nil {
 			warnStatuslineSeed(input.Name, seedErr)
 		}
+		// After the statusline: both do an independent read-modify-write of the
+		// same settings.json, so this reads the file the statusline just wrote.
+		if seedErr := seedAttribution(input.Name); seedErr != nil {
+			warnAttributionSeed(input.Name, seedErr)
+		}
 		revision, revisionErr := configRevision(cfg)
 		if revisionErr != nil {
 			return revisionErr
