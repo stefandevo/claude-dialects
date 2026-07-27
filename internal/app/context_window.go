@@ -210,17 +210,39 @@ func effectiveContextWindow(dialect Dialect) int {
 
 // roundTripsThroughMutations reports whether a dialect's configuration can
 // survive being rebuilt by create or by a dashboard save. Neither carries
-// ExtraEnv across, and neither can express a bridge or OAuth route that no
-// preset supplies, so a dialect holding any of that has state no supported
-// mutation preserves.
+// ExtraEnv across, and neither has a flag for Bridge or AuthProvider: those
+// reach a dialect only from its preset.
+//
+// A stored preset name is therefore not enough on its own. A dialect whose name
+// still says "cursor-composer" but whose bridge or OAuth route was changed by
+// hand would have that route silently replaced by the `--preset` command this
+// would otherwise bless — the same divergence backfill already refuses through
+// sharesContextRoute, so the two must agree.
 func roundTripsThroughMutations(dialect Dialect) bool {
 	if len(dialect.ExtraEnv) > 0 {
 		return false
 	}
-	if _, presetBacked := presets[dialect.Preset]; presetBacked {
-		return true
+	if preset, presetBacked := presets[dialect.Preset]; presetBacked {
+		return dialect.Bridge == preset.Bridge && dialect.AuthProvider == preset.AuthProvider
 	}
 	return dialect.Bridge == "" && dialect.AuthProvider == ""
+}
+
+// shellArg renders a value for a command line the user is expected to copy into
+// a shell, quoting only when the value would otherwise be re-interpreted.
+// Upstream URLs carry query strings and model IDs are arbitrary strings, so an
+// unquoted value can split arguments or run shell syntax the reader never saw.
+func shellArg(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return false
+		}
+		return !strings.ContainsRune("_@%+=:,./-", r)
+	}) < 0 {
+		return value
+	}
+	return shellQuote(value)
 }
 
 // contextWindowFixCommand renders a command that records a capacity for a
@@ -238,11 +260,11 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 	if !roundTripsThroughMutations(dialect) {
 		return ""
 	}
-	command := "cc-dialect create " + name
+	command := "cc-dialect create " + shellArg(name)
 	base, presetBacked := presets[dialect.Preset]
 	switch {
 	case presetBacked:
-		command += " --preset " + dialect.Preset
+		command += " --preset " + shellArg(dialect.Preset)
 	default:
 		// prepareDialect fills empty tiers from the primary model, so an
 		// unmentioned tier round-trips unchanged.
@@ -251,7 +273,7 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 			SonnetModel: dialect.Model, HaikuModel: dialect.Model,
 			Effort: true, EffortLevel: "auto", Concurrency: 3,
 		}
-		command += " --model " + dialect.Model
+		command += " --model " + shellArg(dialect.Model)
 	}
 	for _, field := range []struct{ flag, value, base string }{
 		{"--model", dialect.Model, base.Model},
@@ -264,7 +286,7 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 		{"--effort-level", dialect.EffortLevel, base.EffortLevel},
 	} {
 		if field.value != "" && field.value != field.base {
-			command += " " + field.flag + " " + field.value
+			command += " " + field.flag + " " + shellArg(field.value)
 		}
 	}
 	if dialect.Concurrency != 0 && dialect.Concurrency != base.Concurrency {
@@ -278,21 +300,36 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 	if dialect.ToolSearch {
 		command += " --tool-search=true"
 	}
-	return command + " --context-window <tokens>"
+	// TOKENS rather than <tokens>: the remedy is copied into a shell, where angle
+	// brackets are redirection rather than an obvious placeholder.
+	return command + " --context-window TOKENS"
 }
 
 // contextWindowDiagnostics reports capacity problems doctor should surface for a
 // dialect. An uncalibrated dialect is the exact condition issue #44 describes,
 // so it is actionable rather than silent.
 func contextWindowDiagnostics(name string, dialect Dialect) []string {
-	if validContextWindow(dialect.ContextWindow) {
+	// The effective window, because ExtraEnv is applied last at launch: a stored
+	// field that looks healthy says nothing about a process whose window the
+	// override replaced with something unusable.
+	if validContextWindow(effectiveContextWindow(dialect)) {
 		return nil
 	}
-	problem := fmt.Sprintf("%s has no context window; Claude Code auto-compaction is uncalibrated for %s",
-		name, dialect.Model)
-	if dialect.ContextWindow != 0 {
+	var problem string
+	switch override, overridden := dialect.ExtraEnv[autoCompactWindowEnv]; {
+	case overridden:
+		// The override is the calibration once it exists, so the stored field
+		// cannot rescue it — say which value is the problem.
+		return []string{fmt.Sprintf(
+			"✗ %s overrides %s with %q, which is not a usable context window; auto-compaction is uncalibrated "+
+				"(remove or correct that entry in the %q extraEnv in config.json)",
+			name, autoCompactWindowEnv, override, name)}
+	case dialect.ContextWindow != 0:
 		problem = fmt.Sprintf("%s has an invalid context window (%d); auto-compaction is uncalibrated",
 			name, dialect.ContextWindow)
+	default:
+		problem = fmt.Sprintf("%s has no context window; Claude Code auto-compaction is uncalibrated for %s",
+			name, dialect.Model)
 	}
 	return []string{"✗ " + problem + " (" + contextWindowRemedy(name, dialect) + ")"}
 }

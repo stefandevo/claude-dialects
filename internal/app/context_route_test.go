@@ -193,7 +193,7 @@ func TestBackfillSkipsDialectsCarryingExtraEnv(t *testing.T) {
 func TestContextWindowFixCommandPreservesTheRoute(t *testing.T) {
 	presetBacked := presets["glm"]
 	presetBacked.Preset = "glm"
-	if got := contextWindowFixCommand("cc-glm", presetBacked); got != "cc-dialect create cc-glm --preset glm --context-window <tokens>" {
+	if got := contextWindowFixCommand("cc-glm", presetBacked); got != "cc-dialect create cc-glm --preset glm --context-window TOKENS" {
 		t.Fatalf("preset-backed command = %q", got)
 	}
 
@@ -210,7 +210,7 @@ func TestContextWindowFixCommandPreservesTheRoute(t *testing.T) {
 		"--haiku-model vendor-small",
 		"--base-url https://provider.example.com/anthropic",
 		"--token-env MY_TOKEN",
-		"--context-window <tokens>",
+		"--context-window TOKENS",
 	} {
 		if !strings.Contains(got, expected) {
 			t.Errorf("custom command %q is missing %q", got, expected)
