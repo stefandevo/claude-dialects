@@ -222,10 +222,25 @@ func roundTripsThroughMutations(dialect Dialect) bool {
 	if len(dialect.ExtraEnv) > 0 {
 		return false
 	}
-	if preset, presetBacked := presets[dialect.Preset]; presetBacked {
+	if preset, presetBacked := presets[presetSupplyingRoute(dialect)]; presetBacked {
 		return dialect.Bridge == preset.Bridge && dialect.AuthProvider == preset.AuthProvider
 	}
 	return dialect.Bridge == "" && dialect.AuthProvider == ""
+}
+
+// presetSupplyingRoute names the preset a create command would restate a dialect
+// through: the label it carries, or — for a dialect written before that label
+// existed — the preset whose route it matches exactly.
+//
+// A label still wins over an exact match, because a labeled dialect that has
+// since diverged has to keep being judged against what it claims to be: the
+// divergence is the reason its remedy is refused, and quietly re-resolving it to
+// some other preset would bless the very command that would replace its route.
+func presetSupplyingRoute(dialect Dialect) string {
+	if _, labeled := presets[dialect.Preset]; labeled {
+		return dialect.Preset
+	}
+	return presetByContextRoute(dialect)
 }
 
 // shellArg renders a value for a command line the user is expected to copy into
@@ -251,9 +266,9 @@ func shellArg(value string) string {
 // `create` rebuilds a dialect from the flags it is given rather than patching
 // it, so a command naming only the model would quietly delete tier overrides,
 // the upstream URL and token variable, and any non-default behavior settings.
-// A preset-backed dialect is restated through its preset, which restores the
-// whole route in one flag; a custom one restates every flag it actually differs
-// on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth route no
+// A dialect a preset can supply is restated through that preset, which restores
+// the whole route in one flag; a custom one restates every flag it actually
+// differs on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth route no
 // preset supplies — has no faithful command at all, so this returns "" rather
 // than print one that would break the dialect.
 func contextWindowFixCommand(name string, dialect Dialect) string {
@@ -261,10 +276,11 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 		return ""
 	}
 	command := "cc-dialect create " + shellArg(name)
-	base, presetBacked := presets[dialect.Preset]
+	source := presetSupplyingRoute(dialect)
+	base, presetBacked := presets[source]
 	switch {
 	case presetBacked:
-		command += " --preset " + shellArg(dialect.Preset)
+		command += " --preset " + shellArg(source)
 	default:
 		// prepareDialect fills empty tiers from the primary model, so an
 		// unmentioned tier round-trips unchanged.

@@ -57,6 +57,135 @@ func TestBackfillFillsPresetBackedDialects(t *testing.T) {
 	}
 }
 
+// The preset field is younger than the dialects that need migrating: one
+// created before it existed stores no label at all, yet is field-for-field the
+// preset it was made from. Equality is what makes the reviewed window valid, so
+// the missing label must not withhold it — and the label is recorded too, so the
+// configuration stops lagging behind the match.
+func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "effort": true,
+          "effortLevel": "auto",
+          "concurrency": 3,
+          "toolSearch": false,
+          "port": 43170,
+          "apiKey": "local-secret"
+        },
+        "cc-glm": {
+          "model": "glm-5.2",
+          "subagentModel": "glm-5.2",
+          "opusModel": "glm-5.2",
+          "sonnetModel": "glm-5-turbo",
+          "haikuModel": "glm-4.5-air",
+          "baseUrl": "https://api.z.ai/api/anthropic",
+          "authTokenEnv": "ZAI_API_KEY",
+          "effort": true,
+          "effortLevel": "auto",
+          "concurrency": 3,
+          "toolSearch": false,
+          "port": 43173,
+          "apiKey": "local-secret"
+        }
+      }
+    }`)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]struct {
+		window int
+		preset string
+	}{
+		"cc-codex": {372000, "codex-sol"},
+		"cc-glm":   {131072, "glm"},
+	} {
+		if got := cfg.Dialects[name].ContextWindow; got != want.window {
+			t.Errorf("%s context window = %d, want %d", name, got, want.window)
+		}
+		if got := cfg.Dialects[name].Preset; got != want.preset {
+			t.Errorf("%s preset = %q, want the matched %q recorded", name, got, want.preset)
+		}
+	}
+}
+
+// Matching an unlabeled dialect is equality, not resemblance. One tier pointed
+// somewhere else may hold less than the preset's smallest model, which is
+// exactly the denominator that must never be inflated.
+func TestBackfillLeavesUnlabeledDialectsWithAChangedTierUnknown(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.3-codex-spark",
+          "authProvider": "codex",
+          "port": 43170,
+          "apiKey": "local-secret"
+        }
+      }
+    }`)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 0 {
+		t.Fatalf("a re-pointed tier backfilled to %d, want 0 (unknown)", got)
+	}
+	if got := cfg.Dialects["cc-codex"].Preset; got != "" {
+		t.Fatalf("a re-pointed dialect was labeled %q", got)
+	}
+}
+
+// Were two presets ever to describe one route, the window an unlabeled dialect
+// adopted would depend on map iteration order. Silence is the honest answer.
+func TestBackfillLeavesAmbiguousRoutesUnknown(t *testing.T) {
+	twin := presets["codex-sol"]
+	twin.ContextWindow = 100000
+	presets["codex-sol-twin"] = twin
+	t.Cleanup(func() { delete(presets, "codex-sol-twin") })
+
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "port": 43170,
+          "apiKey": "local-secret"
+        }
+      }
+    }`)
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 0 {
+		t.Fatalf("an ambiguous route backfilled to %d, want 0 (unknown)", got)
+	}
+}
+
 // A dialect that names a preset but has been re-pointed at other models is no
 // longer unambiguous, so guessing its capacity could hand Claude Code a
 // denominator larger than the route really supports.
@@ -88,8 +217,9 @@ func TestBackfillLeavesModifiedPresetMappingsUnknown(t *testing.T) {
 	}
 }
 
-// A genuinely custom dialect names no preset, so nothing may be inferred from
-// its model ID.
+// A genuinely custom dialect resembles a preset without being one — here the
+// same models reached over no OAuth route at all — so nothing may be inferred
+// from the model IDs it happens to share.
 func TestBackfillLeavesCustomDialectsUnknown(t *testing.T) {
 	writeLegacyConfig(t, `{
       "version": 2,
