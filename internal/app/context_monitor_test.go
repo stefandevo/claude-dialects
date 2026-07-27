@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestRecordInputTokensReportsNothingForAnEmptyRecord(t *testing.T) {
 func TestMonitorMeasuresTheReproducedCodexExhaustion(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	dialect := presets["codex-sol"]
-	monitor := newContextMonitor("cc-codex", dialect)
+	monitor := testContextMonitor(t, "cc-codex", dialect)
 
 	monitor.HandleUsage(context.Background(), proxyusage.Record{
 		Model: "gpt-5.6-sol",
@@ -88,7 +89,7 @@ func TestMonitorMeasuresTheReproducedCodexExhaustion(t *testing.T) {
 // reading rather than accumulate into it.
 func TestMonitorReplacesRatherThanAccumulates(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	monitor := newContextMonitor("cc-codex", presets["codex-sol"])
+	monitor := testContextMonitor(t, "cc-codex", presets["codex-sol"])
 
 	for _, input := range []int64{300000, 12000} {
 		monitor.HandleUsage(context.Background(), proxyusage.Record{
@@ -110,7 +111,7 @@ func TestMonitorReplacesRatherThanAccumulates(t *testing.T) {
 // and only re-arms after usage falls back below it.
 func TestMonitorWarnsOncePerThresholdBand(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	monitor := newContextMonitor("cc-codex", presets["codex-sol"])
+	monitor := testContextMonitor(t, "cc-codex", presets["codex-sol"])
 	var warnings []string
 	monitor.warn = func(message string) { warnings = append(warnings, message) }
 
@@ -143,7 +144,7 @@ func TestMonitorWarnsOncePerThresholdBand(t *testing.T) {
 
 func TestMonitorStaysQuietBelowTheFirstBand(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	monitor := newContextMonitor("cc-codex", presets["codex-sol"])
+	monitor := testContextMonitor(t, "cc-codex", presets["codex-sol"])
 	var warnings []string
 	monitor.warn = func(message string) { warnings = append(warnings, message) }
 
@@ -160,7 +161,7 @@ func TestMonitorStaysQuietBelowTheFirstBand(t *testing.T) {
 // Without a window there is no denominator, so nothing is measured or persisted.
 func TestMonitorIsInertWithoutAContextWindow(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	monitor := newContextMonitor("cc-custom", Dialect{Model: "vendor-model"})
+	monitor := testContextMonitor(t, "cc-custom", Dialect{Model: "vendor-model"})
 
 	monitor.HandleUsage(context.Background(), proxyusage.Record{
 		Model:  "vendor-model",
@@ -178,7 +179,7 @@ func TestMonitorPersistsOnlyNumericStateWithPrivatePermissions(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	dialect := presets["codex-sol"]
 	dialect.APIKey = "local-secret"
-	monitor := newContextMonitor("cc-codex", dialect)
+	monitor := testContextMonitor(t, "cc-codex", dialect)
 
 	monitor.HandleUsage(context.Background(), proxyusage.Record{
 		Model:  "gpt-5.6-sol",
@@ -186,7 +187,12 @@ func TestMonitorPersistsOnlyNumericStateWithPrivatePermissions(t *testing.T) {
 		Detail: proxyusage.Detail{TokenBreakdown: proxyusage.NewIndependentTokenBreakdown(200000, 0, 0, 10, 0, 0)},
 	})
 
-	path, err := contextStatePath("cc-codex")
+	instance, err := openInstanceFS("cc-codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	path, err := instance.Abs(contextStateFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +227,7 @@ func TestMonitorPersistsOnlyNumericStateWithPrivatePermissions(t *testing.T) {
 // measurement must not be overwritten with zeros.
 func TestMonitorIgnoresRecordsWithoutUsage(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
-	monitor := newContextMonitor("cc-codex", presets["codex-sol"])
+	monitor := testContextMonitor(t, "cc-codex", presets["codex-sol"])
 
 	monitor.HandleUsage(context.Background(), proxyusage.Record{
 		Model:  "gpt-5.6-sol",
@@ -245,7 +251,7 @@ func TestContextUsageReportSurfacesTheLatestReading(t *testing.T) {
 		t.Fatalf("unobserved dialect reported %q", line)
 	}
 
-	monitor := newContextMonitor("cc-codex", presets["codex-sol"])
+	monitor := testContextMonitor(t, "cc-codex", presets["codex-sol"])
 	monitor.warn = func(string) {}
 	monitor.HandleUsage(context.Background(), proxyusage.Record{
 		Model:  "gpt-5.6-sol",
@@ -274,4 +280,48 @@ func TestContextUsageBandThresholds(t *testing.T) {
 			t.Errorf("contextUsageBand(%.1f) = %d, want %d", testCase.percent, got, testCase.band)
 		}
 	}
+}
+
+// Context readings are per-dialect state, so they are subject to the same
+// confinement as credentials and PID files. A symlinked instance directory is
+// what an unconfined write follows: the pathname still reads as the dialect's
+// own while the bytes land wherever the link points.
+func TestMonitorWritesStayInsideTheDialectDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	escape := t.TempDir()
+	if err := os.Symlink(escape, filepath.Join(home, "instances", "cc-attacker")); err != nil {
+		t.Fatal(err)
+	}
+
+	monitor := testContextMonitor(t, "cc-attacker", presets["codex-sol"])
+	monitor.warn = func(string) {}
+	monitor.HandleUsage(context.Background(), proxyusage.Record{
+		Model:  "gpt-5.6-sol",
+		Detail: proxyusage.Detail{TokenBreakdown: proxyusage.NewIndependentTokenBreakdown(200000, 0, 0, 10, 0, 0)},
+	})
+
+	entries, err := os.ReadDir(escape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a context reading escaped the instances tree through a symlinked dialect: %v", entries)
+	}
+}
+
+// testContextMonitor builds a monitor over a real pinned instance directory, the
+// same way the embedded proxy does, so the tests exercise the confined write
+// path rather than a pathname the production code no longer uses.
+func testContextMonitor(t *testing.T, name string, dialect Dialect) *contextMonitor {
+	t.Helper()
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = instance.Close() })
+	return newContextMonitor(instance, dialect)
 }

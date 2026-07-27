@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -34,27 +33,21 @@ type ContextUsage struct {
 // compaction becomes a failed request.
 var contextUsageBands = []float64{80, 90, 95}
 
-// contextStatePath is where a dialect's latest context reading lives, beside the
-// rest of that instance's private state.
-func contextStatePath(name string) (string, error) {
-	if !validName(name) {
-		return "", operationError(ErrorInvalidInput, "invalid dialect name %q", name)
-	}
-	home, err := homeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, "instances", name, "context.json"), nil
-}
+// contextStateFile is where a dialect's latest context reading lives, relative
+// to that dialect's own directory. It is never joined into an absolute path for
+// I/O: every access goes through an instanceFS so a replaced or symlinked
+// instance directory cannot redirect the write into another dialect's state.
+const contextStateFile = "context.json"
 
 // readContextUsage returns the latest recorded reading for a dialect. It fails
 // when nothing has been observed yet.
 func readContextUsage(name string) (ContextUsage, error) {
-	path, err := contextStatePath(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return ContextUsage{}, err
 	}
-	data, err := os.ReadFile(path)
+	defer instance.Close()
+	data, err := instance.ReadFile(contextStateFile)
 	if err != nil {
 		return ContextUsage{}, err
 	}
@@ -70,8 +63,12 @@ func readContextUsage(name string) (ContextUsage, error) {
 // could not — how close a request came to the provider limit — without taking
 // on any part of Claude Code's compaction policy.
 type contextMonitor struct {
-	name   string
-	window int
+	// instance is the caller's already-pinned dialect directory. Readings are
+	// written through it rather than by re-resolving the dialect name, so they
+	// inherit the identity the proxy verified before it began serving.
+	instance *instanceFS
+	name     string
+	window   int
 
 	// warn reports a threshold crossing. A field so tests can capture it.
 	warn func(message string)
@@ -83,12 +80,13 @@ type contextMonitor struct {
 	band int
 }
 
-// newContextMonitor builds the monitor for one dialect. A dialect with no
-// configured window has no denominator to measure against, and the monitor is
-// inert for it.
-func newContextMonitor(name string, dialect Dialect) *contextMonitor {
+// newContextMonitor builds the monitor for one dialect, writing through the
+// caller's pinned instance directory. A dialect with no configured window has no
+// denominator to measure against, and the monitor is inert for it.
+func newContextMonitor(instance *instanceFS, dialect Dialect) *contextMonitor {
 	return &contextMonitor{
-		name: name,
+		instance: instance,
+		name:     instance.name,
 		// The effective window, not the stored field: ExtraEnv is applied last at
 		// launch and can replace it, and a percentage measured against a window
 		// the session never received would be misleading rather than diagnostic.
@@ -136,15 +134,11 @@ func (monitor *contextMonitor) HandleUsage(_ context.Context, record proxyusage.
 // persist writes the reading beside the dialect's other private state. A failed
 // write is diagnostic-only and must never disturb the request path.
 func (monitor *contextMonitor) persist(state ContextUsage) {
-	path, err := contextStatePath(monitor.name)
-	if err != nil {
-		return
-	}
 	data, err := json.Marshal(state)
 	if err != nil {
 		return
 	}
-	_ = atomicWriteFile(path, append(data, '\n'), 0o600)
+	_ = monitor.instance.AtomicWrite(contextStateFile, append(data, '\n'), 0o600)
 }
 
 // recordInputTokens returns how many input tokens one request consumed.

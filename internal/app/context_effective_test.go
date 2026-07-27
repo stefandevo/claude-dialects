@@ -50,7 +50,7 @@ func TestMonitorMeasuresAgainstTheOverriddenWindow(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	dialect := presets["codex-sol"]
 	dialect.ExtraEnv = map[string]string{autoCompactWindowEnv: "200000"}
-	monitor := newContextMonitor("cc-codex", dialect)
+	monitor := testContextMonitor(t, "cc-codex", dialect)
 	monitor.warn = func(string) {}
 
 	monitor.HandleUsage(context.Background(), proxyusage.Record{
