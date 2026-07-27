@@ -72,13 +72,10 @@ func seedStatusline(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	claudeDir, err := claudeConfigDir(name)
+	settingsPath, err := claudeSettingsPath(name)
 	if err != nil {
 		return err
 	}
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	// The absolute paths above are needed for user-facing errors and for the
-	// statusLine command embedded in settings.json (Claude Code executes it).
 	// All file I/O is confined to this dialect's own directory, so neither a
 	// symlink out of the tree nor one pointing at a sibling dialect is followed.
 	instance, err := openInstanceFS(name)

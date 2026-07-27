@@ -13,15 +13,20 @@ import (
 // <instance>/claude.
 var claudeSettingsRel = filepath.Join("claude", "settings.json")
 
-// attributionSettingKeys are the keys through which a dialect expresses a commit
-// attribution preference: the current `attribution` object and the deprecated
-// `includeCoAuthoredBy` boolean Claude Code still honours. Either one present is
-// an answer already given, which seeding must not override.
-var attributionSettingKeys = []string{"attribution", "includeCoAuthoredBy"}
+// claudeSettingsPath returns the absolute path of a dialect's settings.json.
+// File I/O goes through the dialect's own root instead; this is for user-facing
+// messages and for the statusLine command Claude Code executes.
+func claudeSettingsPath(name string) (string, error) {
+	claudeDir, err := claudeConfigDir(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(claudeDir, "settings.json"), nil
+}
 
 // readClaudeSettings decodes a dialect's settings.json through its own root,
-// reporting whether the file exists. settingsPath is the absolute path, used for
-// error messages only.
+// reporting whether the file exists. settingsPath is used for error messages
+// only.
 //
 // A file Claude Code cannot have written is an unusable shape rather than an
 // empty one, and callers must leave it alone instead of clobbering it: malformed
@@ -29,11 +34,10 @@ var attributionSettingKeys = []string{"attribution", "includeCoAuthoredBy"}
 // without error and would otherwise panic on the first assignment.
 func readClaudeSettings(instance *instanceFS, settingsPath string) (map[string]any, bool, error) {
 	data, readErr := instance.ReadFile(claudeSettingsRel)
-	switch {
-	case readErr == nil:
-	case errors.Is(readErr, os.ErrNotExist):
+	if errors.Is(readErr, os.ErrNotExist) {
 		return map[string]any{}, false, nil
-	default:
+	}
+	if readErr != nil {
 		return nil, false, readErr
 	}
 	settings := map[string]any{}
@@ -46,15 +50,14 @@ func readClaudeSettings(instance *instanceFS, settingsPath string) (map[string]a
 	return settings, true, nil
 }
 
-// attributionSettled reports whether the dialect settings already carry a commit
-// attribution preference, under either the current or the deprecated key.
+// attributionSettled reports whether the settings already carry a commit
+// attribution preference: the current `attribution` object, or the deprecated
+// `includeCoAuthoredBy` boolean Claude Code still honours. Either one present is
+// an answer already given, which seeding must not override.
 func attributionSettled(settings map[string]any) bool {
-	for _, key := range attributionSettingKeys {
-		if _, exists := settings[key]; exists {
-			return true
-		}
-	}
-	return false
+	_, current := settings["attribution"]
+	_, deprecated := settings["includeCoAuthoredBy"]
+	return current || deprecated
 }
 
 // seedAttribution turns off Claude Code's commit and PR attribution for a
@@ -73,14 +76,12 @@ func seedAttribution(name string) error {
 	if !validName(name) {
 		return operationError(ErrorInvalidInput, "invalid dialect name %q", name)
 	}
-	claudeDir, err := claudeConfigDir(name)
+	settingsPath, err := claudeSettingsPath(name)
 	if err != nil {
 		return err
 	}
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	// The absolute path above is for user-facing errors only. All file I/O goes
-	// through this dialect's own os.Root, so neither a symlink out of the tree nor
-	// one pointing at a sibling dialect is followed.
+	// All file I/O goes through this dialect's own os.Root, so neither a symlink
+	// out of the tree nor one pointing at a sibling dialect is followed.
 	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
@@ -108,7 +109,7 @@ func seedAttribution(name string) error {
 // that cannot be read or parsed yield no line either: seeding would refuse them
 // too, so there is no fix to point at.
 func attributionDiagnostic(name string) string {
-	claudeDir, err := claudeConfigDir(name)
+	settingsPath, err := claudeSettingsPath(name)
 	if err != nil {
 		return ""
 	}
@@ -117,7 +118,7 @@ func attributionDiagnostic(name string) string {
 		return ""
 	}
 	defer instance.Close()
-	settings, _, err := readClaudeSettings(instance, filepath.Join(claudeDir, "settings.json"))
+	settings, _, err := readClaudeSettings(instance, settingsPath)
 	if err != nil || attributionSettled(settings) {
 		return ""
 	}
