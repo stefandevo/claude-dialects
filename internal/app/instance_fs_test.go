@@ -444,6 +444,78 @@ func TestReadPIDSeparatesAbsentFromUnreadable(t *testing.T) {
 	}
 }
 
+// Only the dialect name crosses a spawn boundary, so the child must be able to
+// prove the name it re-resolved landed on the directory the parent pinned.
+func TestIdentityCrossesTheSpawnBoundary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	dir := filepath.Join(home, "instances", "cc-test")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	identity, err := parent.Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A second handle opened before any swap resolves the same directory, the
+	// way the child does when nothing has moved.
+	child, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Close()
+	if err = child.MatchesIdentity(identity); err != nil {
+		t.Fatalf("an unswapped child rejected the parent's identity: %v", err)
+	}
+
+	// Replace the directory the way a rename between spawn and open would.
+	if err = os.Rename(dir, filepath.Join(home, "instances", "cc-moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	swapped, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer swapped.Close()
+	if err = swapped.MatchesIdentity(identity); err == nil {
+		t.Fatal("a child resolving a replaced directory accepted the parent's identity")
+	}
+}
+
+// An unreadable PID must be judged live by the port, not by a health probe: a
+// wedged or still-starting runtime fails the probe while very much alive.
+func TestStopRefusesWhenThePortIsHeldAndThePIDIsUnreadable(t *testing.T) {
+	_, target := symlinkedInstance(t, "cc-link")
+	if err := os.WriteFile(filepath.Join(target, "proxy.pid"), []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dialect := Dialect{Model: "model", Port: 43170, APIKey: "key"}
+
+	// symlinkedInstance declares the ports idle: nothing is running, so a
+	// tampered-but-stopped dialect stays cleanable.
+	if err := stopProxyDialect("cc-link", dialect); err != nil {
+		t.Fatalf("a stopped dialect with an unreadable PID should be cleanable: %v", err)
+	}
+
+	// Now something holds the port while the PID stays unreadable — the runtime
+	// may well be alive, so stopping must not report success.
+	original := portBusy
+	portBusy = func(int) bool { return true }
+	t.Cleanup(func() { portBusy = original })
+	if err := stopProxyDialect("cc-link", dialect); err == nil {
+		t.Fatal("stop reported success while the port was held and the PID was unreadable")
+	}
+}
+
 func TestInstanceFSAbsRejectsNonLocalPaths(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	instance, err := openInstanceFS("cc-test")

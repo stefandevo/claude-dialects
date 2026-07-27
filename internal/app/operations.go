@@ -516,14 +516,20 @@ func (service *appService) RemoveDialect(name, expectedRevision string) error {
 		if !ok {
 			return operationError(ErrorNotFound, "dialect %q does not exist", name)
 		}
-		// Validate and pin the instances root before committing the destructive
-		// config mutation. In particular, a symlinked instances anchor must not
-		// remove the dialect from config and then fail filesystem cleanup.
+		// Validate the instances root and pin the dialect's own directory before
+		// anything destructive happens. A symlinked instances anchor must not
+		// remove the dialect from config and then fail filesystem cleanup, and the
+		// dialect directory must be resolved now rather than when RemoveAll finally
+		// runs: the handle resolves lazily, so a rename between here and there
+		// would delete the replacement while the original survived with its config
+		// entry already gone. An entry that is not a real directory stays unpinned
+		// on purpose — RemoveAll unlinks it without following it.
 		instance, openErr := openInstanceFS(name)
 		if openErr != nil {
 			return openErr
 		}
 		defer instance.Close()
+		instance.Pin()
 		if err = service.stopRuntime(name, dialect); err != nil {
 			return fmt.Errorf("stop dialect %q: %w", name, err)
 		}

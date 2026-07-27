@@ -7,7 +7,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
+
+// instanceIdentityEnv carries the parent's pinned dialect-directory identity to
+// the __proxy child. It travels in the environment rather than as an argument so
+// the internal command's positional contract is unchanged.
+const instanceIdentityEnv = "CC_DIALECT_INSTANCE_IDENTITY"
 
 // instanceFS confines repository-owned filesystem operations for one dialect to
 // that dialect's own directory. Absolute paths are exposed only for user-facing
@@ -262,6 +268,49 @@ func (instance *instanceFS) AtomicWrite(rel string, data []byte, mode os.FileMod
 		return err
 	}
 	return atomicWriteFileAt(root, path, data, mode)
+}
+
+// Pin resolves the dialect directory now, so subsequent operations act on this
+// directory rather than on whatever the name resolves to at each later moment.
+// It reports whether a directory was pinned: an entry that is not a real
+// directory stays unpinned, which removal relies on to unlink it without
+// following it.
+func (instance *instanceFS) Pin() bool {
+	_, err := instance.dir()
+	return err == nil
+}
+
+// Identity returns a serialisable identity for the pinned directory — the
+// device and inode it resolved to. os.SameFile cannot cross a process boundary,
+// so this is what the parent hands a spawned child to let it confirm that the
+// dialect name it re-resolved landed on the same directory the parent pinned.
+func (instance *instanceFS) Identity() (string, error) {
+	root, err := instance.dir()
+	if err != nil {
+		return "", err
+	}
+	info, err := root.Stat(".")
+	if err != nil {
+		return "", err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("cannot identify the directory for dialect %q on this platform", instance.name)
+	}
+	return fmt.Sprintf("%d:%d", uint64(stat.Dev), uint64(stat.Ino)), nil
+}
+
+// MatchesIdentity reports whether the pinned directory is the one identified by
+// expected, as produced by Identity in another process.
+func (instance *instanceFS) MatchesIdentity(expected string) error {
+	actual, err := instance.Identity()
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("dialect %q now resolves to a different directory than the one that started this process", instance.name)
+	}
+	return nil
 }
 
 // StillPinned reports whether this handle's directory is still the one the

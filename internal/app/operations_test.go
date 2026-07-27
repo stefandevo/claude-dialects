@@ -494,9 +494,11 @@ func TestRemoveDialectDeletesOnlyValidatedMemberState(t *testing.T) {
 }
 
 // Removing a dialect whose instance directory is a symlink must unlink the
-// link, not descend into and delete its target outside the tree. removeAllAt
-// lstats each entry so symlinks are removed rather than followed.
+// link, not descend into and delete its target outside the tree. removeAllUnder
+// classifies entries from the readdir result so symlinks are removed rather
+// than followed.
 func TestRemoveDialectUnlinksSymlinkedInstance(t *testing.T) {
+	idleRuntimePorts(t)
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
 	cfg := defaultConfig()

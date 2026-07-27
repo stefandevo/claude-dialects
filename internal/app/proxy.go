@@ -185,7 +185,16 @@ func startProxy(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
+	// The child re-resolves the dialect by name, so hand it the identity of the
+	// directory pinned here: re-resolving a name can land somewhere else, and the
+	// child refusing to serve from a directory this process did not pin is what
+	// keeps the PID recorded below and the process it names in the same place.
+	identity, err := instance.Identity()
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command(exe, "__proxy", name)
+	cmd.Env = append(os.Environ(), instanceIdentityEnv+"="+identity)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -267,8 +276,13 @@ func stopProxyDialect(name string, dialect Dialect) (err error) {
 		// replaced with something the root refuses to follow. Reporting success
 		// here would let RemoveDialect drop the config and unlink the entry while
 		// the proxy keeps serving, with nothing left pointing at it.
-		if proxyHealthy(dialect) {
-			return fmt.Errorf("proxy for %q is still running but its PID record cannot be read safely: %w", name, pidErr)
+		//
+		// Liveness is judged by the port, not by the health endpoint: a proxy that
+		// is wedged or still starting fails the health probe while very much alive,
+		// and would be abandoned. A dead one has released its port, which is what
+		// keeps a tampered-but-stopped dialect removable.
+		if portBusy(dialect.Port) {
+			return fmt.Errorf("proxy for %q still holds port %d but its PID record cannot be read safely: %w", name, dialect.Port, pidErr)
 		}
 		return nil
 	}
@@ -314,6 +328,16 @@ func runEmbeddedProxy(name string) error {
 		return err
 	}
 	defer instance.Close()
+	// Only the dialect name crosses the spawn boundary, and re-resolving a name
+	// can land on a different directory than the parent pinned. Refuse to serve
+	// from anywhere else: the parent records this process's PID through its own
+	// pinned root, so serving from elsewhere would leave the running proxy and
+	// its ownership record in two different directories.
+	if expected := os.Getenv(instanceIdentityEnv); expected != "" {
+		if err = instance.MatchesIdentity(expected); err != nil {
+			return err
+		}
+	}
 	// Stamp this process's own identity before serving: the spawning parent may
 	// be an older cc-dialect build that re-executed a newer on-disk binary, so
 	// only this child knows which build is actually running the proxy. The stamp

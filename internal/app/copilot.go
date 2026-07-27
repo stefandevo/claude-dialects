@@ -455,9 +455,11 @@ func stopCopilotBridge(name string, dialect Dialect) error {
 	pid, pidErr := instance.ReadPID("copilot-bridge.pid")
 	if pidErr != nil {
 		// An unreadable ownership record must not read as "already stopped": that
-		// would abandon a live bridge with nothing left pointing at it.
-		if copilotBridgeHealthy(dialect) {
-			return fmt.Errorf("Copilot bridge for %q is still running but its PID record cannot be read safely: %w", name, pidErr)
+		// would abandon a live bridge with nothing left pointing at it. The port is
+		// the liveness signal — a wedged or still-starting bridge fails a health
+		// probe while alive, but still holds its port.
+		if portBusy(dialect.BridgePort) {
+			return fmt.Errorf("Copilot bridge for %q still holds port %d but its PID record cannot be read safely: %w", name, dialect.BridgePort, pidErr)
 		}
 		return nil
 	}

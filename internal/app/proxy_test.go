@@ -7,8 +7,20 @@ import (
 	"testing"
 )
 
+// idleRuntimePorts declares that no dialect runtime is listening. Tests that
+// exercise an unreadable PID record reach the port liveness check, and without
+// this they would depend on whatever happens to be bound on the machine running
+// them — a real cc-dialect proxy on the same port makes them fail.
+func idleRuntimePorts(t *testing.T) {
+	t.Helper()
+	original := portBusy
+	portBusy = func(int) bool { return false }
+	t.Cleanup(func() { portBusy = original })
+}
+
 func symlinkedInstance(t *testing.T, name string) (home, target string) {
 	t.Helper()
+	idleRuntimePorts(t)
 	home = t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
 	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {

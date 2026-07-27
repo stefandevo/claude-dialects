@@ -700,6 +700,25 @@ func portAvailable(port int) bool {
 	return true
 }
 
+// portBusy reports whether something is actually listening on a dialect's
+// loopback port. It is the liveness signal used when a PID record cannot be
+// read: a runtime that is wedged or still starting fails a health probe while
+// very much alive, but still holds its port.
+//
+// This is deliberately not !portAvailable. A port that merely cannot be bound —
+// a privileged one, say — says nothing about whether the dialect is alive, and
+// treating it as busy would block cleanup forever. Only "address in use"
+// counts. It is a var so tests can describe the runtime state they mean instead
+// of depending on what happens to be listening on the developer's machine.
+var portBusy = func(port int) bool {
+	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+	if err == nil {
+		_ = listener.Close()
+		return false
+	}
+	return errors.Is(err, syscall.EADDRINUSE)
+}
+
 func presetNames() []string {
 	names := make([]string, 0, len(presets))
 	for name := range presets {

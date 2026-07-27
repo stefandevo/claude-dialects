@@ -873,7 +873,7 @@ reads, writes or removals — neither outside the state tree nor into a *sibling
 dialect*. Dialect names remain restricted to `[a-z0-9_-]`.
 
 The scope of that sentence is deliberate. It covers the CLI's own file
-operations, and not the processes the CLI launches. Three limits are worth
+operations, and not the processes the CLI launches. Four limits are worth
 stating plainly:
 
 - **Removal is the exception.** Every other operation refuses to run when
@@ -901,6 +901,12 @@ stating plainly:
   directories after hand-off, or nested inside `claude/`, is followed by those
   processes like any other path. Confining them would mean changing Claude Code
   and the vendor SDKs, not this CLI.
+- **The embedded proxy re-reads its own config by path.** The proxy runs as a
+  separate `cc-dialect` process, which pins the dialect directory and refuses to
+  serve if the name resolved somewhere else. Its initial `proxy.yaml` read goes
+  through that root — but CLIProxyAPI is then handed the absolute path for its
+  long-lived config watcher, and every later re-read and credential write it
+  performs resolves that path itself, outside the root.
 
 The dashboard accepts only numeric loopback listeners. Every request must use
 the exact bound `Host`; state-changing API requests must also use the exact local
