@@ -502,7 +502,7 @@ func TestStopRefusesWhenThePortIsHeldAndThePIDIsUnreadable(t *testing.T) {
 
 	// symlinkedInstance declares the ports idle: nothing is running, so a
 	// tampered-but-stopped dialect stays cleanable.
-	if err := stopProxyDialect("cc-link", dialect); err != nil {
+	if err := stopProxyDialectByName("cc-link", dialect); err != nil {
 		t.Fatalf("a stopped dialect with an unreadable PID should be cleanable: %v", err)
 	}
 
@@ -511,7 +511,7 @@ func TestStopRefusesWhenThePortIsHeldAndThePIDIsUnreadable(t *testing.T) {
 	original := portBusy
 	portBusy = func(int) bool { return true }
 	t.Cleanup(func() { portBusy = original })
-	if err := stopProxyDialect("cc-link", dialect); err == nil {
+	if err := stopProxyDialectByName("cc-link", dialect); err == nil {
 		t.Fatal("stop reported success while the port was held and the PID was unreadable")
 	}
 }

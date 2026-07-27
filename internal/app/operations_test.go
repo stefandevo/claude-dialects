@@ -24,7 +24,7 @@ func TestDialectOperationsPreserveIdentityAndValidateBeforeStop(t *testing.T) {
 	}
 	service := newAppService()
 	var stopped atomic.Int32
-	service.stopRuntime = func(string, Dialect) error {
+	service.stopRuntime = func(*instanceFS, Dialect) error {
 		stopped.Add(1)
 		return nil
 	}
@@ -111,7 +111,7 @@ func TestDialectUpdateValidatesCustomUpstreamBeforeStop(t *testing.T) {
 	}
 	service := newAppService()
 	var stopped atomic.Int32
-	service.stopRuntime = func(string, Dialect) error {
+	service.stopRuntime = func(*instanceFS, Dialect) error {
 		stopped.Add(1)
 		return nil
 	}
@@ -167,7 +167,7 @@ func TestDialectViewPresetRoundTripDoesNotCoerceCustomUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newAppService()
-	service.stopRuntime = func(string, Dialect) error { return nil }
+	service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
 
 	view, revision, err := service.Dialect("cc-gpt-custom")
 	if err != nil {
@@ -224,7 +224,7 @@ func TestDialectMutationStopFailuresPreserveConfigurationAndState(t *testing.T) 
 		t.Fatal(err)
 	}
 	service := newAppService()
-	service.stopRuntime = func(string, Dialect) error { return errors.New("sentinel stop failure") }
+	service.stopRuntime = func(*instanceFS, Dialect) error { return errors.New("sentinel stop failure") }
 
 	if _, err := service.UpdateDialect(DialectInput{Name: "cc-stop-failure", Preset: "codex-sol", Effort: true}, ""); err == nil {
 		t.Fatal("update succeeded after runtime stop failure")
@@ -329,8 +329,8 @@ func TestRestartStopsThenStartsLatestConfiguration(t *testing.T) {
 	}
 	service := newAppService()
 	var calls []string
-	service.stopRuntime = func(name string, dialect Dialect) error {
-		calls = append(calls, "stop:"+name+":"+dialect.Model)
+	service.stopRuntime = func(instance *instanceFS, dialect Dialect) error {
+		calls = append(calls, "stop:"+instance.name+":"+dialect.Model)
 		return nil
 	}
 	service.startRuntime = func(name string, dialect Dialect) error {
@@ -478,7 +478,7 @@ func TestRemoveDialectDeletesOnlyValidatedMemberState(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newAppService()
-	service.stopRuntime = func(string, Dialect) error { return nil }
+	service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
 	if err := service.RemoveDialect("../cc-remove", ""); err == nil {
 		t.Fatal("remove accepted an unsafe name")
 	}
@@ -557,7 +557,7 @@ func TestRemoveDialectUnlinksNestedSymlinkWithoutTouchingTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newAppService()
-	service.stopRuntime = func(string, Dialect) error { return nil }
+	service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
 	if err := service.RemoveDialect("cc-link", ""); err != nil {
 		t.Fatalf("RemoveDialect failed: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestRemoveDialectCleansInstanceAfterCommittedConfigError(t *testing.T) {
 	}
 	t.Cleanup(func() { syncParentDirectory = originalSync })
 	service := newAppService()
-	service.stopRuntime = func(string, Dialect) error { return nil }
+	service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
 
 	err := service.RemoveDialect("cc-remove", "")
 	if err == nil || !atomicWriteCommitted(err) {
@@ -632,6 +632,86 @@ func TestRemoveDialectRejectsSymlinkedInstancesAnchorBeforeConfigMutation(t *tes
 	}
 	if _, exists := loaded.Dialects["cc-link"]; !exists {
 		t.Fatal("failed root validation removed the dialect configuration")
+	}
+}
+
+// A pin that was refused must not be retried as a fresh lookup. The entry it
+// rejected can become a real directory while the runtime stops, and re-resolving
+// the name would recurse into that replacement — a sibling dialect's state, if
+// one was moved into the name — instead of unlinking what the refusal was about.
+func TestRemoveDialectDoesNotDescendIntoADirectoryReplacingARefusedPin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	cfg := defaultConfig()
+	cfg.Dialects["cc-link"] = Dialect{Model: "model", Port: 43170, APIKey: "key"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(home, "instances", "cc-link")
+	if err := os.Symlink(t.TempDir(), entry); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	// Stands in for the window between the refused pin and the cleanup: the
+	// symlink is gone and a real directory holding another dialect's state now
+	// answers to the name.
+	service.stopRuntime = func(*instanceFS, Dialect) error {
+		if err := os.Remove(entry); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(entry, 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(entry, "auth"), []byte("sibling secret"), 0o600)
+	}
+	if err := service.RemoveDialect("cc-link", ""); err == nil {
+		t.Fatal("RemoveDialect should report that the refused entry could not be unlinked")
+	}
+	if data, err := os.ReadFile(filepath.Join(entry, "auth")); err != nil || string(data) != "sibling secret" {
+		t.Fatalf("replacement directory was deleted through a refused pin: %q, %v", data, err)
+	}
+}
+
+// Stopping must run in the directory removal pinned, not in whatever the name
+// resolves to by then: a replacement without a PID reads as "already stopped",
+// which would leave the original proxy serving after its configuration and PID
+// record are gone.
+func TestRemoveDialectStopsThroughThePinnedDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	cfg := defaultConfig()
+	cfg.Dialects["cc-pin"] = Dialect{Model: "model", Port: 43170, APIKey: "key"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	instances := filepath.Join(home, "instances")
+	pinned := filepath.Join(instances, "cc-pin")
+	if err := os.MkdirAll(pinned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pinned, "proxy.pid"), []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	var stopped int
+	service.stopRuntime = func(instance *instanceFS, _ Dialect) error {
+		if err := os.Rename(pinned, filepath.Join(instances, "cc-moved")); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(pinned, 0o700); err != nil {
+			return err
+		}
+		stopped, _ = instance.ReadPID("proxy.pid")
+		return nil
+	}
+	if err := service.RemoveDialect("cc-pin", ""); err != nil {
+		t.Fatalf("RemoveDialect failed: %v", err)
+	}
+	if stopped != 4242 {
+		t.Fatalf("stop read PID %d; it resolved the name again instead of using the pinned directory", stopped)
 	}
 }
 

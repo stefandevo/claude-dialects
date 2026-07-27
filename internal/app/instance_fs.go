@@ -32,7 +32,11 @@ type instanceFS struct {
 	// root is the dialect's own directory, opened lazily by dir() so that
 	// constructing an instanceFS neither requires the directory to exist nor
 	// creates it as a side effect of a read.
-	root         *os.Root
+	root *os.Root
+	// pinRefused records that Pin already resolved this name and rejected what
+	// it found. Without it the refusal leaves no trace and the next operation
+	// resolves the name afresh, which is the one thing pinning exists to stop.
+	pinRefused   bool
 	name         string
 	instancesDir string
 }
@@ -229,6 +233,15 @@ func (instance *instanceFS) RemoveIfExists(rel string) error {
 // which is precisely why a symlinked instance is unlinked here rather than
 // resolved, and why removal is the one operation a symlinked instance survives.
 func (instance *instanceFS) RemoveAll() error {
+	if instance.pinRefused {
+		// Pin already looked and refused: the entry was missing, a symlink, or not
+		// a directory. Asking again would resolve the name a second time, which is
+		// the very thing pinning ruled out — a real directory moved into the name
+		// since (a sibling dialect, say) would be descended into and deleted.
+		// Unlink the entry the refusal was about and let a non-empty replacement
+		// fail the unlink rather than be erased.
+		return instance.unlinkEntry()
+	}
 	root, dirErr := instance.dir()
 	if dirErr != nil {
 		// Missing, a symlink, or not a directory: nothing to descend into, so
@@ -277,6 +290,7 @@ func (instance *instanceFS) AtomicWrite(rel string, data []byte, mode os.FileMod
 // following it.
 func (instance *instanceFS) Pin() bool {
 	_, err := instance.dir()
+	instance.pinRefused = err != nil
 	return err == nil
 }
 

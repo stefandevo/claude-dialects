@@ -168,7 +168,7 @@ func stopRunningCursorDialects() []string {
 	sort.Strings(names)
 	stopped := make([]string, 0, len(names))
 	for _, name := range names {
-		if stopProxyDialect(name, cfg.Dialects[name]) == nil {
+		if stopProxyDialectByName(name, cfg.Dialects[name]) == nil {
 			stopped = append(stopped, name)
 		}
 	}
@@ -439,15 +439,15 @@ func cursorBridgeEnvironment(bridgeKey string) []string {
 	return env
 }
 
-func stopCursorBridge(name string, dialect Dialect) error {
+// stopCursorBridge takes the caller's pinned instance for the same reason
+// startCursorBridge does: opening a second handle would resolve the dialect name
+// again, and a directory replaced in between would hide the running bridge's PID
+// behind the replacement's missing one.
+func stopCursorBridge(instance *instanceFS, dialect Dialect) error {
 	if dialect.Bridge != "cursor" {
 		return nil
 	}
-	instance, err := openInstanceFS(name)
-	if err != nil {
-		return err
-	}
-	defer instance.Close()
+	name := instance.name
 	pid, pidErr := instance.ReadPID("cursor-bridge.pid")
 	if pidErr != nil {
 		// An unreadable ownership record must not read as "already stopped": that

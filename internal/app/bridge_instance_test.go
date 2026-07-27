@@ -26,7 +26,7 @@ func TestBridgeStopDoesNotRemoveExternalPID(t *testing.T) {
 		name   string
 		file   string
 		bridge string
-		stop   func(string, Dialect) error
+		stop   func(*instanceFS, Dialect) error
 	}{
 		{name: "Cursor", file: "cursor-bridge.pid", bridge: "cursor", stop: stopCursorBridge},
 		{name: "Copilot", file: "copilot-bridge.pid", bridge: "copilot", stop: stopCopilotBridge},
@@ -38,7 +38,12 @@ func TestBridgeStopDoesNotRemoveExternalPID(t *testing.T) {
 			if err := os.WriteFile(pidPath, []byte("4242\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := test.stop("cc-test", Dialect{Bridge: test.bridge, BridgePort: 1, APIKey: "key"}); err != nil {
+			instance, err := openInstanceFS("cc-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer instance.Close()
+			if err := test.stop(instance, Dialect{Bridge: test.bridge, BridgePort: 1, APIKey: "key"}); err != nil {
 				t.Fatal(err)
 			}
 			if data, err := os.ReadFile(pidPath); err != nil || string(data) != "4242\n" {

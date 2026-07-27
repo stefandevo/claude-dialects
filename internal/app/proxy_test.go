@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,5 +79,50 @@ func TestTailLogRejectsSymlinkedInstance(t *testing.T) {
 	}
 	if strings.Contains(output, secret) {
 		t.Fatalf("tailLog exposed external file contents: %q", output)
+	}
+}
+
+// The proxy and its managed bridge must be stopped in one directory. The bridge
+// stop used to re-open the dialect by name, so an entry replaced between the two
+// left the original bridge running behind a successful stop: the replacement's
+// missing PID read as "already stopped".
+func TestStopReadsTheBridgePIDThroughThePinnedDirectory(t *testing.T) {
+	idleRuntimePorts(t)
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	instances := filepath.Join(home, "instances")
+	pinned := filepath.Join(instances, "cc-bridge")
+	if err := os.MkdirAll(pinned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pinned, "cursor-bridge.pid"), []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-bridge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+	if !instance.Pin() {
+		t.Fatal("Pin refused a real directory")
+	}
+
+	// The name now resolves to a different directory than the pinned one, which
+	// is what a rename racing the stop looks like from here.
+	moved := filepath.Join(instances, "cc-moved")
+	if err = os.Rename(pinned, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(pinned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	base := availablePortRange(t, 2)
+	dialect := Dialect{Model: "model", Port: base, Bridge: "cursor", BridgePort: base + 1, APIKey: "key"}
+	if err = stopProxyDialect(instance, dialect); err != nil {
+		t.Fatalf("stopProxyDialect failed: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(moved, "cursor-bridge.pid")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("bridge PID was not cleared through the pinned directory: %v", statErr)
 	}
 }

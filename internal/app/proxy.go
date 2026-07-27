@@ -248,27 +248,43 @@ func stopProxy(name string) error {
 	if err != nil {
 		return err
 	}
-	dialect, exists := cfg.Dialects[name]
-	if !exists {
-		// Without the private key there is no safe way to prove PID ownership.
-		instance, openErr := openInstanceFS(name)
-		if openErr != nil {
-			return openErr
-		}
-		defer instance.Close()
-		return instance.RemoveIfExists("proxy.pid")
-	}
-	return stopProxyDialect(name, dialect)
-}
-
-func stopProxyDialect(name string, dialect Dialect) (err error) {
 	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
 	}
 	defer instance.Close()
+	dialect, exists := cfg.Dialects[name]
+	if !exists {
+		// Without the private key there is no safe way to prove PID ownership.
+		return instance.RemoveIfExists("proxy.pid")
+	}
+	return stopProxyDialect(instance, dialect)
+}
+
+// stopProxyDialectByName stops a dialect for callers holding no pinned handle of
+// their own. Callers that already pinned the directory — removal above all —
+// must pass that handle to stopProxyDialect instead, so the stop and whatever
+// follows it act on one directory rather than on whatever the name resolves to
+// at each step.
+func stopProxyDialectByName(name string, dialect Dialect) error {
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
+	return stopProxyDialect(instance, dialect)
+}
+
+// stopProxyDialect stops the proxy and any managed bridge belonging to the
+// directory instance is pinned to. Every step reads through that one handle: the
+// bridge stop used to re-open the dialect by name, so an entry replaced midway
+// let the proxy be stopped from the original directory while the replacement's
+// absent bridge PID read as "already stopped", leaving the original bridge
+// running behind a successful stop.
+func stopProxyDialect(instance *instanceFS, dialect Dialect) (err error) {
+	name := instance.name
 	defer func() {
-		err = errors.Join(err, stopManagedBridge(name, dialect))
+		err = errors.Join(err, stopManagedBridge(instance, dialect))
 	}()
 	pid, pidErr := instance.ReadPID("proxy.pid")
 	if pidErr != nil {
@@ -502,14 +518,17 @@ func startManagedBridge(instance *instanceFS, dialect Dialect) error {
 	}
 }
 
-func stopManagedBridge(name string, dialect Dialect) error {
+// stopManagedBridge mirrors startManagedBridge: it reuses the caller's pinned
+// instance rather than opening its own, so the bridge is stopped in the same
+// directory the proxy was.
+func stopManagedBridge(instance *instanceFS, dialect Dialect) error {
 	switch dialect.Bridge {
 	case "":
 		return nil
 	case "cursor":
-		return stopCursorBridge(name, dialect)
+		return stopCursorBridge(instance, dialect)
 	case "copilot":
-		return stopCopilotBridge(name, dialect)
+		return stopCopilotBridge(instance, dialect)
 	default:
 		return nil
 	}

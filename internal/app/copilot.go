@@ -436,22 +436,22 @@ func stopCopilotDialects() []string {
 	sort.Strings(names)
 	stopped := make([]string, 0, len(names))
 	for _, name := range names {
-		if stopProxyDialect(name, cfg.Dialects[name]) == nil {
+		if stopProxyDialectByName(name, cfg.Dialects[name]) == nil {
 			stopped = append(stopped, name)
 		}
 	}
 	return stopped
 }
 
-func stopCopilotBridge(name string, dialect Dialect) error {
+// stopCopilotBridge takes the caller's pinned instance for the same reason
+// startCopilotBridge does: opening a second handle would resolve the dialect
+// name again, and a directory replaced in between would hide the running
+// bridge's PID behind the replacement's missing one.
+func stopCopilotBridge(instance *instanceFS, dialect Dialect) error {
 	if dialect.Bridge != "copilot" {
 		return nil
 	}
-	instance, err := openInstanceFS(name)
-	if err != nil {
-		return err
-	}
-	defer instance.Close()
+	name := instance.name
 	pid, pidErr := instance.ReadPID("copilot-bridge.pid")
 	if pidErr != nil {
 		// An unreadable ownership record must not read as "already stopped": that
