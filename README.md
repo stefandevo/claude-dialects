@@ -870,10 +870,23 @@ directory by the operating system rather than by path checks alone: the CLI
 opens `instances/<dialect>/` as a root and resolves every path relative to it.
 A symlink planted inside cannot redirect a read, a write or a removal — neither
 outside the state tree nor into a *sibling dialect*, so one dialect's
-credentials, configuration and history stay unreachable from another. Both
-`instances/` and each dialect directory must be real directories; if either is
-replaced by a symlink the operation is refused before any configuration or file
-is changed. Dialect names remain restricted to `[a-z0-9_-]`.
+credentials, configuration and history stay unreachable from another. Dialect
+names remain restricted to `[a-z0-9_-]`.
+
+Two limits on that guarantee are worth stating plainly:
+
+- **Removal is the exception.** Every other operation refuses to run when
+  `instances/` or the dialect's own directory has been replaced by a symlink, and
+  refuses before anything is changed. `cc-dialect remove` instead unlinks the
+  symlink itself and commits the configuration change, so a dialect whose
+  directory was tampered with can still be cleaned up. It unlinks the link and
+  never follows it, so the link's target is left untouched.
+- **Credentials written during OAuth are not root-confined.** `cc-dialect auth`
+  hands the embedded CLIProxyAPI an absolute `auth-dir` and that dependency
+  writes the token itself, so the write is guarded by the pathname rather than by
+  the root. The CLI verifies afterwards that the file landed under the dialect's
+  own `auth/` and refuses to secure it otherwise, but the write has happened by
+  then.
 
 The dashboard accepts only numeric loopback listeners. Every request must use
 the exact bound `Host`; state-changing API requests must also use the exact local

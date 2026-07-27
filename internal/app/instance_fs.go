@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -99,11 +98,19 @@ func (instance *instanceFS) Abs(rel string) (string, error) {
 	return filepath.Join(instance.instancesDir, instance.name, path), nil
 }
 
-func (instance *instanceFS) Rel(abs string) (string, error) {
+// RelUnder converts an absolute path handed back by an external dependency into
+// a path relative to this dialect, rejecting anything that does not land under
+// the named subdirectory. The result still goes through the dialect root, so
+// this is a check on where the dependency claims to have written, not the
+// confinement itself.
+func (instance *instanceFS) RelUnder(abs, parent string) (string, error) {
 	base := filepath.Join(instance.instancesDir, instance.name)
 	rel, err := filepath.Rel(base, abs)
 	if err != nil || !filepath.IsLocal(rel) {
 		return "", operationError(ErrorInvalidInput, "path %q is outside dialect %q", abs, instance.name)
+	}
+	if rel != parent && !strings.HasPrefix(rel, parent+string(filepath.Separator)) {
+		return "", operationError(ErrorInvalidInput, "path %q is outside %s in dialect %q", abs, parent, instance.name)
 	}
 	return rel, nil
 }
@@ -121,13 +128,15 @@ func (instance *instanceFS) ReadFile(rel string) ([]byte, error) {
 }
 
 func (instance *instanceFS) ReadDir(rel string) ([]os.DirEntry, error) {
-	directory, err := instance.Open(rel)
+	path, err := instance.path(rel)
 	if err != nil {
 		return nil, err
 	}
-	entries, readErr := directory.ReadDir(-1)
-	closeErr := directory.Close()
-	return entries, errors.Join(readErr, closeErr)
+	root, err := instance.dir()
+	if err != nil {
+		return nil, err
+	}
+	return readDirAt(root, path)
 }
 
 func (instance *instanceFS) Open(rel string) (*os.File, error) {
@@ -203,18 +212,43 @@ func (instance *instanceFS) RemoveIfExists(rel string) error {
 	return err
 }
 
-// RemoveAll deletes the whole dialect directory. It works from the parent root
-// because the entry being removed is the dialect directory itself: a symlinked
-// instance must be unlinked here, not resolved, so this is deliberately the one
-// operation that does not go through the per-dialect root.
+// RemoveAll deletes the whole dialect directory.
+//
+// The contents go through the pinned per-dialect root, so the dialect name is
+// never resolved a second time: re-opening it by name after checking it is what
+// would let a symlink swapped in mid-removal redirect the recursion into a
+// sibling dialect, since that target stays inside the shared instances root.
+// Only the final unlink uses the parent, and Remove does not follow symlinks —
+// which is precisely why a symlinked instance is unlinked here rather than
+// resolved, and why removal is the one operation a symlinked instance survives.
 func (instance *instanceFS) RemoveAll() error {
-	if instance.root != nil {
-		if err := instance.root.Close(); err != nil {
+	root, dirErr := instance.dir()
+	if dirErr != nil {
+		// Missing, a symlink, or not a directory: nothing to descend into, so
+		// unlink whatever the entry is.
+		return instance.unlinkEntry()
+	}
+	defer func() {
+		_ = root.Close()
+		instance.root = nil
+	}()
+	for pass := 0; ; pass++ {
+		if err := removeAllUnder(root, "."); err != nil {
 			return err
 		}
-		instance.root = nil
+		err := instance.unlinkEntry()
+		if err == nil || pass >= maxRemoveAllRescans {
+			return err
+		}
 	}
-	return removeAllAt(instance.parent, instance.name)
+}
+
+func (instance *instanceFS) unlinkEntry() error {
+	err := instance.parent.Remove(instance.name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (instance *instanceFS) AtomicWrite(rel string, data []byte, mode os.FileMode) error {
@@ -244,11 +278,4 @@ func (instance *instanceFS) WritePID(rel string, pid int) error {
 
 func (instance *instanceFS) WriteBuildIdentity(rel string) error {
 	return instance.AtomicWrite(rel, []byte(appBuildIdentity()+"\n"), 0o600)
-}
-
-func (instance *instanceFS) ValidateUnder(rel, parent string) error {
-	if rel == parent || strings.HasPrefix(rel, parent+string(filepath.Separator)) {
-		return nil
-	}
-	return fmt.Errorf("path %q is outside %s", rel, parent)
 }

@@ -347,21 +347,21 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
+	// The child dups the descriptor at Start, so holding the parent's copy
+	// until return costs one fd and removes a close from every error path.
+	defer func() { _ = logFile.Close() }()
 	logPath, err := instance.Abs("copilot-bridge.log")
 	if err != nil {
-		_ = logFile.Close()
 		return err
 	}
 	if pid := instance.ReadPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
-			_ = logFile.Close()
 			return fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
 		_ = instance.RemoveIfExists("copilot-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
-		_ = logFile.Close()
 		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
 	// The Copilot SDK accepts its home/working directory only as an absolute
@@ -378,19 +378,18 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	detach(cmd)
 	if err = cmd.Start(); err != nil {
-		_ = logFile.Close()
 		return err
 	}
-	_ = logFile.Close()
 	exited := monitorStartedProcess(cmd)
 	if err = instance.WritePID("copilot-bridge.pid", cmd.Process.Pid); err != nil {
 		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
 		return errors.Join(fmt.Errorf("record Copilot bridge PID: %w", err), cleanupErr)
 	}
-	if err = instance.WriteBuildIdentity("copilot-bridge.version"); err != nil {
-		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
-		return errors.Join(fmt.Errorf("record Copilot bridge build identity: %w", err), cleanupErr)
-	}
+	// Best-effort, unlike the PID: the bridge is already started and serving, and
+	// a missing version marker only makes doctor report an unknown build and
+	// prompt a restart. Tearing down a working bridge over it would be worse than
+	// the stale marker it avoids.
+	_ = instance.WriteBuildIdentity("copilot-bridge.version")
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		select {
 		case waitErr := <-exited:

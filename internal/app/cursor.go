@@ -353,21 +353,21 @@ func startCursorBridge(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
+	// The child dups the descriptor at Start, so holding the parent's copy
+	// until return costs one fd and removes a close from every error path.
+	defer func() { _ = logFile.Close() }()
 	logPath, err := instance.Abs("cursor-bridge.log")
 	if err != nil {
-		_ = logFile.Close()
 		return err
 	}
 	if pid := instance.ReadPID("cursor-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
-			_ = logFile.Close()
 			return fmt.Errorf("Cursor bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
 		_ = instance.RemoveIfExists("cursor-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
-		_ = logFile.Close()
 		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
 	// The Cursor SDK accepts the workspace only as an absolute pathname. Rooted
@@ -384,19 +384,18 @@ func startCursorBridge(name string, dialect Dialect) error {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	detach(cmd)
 	if err = cmd.Start(); err != nil {
-		_ = logFile.Close()
 		return err
 	}
-	_ = logFile.Close()
 	exited := monitorStartedProcess(cmd)
 	if err = instance.WritePID("cursor-bridge.pid", cmd.Process.Pid); err != nil {
 		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
 		return errors.Join(fmt.Errorf("record Cursor bridge PID: %w", err), cleanupErr)
 	}
-	if err = instance.WriteBuildIdentity("cursor-bridge.version"); err != nil {
-		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
-		return errors.Join(fmt.Errorf("record Cursor bridge build identity: %w", err), cleanupErr)
-	}
+	// Best-effort, unlike the PID: the bridge is already started and serving, and
+	// a missing version marker only makes doctor report an unknown build and
+	// prompt a restart. Tearing down a working bridge over it would be worse than
+	// the stale marker it avoids.
+	_ = instance.WriteBuildIdentity("cursor-bridge.version")
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
 		select {
 		case waitErr := <-exited:

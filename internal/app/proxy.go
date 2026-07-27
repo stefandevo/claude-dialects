@@ -288,10 +288,10 @@ func runEmbeddedProxy(name string) error {
 	defer instance.Close()
 	// Stamp this process's own identity before serving: the spawning parent may
 	// be an older cc-dialect build that re-executed a newer on-disk binary, so
-	// only this child knows which build is actually running the proxy.
-	if err = instance.WriteBuildIdentity("proxy.version"); err != nil {
-		return fmt.Errorf("record proxy build identity: %w", err)
-	}
+	// only this child knows which build is actually running the proxy. The stamp
+	// is best-effort — doctor reads a missing marker as an unknown build and
+	// prompts a restart, which is a better outcome than refusing to serve.
+	_ = instance.WriteBuildIdentity("proxy.version")
 	path, err := writeProxyConfigAt(instance, dialect)
 	if err != nil {
 		return err
@@ -373,12 +373,9 @@ func authenticate(name, provider string, noBrowser bool) error {
 	}
 	fmt.Println("Authenticated", provider)
 	if saved != "" {
-		rel, relErr := instance.Rel(saved)
+		rel, relErr := instance.RelUnder(saved, "auth")
 		if relErr != nil {
 			return fmt.Errorf("secure saved credentials: %w", relErr)
-		}
-		if validateErr := instance.ValidateUnder(rel, "auth"); validateErr != nil {
-			return fmt.Errorf("secure saved credentials: %w", validateErr)
 		}
 		if chmodErr := instance.Chmod(rel, 0o600); chmodErr != nil {
 			return fmt.Errorf("secure saved credentials: %w", chmodErr)

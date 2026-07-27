@@ -157,17 +157,17 @@ func TestRemoveAllAtRescansAfterConcurrentWrite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	root, err := instancesRoot()
+	instance, err := openInstanceFS("cc-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer instance.Close()
 
 	original := readDirAt
 	raced := false
 	readDirAt = func(scanned *os.Root, rel string) ([]os.DirEntry, error) {
 		entries, readErr := original(scanned, rel)
-		if rel == "cc-test" && !raced {
+		if rel == "." && !raced {
 			raced = true
 			// A writer slips an entry in after the scan but before the Remove.
 			if writeErr := os.WriteFile(filepath.Join(dir, "late"), []byte("y"), 0o600); writeErr != nil {
@@ -178,8 +178,8 @@ func TestRemoveAllAtRescansAfterConcurrentWrite(t *testing.T) {
 	}
 	t.Cleanup(func() { readDirAt = original })
 
-	if err = removeAllAt(root, "cc-test"); err != nil {
-		t.Fatalf("removeAllAt did not recover from a concurrent write: %v", err)
+	if err = instance.RemoveAll(); err != nil {
+		t.Fatalf("RemoveAll did not recover from a concurrent write: %v", err)
 	}
 	if !raced {
 		t.Fatal("test did not exercise the race")
@@ -189,26 +189,64 @@ func TestRemoveAllAtRescansAfterConcurrentWrite(t *testing.T) {
 	}
 }
 
-// A directory another process keeps refilling must surface the Remove error
-// rather than retry forever.
-func TestRemoveAllAtGivesUpOnUnendingWrites(t *testing.T) {
+// An empty scan is not a reason to stop retrying: a writer that creates the
+// first entry between the scan and the Remove is exactly the race the rescan
+// exists for.
+func TestRemoveAllRetriesAfterEmptyScan(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
 	dir := filepath.Join(home, "instances", "cc-test")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	root, err := instancesRoot()
+	instance, err := openInstanceFS("cc-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer instance.Close()
+
+	original := readDirAt
+	raced := false
+	readDirAt = func(scanned *os.Root, rel string) ([]os.DirEntry, error) {
+		entries, readErr := original(scanned, rel)
+		if rel == "." && !raced {
+			raced = true
+			if writeErr := os.WriteFile(filepath.Join(dir, "first"), []byte("y"), 0o600); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+		}
+		return entries, readErr
+	}
+	t.Cleanup(func() { readDirAt = original })
+
+	if err = instance.RemoveAll(); err != nil {
+		t.Fatalf("RemoveAll gave up after an empty scan raced a first write: %v", err)
+	}
+	if _, statErr := os.Stat(dir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("instance directory survived removal: %v", statErr)
+	}
+}
+
+// A directory another process keeps refilling must surface the Remove error
+// rather than retry forever.
+func TestRemoveAllGivesUpOnUnendingWrites(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	dir := filepath.Join(home, "instances", "cc-test")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
 
 	original := readDirAt
 	scans := 0
 	readDirAt = func(scanned *os.Root, rel string) ([]os.DirEntry, error) {
 		entries, readErr := original(scanned, rel)
-		if rel == "cc-test" {
+		if rel == "." {
 			scans++
 			name := filepath.Join(dir, "late-"+strconv.Itoa(scans))
 			if writeErr := os.WriteFile(name, []byte("y"), 0o600); writeErr != nil {
@@ -219,11 +257,69 @@ func TestRemoveAllAtGivesUpOnUnendingWrites(t *testing.T) {
 	}
 	t.Cleanup(func() { readDirAt = original })
 
-	if err = removeAllAt(root, "cc-test"); err == nil {
-		t.Fatal("removeAllAt should report the failed removal of a directory being refilled")
+	if err = instance.RemoveAll(); err == nil {
+		t.Fatal("RemoveAll should report the failed removal of a directory being refilled")
 	}
 	if scans > maxRemoveAllRescans+1 {
-		t.Fatalf("removeAllAt rescanned %d times, want at most %d", scans, maxRemoveAllRescans+1)
+		t.Fatalf("RemoveAll rescanned %d times, want at most %d", scans, maxRemoveAllRescans+1)
+	}
+}
+
+// The dialect name must not be resolved a second time during removal: a symlink
+// to a sibling swapped in mid-removal would otherwise be followed, since its
+// target stays inside the shared instances root.
+func TestRemoveAllDoesNotReResolveTheDialectName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	dir := filepath.Join(home, "instances", "cc-test")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(home, "instances", "cc-sibling")
+	if err := os.MkdirAll(sibling, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Same entry name as the dialect being removed: if the recursion re-resolves
+	// "cc-test/state" by name after the swap, it lands here and deletes it.
+	if err := os.WriteFile(filepath.Join(sibling, "state"), []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+
+	original := readDirAt
+	swapped := false
+	// Fires on the first scan whatever path shape the removal uses, so the test
+	// exercises the swap against any implementation rather than silently passing.
+	readDirAt = func(scanned *os.Root, rel string) ([]os.DirEntry, error) {
+		entries, readErr := original(scanned, rel)
+		if !swapped {
+			swapped = true
+			// Between the scan and the removal, replace the dialect directory
+			// with a link to its sibling.
+			if rmErr := os.RemoveAll(dir); rmErr != nil {
+				t.Fatal(rmErr)
+			}
+			if linkErr := os.Symlink("cc-sibling", dir); linkErr != nil {
+				t.Fatal(linkErr)
+			}
+		}
+		return entries, readErr
+	}
+	t.Cleanup(func() { readDirAt = original })
+
+	_ = instance.RemoveAll()
+	if !swapped {
+		t.Fatal("test did not exercise the swap")
+	}
+	if data, readErr := os.ReadFile(filepath.Join(sibling, "state")); readErr != nil || string(data) != "keep me" {
+		t.Fatalf("removal followed the swapped link into a sibling dialect: %q, %v", data, readErr)
 	}
 }
 

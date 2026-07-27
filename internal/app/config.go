@@ -512,45 +512,53 @@ func rootChmod(root *os.Root, rel string, mode os.FileMode) error {
 	return entry.Chmod(mode)
 }
 
-// removeAllAt removes root/rel recursively, like os.RemoveAll but confined to
-// the instances root. It lstats each entry so a symlinked instance (or a
-// symlink within it) is unlinked rather than followed — os.RemoveAll would
-// descend into and delete the symlink's target outside the tree.
-//
-// A directory is rescanned when its removal fails after a pass that did remove
-// entries, mirroring os.RemoveAll: an entry created after the scan would
-// otherwise fail the final Remove with ENOTEMPTY and orphan the instance, which
-// matters because RemoveDialect has already committed the config change by then.
-// The retries are bounded so a directory some other process is actively
-// refilling surfaces the Remove error instead of spinning.
+// A removal that fails is retried, mirroring os.RemoveAll: an entry created
+// after the scan fails the Remove with ENOTEMPTY and would orphan the instance,
+// which matters because RemoveDialect has already committed the config change
+// by then. Retries are bounded so a directory another process is actively
+// refilling surfaces the error instead of spinning. The bound is the only stop
+// condition — an empty scan is no reason to give up, since the racing write
+// that empties-then-refills is exactly the case this exists for.
 const maxRemoveAllRescans = 8
 
-func removeAllAt(root *os.Root, rel string) error {
-	info, err := root.Lstat(rel)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+// removeAllUnder recursively empties dir within an already-open root, removing
+// dir itself unless it is the root (". "). The caller unlinks the root's own
+// entry from its parent.
+//
+// Entries are classified from the readdir result rather than a second Lstat, so
+// there is no window between deciding what an entry is and acting on it: a
+// symlink is unlinked on the strength of its directory-entry type instead of
+// being re-resolved by name. Everything resolves through the caller's root, so
+// a link swapped in mid-removal cannot redirect the recursion outside it.
+func removeAllUnder(root *os.Root, dir string) error {
+	entries, err := readDirAt(root, dir)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
-	if !info.IsDir() {
-		return root.Remove(rel)
-	}
-	for pass := 0; ; pass++ {
-		entries, readErr := readDirAt(root, rel)
-		if readErr != nil {
-			return readErr
+	for _, entry := range entries {
+		child := entry.Name()
+		if dir != "." {
+			child = filepath.Join(dir, child)
 		}
-		for _, entry := range entries {
-			if err = removeAllAt(root, filepath.Join(rel, entry.Name())); err != nil {
-				return err
-			}
+		if entry.IsDir() {
+			err = removeAllUnder(root, child)
+		} else {
+			err = root.Remove(child)
 		}
-		err = root.Remove(rel)
-		if err == nil || len(entries) == 0 || pass >= maxRemoveAllRescans {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
+	if dir == "." {
+		return nil
+	}
+	if err = root.Remove(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 var readDirAt = func(root *os.Root, rel string) ([]os.DirEntry, error) {
