@@ -921,3 +921,29 @@ func TestUsageShowsDetectCommand(t *testing.T) {
 		t.Fatal("usage does not show the detect command")
 	}
 }
+
+// A symlink planted at <home>/instances/<name> pointing outside the tree must
+// not be followed by the proxy config write — the instances root confines it.
+func TestWriteProxyConfigRejectsSymlinkedInstance(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "escape")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, "instances", "cc-test")); err != nil {
+		t.Fatal(err)
+	}
+	dialect := presets["codex"]
+	dialect.Port = availablePortRange(t, 1)
+	dialect.APIKey = "key"
+	if _, err := writeProxyConfig("cc-test", dialect); err == nil {
+		t.Fatal("writeProxyConfig should refuse a symlinked instance directory")
+	}
+	if _, err := os.Stat(filepath.Join(target, "proxy.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("writeProxyConfig wrote through the symlink into the escape target: %v", err)
+	}
+}

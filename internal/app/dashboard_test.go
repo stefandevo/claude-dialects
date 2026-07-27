@@ -617,7 +617,7 @@ func TestDashboardInvalidCustomUpstreamEditFailsBeforeStop(t *testing.T) {
 	}
 	service := newAppService()
 	stopCalls := 0
-	service.stopRuntime = func(string, Dialect) error {
+	service.stopRuntime = func(*instanceFS, Dialect) error {
 		stopCalls++
 		return nil
 	}
