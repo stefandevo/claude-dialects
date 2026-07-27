@@ -448,6 +448,70 @@ func TestPersistContextWindowBackfillWritesOnlyUnambiguousDialects(t *testing.T)
 	}
 }
 
+// The label a route match resolves has to reach disk alongside the window it
+// justified. It is what a later create, doctor remedy, or dashboard save reads
+// to restate the dialect's OAuth route in one flag — rediscovering it on every
+// load would leave the file describing a dialect the tool no longer treats as
+// custom, and a second repair would keep finding work to do.
+func TestPersistContextWindowBackfillRecordsTheResolvedPreset(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-codex": {
+          "model": "gpt-5.6-sol",
+          "subagentModel": "gpt-5.6-sol",
+          "opusModel": "gpt-5.6-sol",
+          "sonnetModel": "gpt-5.6-terra",
+          "haikuModel": "gpt-5.6-luna",
+          "authProvider": "codex",
+          "port": 43170,
+          "apiKey": "local-secret"
+        }
+      }
+    }`)
+
+	migrated, err := persistContextWindowBackfill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated) != 1 || migrated[0] != "cc-codex" {
+		t.Fatalf("migrated = %v, want only [cc-codex]", migrated)
+	}
+
+	_, path, _, _, _, _, _, err := paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored struct {
+		Dialects map[string]struct {
+			Preset        string `json:"preset"`
+			ContextWindow int    `json:"contextWindow"`
+			APIKey        string `json:"apiKey"`
+		} `json:"dialects"`
+	}
+	if err = json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.Dialects["cc-codex"].Preset; got != "codex-sol" {
+		t.Errorf("stored preset = %q, want the matched \"codex-sol\" written to disk", got)
+	}
+	if got := stored.Dialects["cc-codex"].ContextWindow; got != 372000 {
+		t.Errorf("stored context window = %d, want 372000", got)
+	}
+	if got := stored.Dialects["cc-codex"].APIKey; got != "local-secret" {
+		t.Errorf("api key = %q, want the preserved \"local-secret\"", got)
+	}
+
+	if migrated, err = persistContextWindowBackfill(); err != nil || len(migrated) != 0 {
+		t.Fatalf("second run: migrated=%v err=%v, want nothing left to repair", migrated, err)
+	}
+}
+
 // Repeating the repair must be a no-op rather than rewriting the configuration
 // on every doctor run.
 func TestPersistContextWindowBackfillIsIdempotent(t *testing.T) {

@@ -268,9 +268,9 @@ func shellArg(value string) string {
 // the upstream URL and token variable, and any non-default behavior settings.
 // A dialect a preset can supply is restated through that preset, which restores
 // the whole route in one flag; a custom one restates every flag it actually
-// differs on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth route no
-// preset supplies — has no faithful command at all, so this returns "" rather
-// than print one that would break the dialect.
+// differs on. State no mutation can round-trip — ExtraEnv, or a bridge or OAuth
+// route no preset supplies — has no faithful command at all, so this returns ""
+// rather than print one that would break the dialect.
 func contextWindowFixCommand(name string, dialect Dialect) string {
 	if !roundTripsThroughMutations(dialect) {
 		return ""

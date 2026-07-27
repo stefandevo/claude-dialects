@@ -762,11 +762,19 @@ the same preset again: that asks for the preset's models, not for its window to
 be raised. An explicit `--context-window` always wins.
 
 Dialects created before this field existed are migrated on first read: a dialect
-that still carries its preset's exact model and route mapping adopts that
-preset's value, while a modified or genuinely custom mapping is left unset and
-reported by `doctor`. The migrated value takes effect immediately at launch;
-`cc-dialect doctor --fix` records it in `config.json` so the file stops lagging
-behind. Presets themselves are compiled into the executable, so a revised preset
+that carries a preset's exact model and route mapping adopts that preset's
+value, while a modified or genuinely custom mapping is left unset and reported
+by `doctor`. The `preset` key is itself younger than some of those dialects, so
+one that records no preset at all still qualifies when it matches a preset field
+for field — and the matched name is then written alongside the window, so
+`doctor` can offer a `--preset` command that restores the dialect's OAuth route
+instead of telling you to edit `config.json` by hand. Matching is equality, not
+resemblance: a single hand-swapped tier leaves the dialect uncalibrated, because
+the preset's window may be larger than that tier's model supports. A preset name
+already stored always wins over a match, so a labeled dialect that has since
+diverged keeps being judged against what it claims to be. The migrated value
+takes effect immediately at launch; `cc-dialect doctor --fix` records it in
+`config.json` so the file stops lagging behind. Presets themselves are compiled into the executable, so a revised preset
 window arrives with `cc-dialect upgrade` and applies to newly created dialects.
 An already recorded value is never raised on your behalf — nothing distinguishes
 a window you measured from one a preset supplied, and silently increasing it
@@ -786,7 +794,8 @@ cc-dialect doctor
 `doctor` reports dialects with a missing or invalid context window, the fill
 level of the most recent request per dialect, and a Claude Code build that no
 longer references `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Adding `--fix` records
-migrated windows in `config.json`; it never invents one for a custom or
+migrated windows in `config.json`, together with the preset name a route match
+resolved for a dialect that stored none; it never invents one for a custom or
 re-pointed dialect, which stays reported until you set it yourself.
 
 Each dialect's embedded proxy also records the latest request's input usage to
