@@ -865,13 +865,15 @@ only for the launched Claude Code process. Mutating operations are serialized
 across CLI and dashboard processes with the owner-only `.state.lock`; configuration
 and launcher files are written atomically.
 
-Per-dialect reads, writes and deletes are confined to `instances/` by the
-operating system rather than by path checks alone: the CLI opens that directory
-as a root and resolves every dialect path relative to it, so a symlink planted
-under `instances/<dialect>/` cannot redirect a write or a removal outside the
-tree. `instances/` itself must be a real directory — if it is replaced by a
-symlink, the operation is refused before any configuration or file is changed.
-Dialect names remain restricted to `[a-z0-9_-]`.
+Per-dialect reads, writes and deletes are confined to that dialect's own
+directory by the operating system rather than by path checks alone: the CLI
+opens `instances/<dialect>/` as a root and resolves every path relative to it.
+A symlink planted inside cannot redirect a read, a write or a removal — neither
+outside the state tree nor into a *sibling dialect*, so one dialect's
+credentials, configuration and history stay unreachable from another. Both
+`instances/` and each dialect directory must be real directories; if either is
+replaced by a symlink the operation is refused before any configuration or file
+is changed. Dialect names remain restricted to `[a-z0-9_-]`.
 
 The dashboard accepts only numeric loopback listeners. Every request must use
 the exact bound `Host`; state-changing API requests must also use the exact local

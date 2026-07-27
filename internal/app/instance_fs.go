@@ -10,9 +10,22 @@ import (
 )
 
 // instanceFS confines repository-owned filesystem operations for one dialect to
-// the instances root. Absolute paths are exposed only for user-facing messages
-// and external APIs that require pathname strings.
+// that dialect's own directory. Absolute paths are exposed only for user-facing
+// messages and external APIs that require pathname strings.
+//
+// Rooting at <instances>/<name> rather than at <instances> is what makes the
+// dialects isolated from each other: os.Root follows a symlink whose target
+// stays inside the root, so against the shared root a link such as
+// cc-a/auth -> ../cc-b/auth resolves and one dialect reads another's
+// credentials, config or history. Only a per-dialect root refuses it.
 type instanceFS struct {
+	// parent is the shared instances root. It is the boundary for operations on
+	// the dialect entry itself — chiefly removal, which must unlink a symlinked
+	// instance rather than resolve it.
+	parent *os.Root
+	// root is the dialect's own directory, opened lazily by dir() so that
+	// constructing an instanceFS neither requires the directory to exist nor
+	// creates it as a side effect of a read.
 	root         *os.Root
 	name         string
 	instancesDir string
@@ -26,25 +39,56 @@ func openInstanceFS(name string) (*instanceFS, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := instancesRoot()
+	parent, err := instancesRoot()
 	if err != nil {
 		return nil, err
 	}
-	return &instanceFS{root: root, name: name, instancesDir: filepath.Join(home, "instances")}, nil
+	return &instanceFS{parent: parent, name: name, instancesDir: filepath.Join(home, "instances")}, nil
 }
 
 func (instance *instanceFS) Close() error {
-	return instance.root.Close()
+	err := instance.parent.Close()
+	if instance.root != nil {
+		err = errors.Join(instance.root.Close(), err)
+	}
+	return err
+}
+
+// dir opens the dialect's own directory as a root, refusing a symlinked or
+// missing instance. Callers that only read report the underlying error; callers
+// that write go through ensureDir so the directory is created first.
+func (instance *instanceFS) dir() (*os.Root, error) {
+	if instance.root != nil {
+		return instance.root, nil
+	}
+	root, err := openRootChild(instance.parent, instance.name, filepath.Join(instance.instancesDir, instance.name))
+	if err != nil {
+		return nil, err
+	}
+	instance.root = root
+	return root, nil
+}
+
+// ensureDir creates the dialect directory when absent, then opens it as a root.
+// A pre-existing symlink is still refused: MkdirAll accepts a link resolving
+// inside the instances root, but dir's validation rejects it.
+func (instance *instanceFS) ensureDir() (*os.Root, error) {
+	if instance.root == nil {
+		if err := instance.parent.MkdirAll(instance.name, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	return instance.dir()
 }
 
 func (instance *instanceFS) path(rel string) (string, error) {
 	if rel == "." {
-		return instance.name, nil
+		return ".", nil
 	}
 	if !filepath.IsLocal(rel) {
 		return "", operationError(ErrorInvalidInput, "invalid instance-relative path %q", rel)
 	}
-	return filepath.Join(instance.name, rel), nil
+	return rel, nil
 }
 
 func (instance *instanceFS) Abs(rel string) (string, error) {
@@ -52,7 +96,7 @@ func (instance *instanceFS) Abs(rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(instance.instancesDir, path), nil
+	return filepath.Join(instance.instancesDir, instance.name, path), nil
 }
 
 func (instance *instanceFS) Rel(abs string) (string, error) {
@@ -69,15 +113,15 @@ func (instance *instanceFS) ReadFile(rel string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return instance.root.ReadFile(path)
-}
-
-func (instance *instanceFS) ReadDir(rel string) ([]os.DirEntry, error) {
-	path, err := instance.path(rel)
+	root, err := instance.dir()
 	if err != nil {
 		return nil, err
 	}
-	directory, err := instance.root.Open(path)
+	return root.ReadFile(path)
+}
+
+func (instance *instanceFS) ReadDir(rel string) ([]os.DirEntry, error) {
+	directory, err := instance.Open(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +135,11 @@ func (instance *instanceFS) Open(rel string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return instance.root.Open(path)
+	root, err := instance.dir()
+	if err != nil {
+		return nil, err
+	}
+	return root.Open(path)
 }
 
 func (instance *instanceFS) OpenAppend(rel string, mode os.FileMode) (*os.File, error) {
@@ -99,10 +147,16 @@ func (instance *instanceFS) OpenAppend(rel string, mode os.FileMode) (*os.File, 
 	if err != nil {
 		return nil, err
 	}
-	if err = instance.root.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	root, err := instance.ensureDir()
+	if err != nil {
 		return nil, err
 	}
-	return instance.root.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, mode)
+	if dir := filepath.Dir(path); dir != "." {
+		if err = root.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	return root.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, mode)
 }
 
 func (instance *instanceFS) MkdirAll(rel string, mode os.FileMode) error {
@@ -110,7 +164,11 @@ func (instance *instanceFS) MkdirAll(rel string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return instance.root.MkdirAll(path, mode)
+	root, err := instance.ensureDir()
+	if err != nil {
+		return err
+	}
+	return root.MkdirAll(path, mode)
 }
 
 func (instance *instanceFS) Chmod(rel string, mode os.FileMode) error {
@@ -118,7 +176,11 @@ func (instance *instanceFS) Chmod(rel string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return rootChmod(instance.root, path, mode)
+	root, err := instance.dir()
+	if err != nil {
+		return err
+	}
+	return rootChmod(root, path, mode)
 }
 
 func (instance *instanceFS) Remove(rel string) error {
@@ -126,7 +188,11 @@ func (instance *instanceFS) Remove(rel string) error {
 	if err != nil {
 		return err
 	}
-	return instance.root.Remove(path)
+	root, err := instance.dir()
+	if err != nil {
+		return err
+	}
+	return root.Remove(path)
 }
 
 func (instance *instanceFS) RemoveIfExists(rel string) error {
@@ -137,8 +203,18 @@ func (instance *instanceFS) RemoveIfExists(rel string) error {
 	return err
 }
 
+// RemoveAll deletes the whole dialect directory. It works from the parent root
+// because the entry being removed is the dialect directory itself: a symlinked
+// instance must be unlinked here, not resolved, so this is deliberately the one
+// operation that does not go through the per-dialect root.
 func (instance *instanceFS) RemoveAll() error {
-	return removeAllAt(instance.root, instance.name)
+	if instance.root != nil {
+		if err := instance.root.Close(); err != nil {
+			return err
+		}
+		instance.root = nil
+	}
+	return removeAllAt(instance.parent, instance.name)
 }
 
 func (instance *instanceFS) AtomicWrite(rel string, data []byte, mode os.FileMode) error {
@@ -146,7 +222,11 @@ func (instance *instanceFS) AtomicWrite(rel string, data []byte, mode os.FileMod
 	if err != nil {
 		return err
 	}
-	return atomicWriteFileAt(instance.root, path, data, mode)
+	root, err := instance.ensureDir()
+	if err != nil {
+		return err
+	}
+	return atomicWriteFileAt(root, path, data, mode)
 }
 
 func (instance *instanceFS) ReadPID(rel string) int {

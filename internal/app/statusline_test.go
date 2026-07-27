@@ -331,8 +331,11 @@ func TestSeedStatuslineWiresSettingsAfterCommittedScriptWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := syncParentDirectoryAt
+	// Paths are relative to the dialect's own root, so the script sits directly
+	// in it (".") while the settings file is under "claude" — fail only the
+	// script write's sync.
 	syncParentDirectoryAt = func(root *os.Root, dir string) error {
-		if filepath.Base(dir) == "cc-test" {
+		if dir == "." {
 			return errors.New("sync failed")
 		}
 		return original(root, dir)

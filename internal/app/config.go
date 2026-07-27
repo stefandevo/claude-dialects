@@ -234,14 +234,47 @@ func ensureClaudeConfigDir(name string) (string, error) {
 	return instance.Abs("claude")
 }
 
+// openRootChild opens child, a direct entry of parent, as a root in its own
+// right and refuses anything that is not a real directory. os.Root confines
+// paths to the root it was opened on but still follows symlinks whose targets
+// stay inside it, so a nested root is the only way to make the child itself a
+// boundary. The already-open root is matched against the parent's directory
+// entry with SameFile, which closes the check/open race: an entry swapped
+// between the two calls cannot satisfy both. display names the path in errors.
+func openRootChild(parent *os.Root, child, display string) (*os.Root, error) {
+	root, err := parent.OpenRoot(child)
+	if err != nil {
+		return nil, err
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			_ = root.Close()
+		}
+	}()
+	info, err := parent.Lstat(child)
+	if err != nil {
+		return nil, err
+	}
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !os.SameFile(info, rootInfo) {
+		return nil, fmt.Errorf("%s must be a stable real directory", display)
+	}
+	valid = true
+	return root, nil
+}
+
 // instancesRoot returns an os.Root confined to <home>/instances, creating the
 // directory when it does not yet exist. DIALECT_HOME itself may be a symlink,
-// but the instances child must be a stable real directory. The child root is
-// opened first and then matched against the parent's directory entry, closing
-// the check/open race while keeping it confined beneath home. Paths beneath the
-// returned root may follow symlinks only when they remain inside it.
-// The root is opened per operation so tests may change DIALECT_HOME; callers
-// Close it when done.
+// but the instances child must be a stable real directory.
+//
+// This root spans every dialect, so it is the boundary for the tree as a whole,
+// not for one dialect: use instanceFS for per-dialect I/O, which roots each
+// dialect separately. The root is opened per operation so tests may change
+// DIALECT_HOME; callers Close it when done.
 func instancesRoot() (*os.Root, error) {
 	home, err := homeDir()
 	if err != nil {
@@ -258,29 +291,7 @@ func instancesRoot() (*os.Root, error) {
 	if err = homeRoot.MkdirAll("instances", 0o700); err != nil {
 		return nil, err
 	}
-	root, err := homeRoot.OpenRoot("instances")
-	if err != nil {
-		return nil, err
-	}
-	valid := false
-	defer func() {
-		if !valid {
-			_ = root.Close()
-		}
-	}()
-	info, err := homeRoot.Lstat("instances")
-	if err != nil {
-		return nil, err
-	}
-	rootInfo, err := root.Stat(".")
-	if err != nil {
-		return nil, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !os.SameFile(info, rootInfo) {
-		return nil, fmt.Errorf("instances path %s must be a stable real directory", filepath.Join(home, "instances"))
-	}
-	valid = true
-	return root, nil
+	return openRootChild(homeRoot, "instances", filepath.Join(home, "instances"))
 }
 
 func defaultConfig() *Config {
@@ -505,6 +516,15 @@ func rootChmod(root *os.Root, rel string, mode os.FileMode) error {
 // the instances root. It lstats each entry so a symlinked instance (or a
 // symlink within it) is unlinked rather than followed — os.RemoveAll would
 // descend into and delete the symlink's target outside the tree.
+//
+// A directory is rescanned when its removal fails after a pass that did remove
+// entries, mirroring os.RemoveAll: an entry created after the scan would
+// otherwise fail the final Remove with ENOTEMPTY and orphan the instance, which
+// matters because RemoveDialect has already committed the config change by then.
+// The retries are bounded so a directory some other process is actively
+// refilling surfaces the Remove error instead of spinning.
+const maxRemoveAllRescans = 8
+
 func removeAllAt(root *os.Root, rel string) error {
 	info, err := root.Lstat(rel)
 	if errors.Is(err, os.ErrNotExist) {
@@ -516,21 +536,31 @@ func removeAllAt(root *os.Root, rel string) error {
 	if !info.IsDir() {
 		return root.Remove(rel)
 	}
-	dir, err := root.Open(rel)
-	if err != nil {
-		return err
-	}
-	entries, readErr := dir.ReadDir(-1)
-	dir.Close()
-	if readErr != nil {
-		return readErr
-	}
-	for _, entry := range entries {
-		if err := removeAllAt(root, filepath.Join(rel, entry.Name())); err != nil {
+	for pass := 0; ; pass++ {
+		entries, readErr := readDirAt(root, rel)
+		if readErr != nil {
+			return readErr
+		}
+		for _, entry := range entries {
+			if err = removeAllAt(root, filepath.Join(rel, entry.Name())); err != nil {
+				return err
+			}
+		}
+		err = root.Remove(rel)
+		if err == nil || len(entries) == 0 || pass >= maxRemoveAllRescans {
 			return err
 		}
 	}
-	return root.Remove(rel)
+}
+
+var readDirAt = func(root *os.Root, rel string) ([]os.DirEntry, error) {
+	dir, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	entries, readErr := dir.ReadDir(-1)
+	closeErr := dir.Close()
+	return entries, errors.Join(readErr, closeErr)
 }
 
 func writeProxyConfig(name string, dialect Dialect) (string, error) {

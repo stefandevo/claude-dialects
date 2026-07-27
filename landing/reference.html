@@ -228,7 +228,7 @@ cld</code></pre>
         <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. The dashboard accepts numeric loopback listeners only and requires the exact bound Host on every request; mutations also require the exact Origin and a per-process CSRF token. It is designed for one trusted local user, not remote or reverse-proxy exposure.</p>
         <ul>
           <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
-          <li>Per-dialect file I/O confined to <code>instances/</code> by the operating system, so a planted symlink cannot redirect a write or a removal outside the tree</li>
+          <li>Per-dialect file I/O confined to that dialect's own directory by the operating system, so a planted symlink cannot redirect a read, write or removal outside the tree or into another dialect</li>
           <li>Secret-safe dashboard API responses omit keys, tokens, credential contents, and extra environment values</li>
           <li>Checked port allocation starting at <code>:43170</code></li>
           <li>Cursor/Copilot tools forwarded with <code>cc_tool_</code> schema aliases</li>
@@ -243,7 +243,7 @@ cld</code></pre>
 
       <section id="files" class="doc-section reveal">
         <h2>File layout</h2>
-        <p>State lives under <code>~/Library/Application Support/claude-dialects</code> on macOS (or <code>DIALECT_HOME</code> when set). The CLI opens <code>instances/</code> as a root and resolves every dialect path relative to it; <code>instances/</code> itself must be a real directory, and an operation is refused before anything is written if it has been replaced by a symlink. Dialect names remain restricted to <code>[a-z0-9_-]</code>.</p>
+        <p>State lives under <code>~/Library/Application Support/claude-dialects</code> on macOS (or <code>DIALECT_HOME</code> when set). The CLI opens <code>instances/&lt;dialect&gt;/</code> as a root and resolves every path relative to it, so a symlink inside cannot reach outside the tree or into a sibling dialect. Both <code>instances/</code> and each dialect directory must be real directories, and an operation is refused before anything is written if either has been replaced by a symlink. Dialect names remain restricted to <code>[a-z0-9_-]</code>.</p>
         <div class="code-block">
           <pre><code>config.json          # dialects + tracked native-launcher registry
 .state.lock          # owner-only cross-process mutation lock
