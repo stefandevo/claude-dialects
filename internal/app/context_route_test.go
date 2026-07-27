@@ -109,6 +109,53 @@ func TestAnExplicitContextWindowSurvivesAModelChange(t *testing.T) {
 	}
 }
 
+// An operator who measured a lower capacity than the preset advertises keeps it
+// through an update that leaves the route alone. Naming the same preset again is
+// not a request to raise the window: silently increasing it delays compaction
+// past the limit they established, which is the failure this metadata prevents.
+func TestUnchangedPresetUpdateKeepsAnExplicitContextWindow(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	service := newAppService()
+
+	if _, err := service.CreateDialect(DialectInput{
+		Name: "cc-codex", Preset: "codex-sol", ContextWindow: 128000,
+	}, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []DialectInput{
+		{Name: "cc-codex", Preset: "codex-sol", Concurrency: 5},
+		{Name: "cc-codex", Preset: "codex-sol"},
+		{Name: "cc-codex", Preset: "codex-sol", EffortLevel: "high"},
+	} {
+		result, err := service.UpdateDialect(update, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Dialect.ContextWindow != 128000 {
+			t.Fatalf("context window = %d, want the operator's 128000 preserved across %+v",
+				result.Dialect.ContextWindow, update)
+		}
+	}
+}
+
+// The preset still supplies the capacity when the dialect has none of its own,
+// which is the ordinary case for a dialect created straight from a preset.
+func TestUnchangedPresetUpdateStillSuppliesAMissingContextWindow(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	service := newAppService()
+
+	if _, err := service.CreateDialect(DialectInput{Name: "cc-codex", Preset: "codex-sol"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.UpdateDialect(DialectInput{Name: "cc-codex", Preset: "codex-sol", Concurrency: 5}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Dialect.ContextWindow != 372000 {
+		t.Fatalf("context window = %d, want the preset capacity 372000", result.Dialect.ContextWindow)
+	}
+}
+
 // Re-applying a preset restores its mapping, so it also restores its capacity.
 func TestReapplyingAPresetRestoresItsContextWindow(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())

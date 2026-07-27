@@ -725,8 +725,9 @@ pass a new `--context-window`, and `create` then warns that the dialect is
 uncalibrated. Carrying the old number across a model change would be the more
 damaging default: a window larger than the new route supports is exactly what
 lets a conversation run past the provider's real limit, while an unset one only
-returns to uncalibrated behavior and says so. Re-applying a preset restores its
-mapping and therefore its value, and an explicit `--context-window` always wins.
+returns to uncalibrated behavior and says so. A stored value also survives naming
+the same preset again: that asks for the preset's models, not for its window to
+be raised. An explicit `--context-window` always wins.
 
 Dialects created before this field existed are migrated on first read: a dialect
 that still carries its preset's exact model and route mapping adopts that
@@ -734,9 +735,15 @@ preset's value, while a modified or genuinely custom mapping is left unset and
 reported by `doctor`. The migrated value takes effect immediately at launch;
 `cc-dialect doctor --fix` records it in `config.json` so the file stops lagging
 behind. Presets themselves are compiled into the executable, so a revised preset
-window arrives with `cc-dialect upgrade` and is applied to an existing dialect by
-re-running `cc-dialect create <name> --preset <preset>` — an already recorded
-value is never overwritten silently, since it may be one you measured yourself.
+window arrives with `cc-dialect upgrade` and applies to newly created dialects.
+An already recorded value is never raised on your behalf — nothing distinguishes
+a window you measured from one a preset supplied, and silently increasing it
+would delay compaction past a limit you set deliberately. Adopt a revised preset
+window explicitly when you want it:
+
+```sh
+cc-dialect create cc-codex --preset codex-sol --context-window 372000
+```
 
 ### Check the calibration
 

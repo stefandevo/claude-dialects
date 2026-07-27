@@ -536,12 +536,21 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 // provider's real limit before compacting — the exact failure this metadata
 // exists to prevent — while an unknown one only returns to uncalibrated
 // behavior, which create warns about and doctor keeps reporting.
+//
+// A stored value is consulted before the preset for the same reason. An operator
+// who measured a lower capacity than the preset advertises keeps it through an
+// update that leaves the route alone: naming the same preset again asks for its
+// models, not for its window to be raised. Nothing distinguishes a stored value
+// the operator chose from one a preset supplied, so preferring the stored one is
+// what keeps the unsafe direction — silently increasing a window — out of the
+// default. A preset whose window later changes therefore does not reach an
+// already-calibrated dialect; passing --context-window is how that is adopted.
 func inheritedContextWindow(resolved Dialect, preset string, existing Dialect, exists bool) int {
+	if exists && validContextWindow(existing.ContextWindow) && sharesContextRoute(resolved, existing) {
+		return existing.ContextWindow
+	}
 	if source, ok := presets[preset]; ok && sharesContextRoute(resolved, source) {
 		return source.ContextWindow
-	}
-	if exists && sharesContextRoute(resolved, existing) {
-		return existing.ContextWindow
 	}
 	return 0
 }
