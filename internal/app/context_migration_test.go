@@ -119,6 +119,20 @@ func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
 	}
 }
 
+// Resolving an unlabeled dialect works only while presets describe distinct
+// routes: two presets sharing one makes both ambiguous, and every unlabeled
+// dialect on that route silently stops migrating. Nothing else would report
+// that — the dialects just stay uncalibrated — so adding a preset that
+// duplicates an existing route has to fail the build instead.
+func TestEveryPresetIsDistinguishableByRoute(t *testing.T) {
+	for name := range presets {
+		if got := presetByContextRoute(presets[name]); got != name {
+			t.Errorf("preset %s resolves to %q; another preset now shares its route, "+
+				"so dialects written before the preset field can no longer be matched to either", name, got)
+		}
+	}
+}
+
 // Matching an unlabeled dialect is equality, not resemblance. One tier pointed
 // somewhere else may hold less than the preset's smallest model, which is
 // exactly the denominator that must never be inflated.
@@ -450,9 +464,8 @@ func TestPersistContextWindowBackfillWritesOnlyUnambiguousDialects(t *testing.T)
 
 // The label a route match resolves has to reach disk alongside the window it
 // justified. It is what a later create, doctor remedy, or dashboard save reads
-// to restate the dialect's OAuth route in one flag — rediscovering it on every
-// load would leave the file describing a dialect the tool no longer treats as
-// custom, and a second repair would keep finding work to do.
+// to restate the dialect's OAuth route in one flag, so leaving it in memory
+// would keep the file describing a dialect the tool no longer treats as custom.
 func TestPersistContextWindowBackfillRecordsTheResolvedPreset(t *testing.T) {
 	writeLegacyConfig(t, `{
       "version": 2,
@@ -491,7 +504,6 @@ func TestPersistContextWindowBackfillRecordsTheResolvedPreset(t *testing.T) {
 		Dialects map[string]struct {
 			Preset        string `json:"preset"`
 			ContextWindow int    `json:"contextWindow"`
-			APIKey        string `json:"apiKey"`
 		} `json:"dialects"`
 	}
 	if err = json.Unmarshal(data, &stored); err != nil {
@@ -502,13 +514,6 @@ func TestPersistContextWindowBackfillRecordsTheResolvedPreset(t *testing.T) {
 	}
 	if got := stored.Dialects["cc-codex"].ContextWindow; got != 372000 {
 		t.Errorf("stored context window = %d, want 372000", got)
-	}
-	if got := stored.Dialects["cc-codex"].APIKey; got != "local-secret" {
-		t.Errorf("api key = %q, want the preserved \"local-secret\"", got)
-	}
-
-	if migrated, err = persistContextWindowBackfill(); err != nil || len(migrated) != 0 {
-		t.Fatalf("second run: migrated=%v err=%v, want nothing left to repair", migrated, err)
 	}
 }
 

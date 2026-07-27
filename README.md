@@ -774,8 +774,10 @@ the preset's window may be larger than that tier's model supports. A preset name
 already stored always wins over a match, so a labeled dialect that has since
 diverged keeps being judged against what it claims to be. The migrated value
 takes effect immediately at launch; `cc-dialect doctor --fix` records it in
-`config.json` so the file stops lagging behind. Presets themselves are compiled into the executable, so a revised preset
-window arrives with `cc-dialect upgrade` and applies to newly created dialects.
+`config.json` so the file stops lagging behind.
+
+Presets themselves are compiled into the executable, so a revised preset window
+arrives with `cc-dialect upgrade` and applies to newly created dialects.
 An already recorded value is never raised on your behalf — nothing distinguishes
 a window you measured from one a preset supplied, and silently increasing it
 would delay compaction past a limit you set deliberately. Adopt a revised preset
