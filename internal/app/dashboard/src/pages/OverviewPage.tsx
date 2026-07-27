@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, Boxes, CirclePlay, Command, Plus, RadioTower, ServerCog } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useDashboard } from '../AppContext';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
