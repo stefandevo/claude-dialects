@@ -1,6 +1,6 @@
 import { ArrowLeft, Info, LoaderCircle, Save, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useDashboard } from '../AppContext';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingState } from '../components/LoadingState';

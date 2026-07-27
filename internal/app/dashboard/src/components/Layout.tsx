@@ -1,7 +1,7 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Boxes, Command, Gauge, Menu, Moon, Plus, RefreshCw, Sun, TerminalSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet } from 'react-router';
 import { useDashboard } from '../AppContext';
 import { cn } from '../utils';
 import { Button } from './ui/button';

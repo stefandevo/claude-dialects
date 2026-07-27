@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router';
 import { DashboardProvider } from './AppContext';
 import { Layout } from './components/Layout';
 import { DialectDetailPage } from './pages/DialectDetailPage';

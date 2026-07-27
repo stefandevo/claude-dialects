@@ -1,6 +1,6 @@
 import { Activity, ArrowLeft, Braces, Cpu, Edit3, KeyRound, LoaderCircle, Network, Play, RefreshCw, Square, TerminalSquare } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useDashboard } from '../AppContext';
 import { ConfirmDeleteDialog } from '../components/ConfirmDeleteDialog';
 import { ErrorState } from '../components/ErrorState';

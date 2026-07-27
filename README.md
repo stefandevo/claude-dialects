@@ -975,7 +975,7 @@ The React dashboard is built to `internal/app/dashboard/dist/`, committed to the
 repository, and embedded into the executable with Go's `embed` package. A normal
 `make build` or `make install` compiles the committed assets and does not invoke
 Node.js. Contributors who change dashboard source need npm and a package-compatible
-Node.js release (Node.js 22.13.x or 24+), and must rebuild and commit the updated
+Node.js release (Node.js 22.22.x or 24+), and must rebuild and commit the updated
 `dist/` files. Production npm dependencies bundled into those assets are included
 in `THIRD_PARTY_NOTICES.md`; development-only frontend packages are not shipped in
 the binary.
