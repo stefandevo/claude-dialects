@@ -154,29 +154,40 @@ func startProxy(name string, dialect Dialect) (err error) {
 	if _, err = instance.ensureDir(); err != nil {
 		return err
 	}
-	bridgeStarted, err := startManagedBridge(instance, dialect)
+	unwindBridge, err := startManagedBridge(instance, dialect)
 	if err != nil {
 		return err
 	}
-	if bridgeStarted {
+	if unwindBridge != nil {
 		// The bridge is started before the proxy, so every proxy failure below
 		// leaves a process this call launched listening with its PID in the pinned
 		// directory — and if that directory is what moved, a later stop resolving
 		// the name cannot find it at all. Unwind exactly what this call started; a
-		// bridge that was already serving is left alone because bridgeStarted is
-		// false for it.
+		// bridge that was already serving returns no closure and is left alone.
 		defer func() {
 			if err != nil {
-				err = errors.Join(err, stopManagedBridge(instance, dialect))
+				err = errors.Join(err, unwindBridge())
 			}
 		}()
 	}
 	if proxyHealthy(dialect) {
-		// A proxy that is already serving still has to be the one this directory
-		// owns. Without the same pin check the spawn path below makes, a name
-		// replaced since the pin reports success while the running proxy and its
-		// PID stay behind in the old directory, where a later stop by name will
-		// not look.
+		// Health is answered by the port, which cannot say which directory the
+		// process belongs to. A proxy left over from a directory replaced before
+		// this call began answers with the same configured key, so the pin check
+		// alone would pass — it only proves the pinned directory stayed put while
+		// this call ran — and startup would succeed with no proxy.pid under the
+		// pinned root at all. A later stop would read that absence as "already
+		// stopped" and removal would drop the configuration while it still serves.
+		// The ownership record is what ties the running proxy to this directory.
+		pid, pidErr := instance.ReadPID("proxy.pid")
+		if pidErr != nil {
+			return fmt.Errorf("read the PID record for %q: %w", name, pidErr)
+		}
+		if pid == 0 || !processAlive(pid) {
+			return fmt.Errorf(
+				"a proxy is already serving port %d but dialect %q holds no record of owning it; stop it and start again",
+				dialect.Port, name)
+		}
 		pinned, pinErr := instance.StillPinned()
 		if pinErr == nil && pinned {
 			return nil
@@ -530,19 +541,19 @@ func tailLog(name string) error {
 // directory replaced in between would leave the bridge and its PID in one
 // directory while the proxy serves from another.
 //
-// It reports whether this call is the one that launched the bridge, which is
-// what lets a caller unwind its own bridge on a later failure without stopping
-// one that was already serving.
-func startManagedBridge(instance *instanceFS, dialect Dialect) (bool, error) {
+// It returns a closure undoing the bridge this call launched, or nil when it
+// launched nothing, which is what lets a caller unwind its own bridge on a later
+// failure without touching one that was already serving.
+func startManagedBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
 	switch dialect.Bridge {
 	case "":
-		return false, nil
+		return nil, nil
 	case "cursor":
 		return startCursorBridge(instance, dialect)
 	case "copilot":
 		return startCopilotBridge(instance, dialect)
 	default:
-		return false, fmt.Errorf("unsupported managed bridge %q", dialect.Bridge)
+		return nil, fmt.Errorf("unsupported managed bridge %q", dialect.Bridge)
 	}
 }
 

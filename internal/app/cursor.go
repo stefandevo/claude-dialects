@@ -320,56 +320,72 @@ func cursorBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// startCursorBridge reports whether it launched the bridge, so a caller whose
-// own startup fails afterwards can stop what this call started. The single
-// health probe here decides both questions at one instant: asking again inside
-// the launch would reopen the gap between "already serving" and "mine to stop".
-func startCursorBridge(instance *instanceFS, dialect Dialect) (bool, error) {
-	if dialect.Bridge != "cursor" || cursorBridgeHealthy(dialect) {
-		return false, nil
+// startCursorBridge returns a closure that tears down the bridge it launched, or
+// nil when it launched nothing. A caller whose own startup fails afterwards uses
+// it to undo exactly what this call did. The closure carries the child's process
+// handle rather than deferring to stopCursorBridge, which removes the PID without
+// signalling whenever its health probe fails — for a bridge that is alive but
+// wedged that deletes the only record of it and strands the process.
+//
+// An already-serving bridge is adopted only when the pinned directory holds a
+// live record of owning it. Health is answered by the port, and the port cannot
+// say which directory the process belongs to: a bridge left over from a
+// directory that has since been replaced answers just as readily, and adopting
+// it would record nothing under the pinned root for a later stop to find.
+func startCursorBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
+	if dialect.Bridge != "cursor" {
+		return nil, nil
 	}
-	return true, launchCursorBridge(instance, dialect)
+	if cursorBridgeHealthy(dialect) {
+		if pid := instance.runningPID("cursor-bridge.pid"); pid > 0 && processAlive(pid) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf(
+			"a Cursor bridge is already serving port %d but dialect %q holds no record of owning it; stop it and start again",
+			dialect.BridgePort, instance.name)
+	}
+	return launchCursorBridge(instance, dialect)
 }
 
-func launchCursorBridge(instance *instanceFS, dialect Dialect) error {
+func launchCursorBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
 	if os.Getenv("CURSOR_API_KEY") == "" {
-		return errors.New("CURSOR_API_KEY is not set")
+		return nil, errors.New("CURSOR_API_KEY is not set")
 	}
 	name := instance.name
 	nodePath, _, err := cursorNode()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	runtimeDir, bridgePath, _, err := cursorRuntimePaths()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err = requireCursorRuntime(); err != nil {
-		return err
+		return nil, err
 	}
 	if err = writeCursorBridge(bridgePath); err != nil {
-		return err
+		return nil, err
 	}
 	workspace, logFile, err := prepareCursorBridgeFiles(instance)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// The child dups the descriptor at Start, so holding the parent's copy
 	// until return costs one fd and removes a close from every error path.
 	defer func() { _ = logFile.Close() }()
 	logPath, err := instance.Abs("cursor-bridge.log")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pid := instance.runningPID("cursor-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
-			return fmt.Errorf("Cursor bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
+			return nil, fmt.Errorf("Cursor bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
 		_ = instance.RemoveIfExists("cursor-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
-		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
+		return nil, fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
 	// The Cursor SDK accepts the workspace only as an absolute pathname. Rooted
 	// preparation above rejects a pre-existing escape; later SDK pathname I/O is
@@ -385,12 +401,17 @@ func launchCursorBridge(instance *instanceFS, dialect Dialect) error {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	detach(cmd)
 	if err = cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	exited := monitorStartedProcess(cmd)
+	// Bound to this child, so unwinding kills the process itself rather than
+	// asking the health endpoint whether it deserves to be signalled. A PID this
+	// call just started cannot be a stale or reused one, which is the only reason
+	// the shared stop path withholds the signal.
+	unwind := func() error { return cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid") }
 	if err = instance.WritePID("cursor-bridge.pid", cmd.Process.Pid); err != nil {
 		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
-		return errors.Join(fmt.Errorf("record Cursor bridge PID: %w", err), cleanupErr)
+		return nil, errors.Join(fmt.Errorf("record Cursor bridge PID: %w", err), cleanupErr)
 	}
 	// Best-effort, unlike the PID: the bridge is already started and serving, and
 	// a missing version marker only makes doctor report an unknown build and
@@ -402,18 +423,18 @@ func launchCursorBridge(instance *instanceFS, dialect Dialect) error {
 		case waitErr := <-exited:
 			cleanupErr := instance.RemoveIfExists("cursor-bridge.pid")
 			if waitErr == nil {
-				return errors.Join(fmt.Errorf("Cursor bridge exited during startup; see %s", logPath), cleanupErr)
+				return nil, errors.Join(fmt.Errorf("Cursor bridge exited during startup; see %s", logPath), cleanupErr)
 			}
-			return errors.Join(fmt.Errorf("Cursor bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
+			return nil, errors.Join(fmt.Errorf("Cursor bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
 		default:
 		}
 		if cursorBridgeHealthy(dialect) {
-			return nil
+			return unwind, nil
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
 	cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
-	return errors.Join(fmt.Errorf("timed out starting Cursor bridge; see %s", logPath), cleanupErr)
+	return nil, errors.Join(fmt.Errorf("timed out starting Cursor bridge; see %s", logPath), cleanupErr)
 }
 
 func requireCursorRuntime() error {

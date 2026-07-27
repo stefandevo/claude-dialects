@@ -872,6 +872,16 @@ every path relative to it. A symlink planted inside cannot redirect one of those
 reads, writes or removals — neither outside the state tree nor into a *sibling
 dialect*. Dialect names remain restricted to `[a-z0-9_-]`.
 
+Ownership of a running proxy or bridge is decided by the PID record under that
+dialect's own directory, never by the health check alone. A port answers the
+same way whichever directory the process behind it was started from, so a
+runtime left over from a directory that has since been replaced would otherwise
+be adopted by the replacement — which records nothing for a later `stop` or
+`remove` to find. `cc-dialect start` therefore refuses a proxy or bridge that is
+already serving the dialect's port while the dialect holds no live record of
+owning it, rather than reporting a success that leaves the process unmanageable.
+Stop it and start again.
+
 The scope of that sentence is deliberate. It covers the CLI's own file
 operations, and not the processes the CLI launches. Four limits are worth
 stating plainly:

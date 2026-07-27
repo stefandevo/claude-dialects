@@ -317,53 +317,69 @@ func copilotBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// startCopilotBridge reports whether it launched the bridge, so a caller whose
-// own startup fails afterwards can stop what this call started. The single
-// health probe here decides both questions at one instant: asking again inside
-// the launch would reopen the gap between "already serving" and "mine to stop".
-func startCopilotBridge(instance *instanceFS, dialect Dialect) (bool, error) {
-	if dialect.Bridge != "copilot" || copilotBridgeHealthy(dialect) {
-		return false, nil
+// startCopilotBridge returns a closure that tears down the bridge it launched,
+// or nil when it launched nothing. A caller whose own startup fails afterwards
+// uses it to undo exactly what this call did. The closure carries the child's
+// process handle rather than deferring to stopCopilotBridge, which removes the
+// PID without signalling whenever its health probe fails — for a bridge that is
+// alive but wedged that deletes the only record of it and strands the process.
+//
+// An already-serving bridge is adopted only when the pinned directory holds a
+// live record of owning it. Health is answered by the port, and the port cannot
+// say which directory the process belongs to: a bridge left over from a
+// directory that has since been replaced answers just as readily, and adopting
+// it would record nothing under the pinned root for a later stop to find.
+func startCopilotBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
+	if dialect.Bridge != "copilot" {
+		return nil, nil
 	}
-	return true, launchCopilotBridge(instance, dialect)
+	if copilotBridgeHealthy(dialect) {
+		if pid := instance.runningPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf(
+			"a Copilot bridge is already serving port %d but dialect %q holds no record of owning it; stop it and start again",
+			dialect.BridgePort, instance.name)
+	}
+	return launchCopilotBridge(instance, dialect)
 }
 
-func launchCopilotBridge(instance *instanceFS, dialect Dialect) error {
+func launchCopilotBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
 	name := instance.name
 	nodePath, _, err := copilotNode()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	runtimeDir, bridgePath, _, _, err := copilotRuntimePaths()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err = requireCopilotRuntime(); err != nil {
-		return err
+		return nil, err
 	}
 	if err = writeCopilotBridge(bridgePath); err != nil {
-		return err
+		return nil, err
 	}
 	stateDir, logFile, err := prepareCopilotBridgeFiles(instance)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// The child dups the descriptor at Start, so holding the parent's copy
 	// until return costs one fd and removes a close from every error path.
 	defer func() { _ = logFile.Close() }()
 	logPath, err := instance.Abs("copilot-bridge.log")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pid := instance.runningPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
-			return fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
+			return nil, fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
 		_ = instance.RemoveIfExists("copilot-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
-		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
+		return nil, fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
 	// The Copilot SDK accepts its home/working directory only as an absolute
 	// pathname. Rooted preparation above rejects a pre-existing escape; later SDK
@@ -379,12 +395,17 @@ func launchCopilotBridge(instance *instanceFS, dialect Dialect) error {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	detach(cmd)
 	if err = cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	exited := monitorStartedProcess(cmd)
+	// Bound to this child, so unwinding kills the process itself rather than
+	// asking the health endpoint whether it deserves to be signalled. A PID this
+	// call just started cannot be a stale or reused one, which is the only reason
+	// the shared stop path withholds the signal.
+	unwind := func() error { return cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid") }
 	if err = instance.WritePID("copilot-bridge.pid", cmd.Process.Pid); err != nil {
 		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
-		return errors.Join(fmt.Errorf("record Copilot bridge PID: %w", err), cleanupErr)
+		return nil, errors.Join(fmt.Errorf("record Copilot bridge PID: %w", err), cleanupErr)
 	}
 	// Best-effort, unlike the PID: the bridge is already started and serving, and
 	// a missing version marker only makes doctor report an unknown build and
@@ -396,18 +417,18 @@ func launchCopilotBridge(instance *instanceFS, dialect Dialect) error {
 		case waitErr := <-exited:
 			cleanupErr := instance.RemoveIfExists("copilot-bridge.pid")
 			if waitErr == nil {
-				return errors.Join(fmt.Errorf("Copilot bridge exited during startup; see %s", logPath), cleanupErr)
+				return nil, errors.Join(fmt.Errorf("Copilot bridge exited during startup; see %s", logPath), cleanupErr)
 			}
-			return errors.Join(fmt.Errorf("Copilot bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
+			return nil, errors.Join(fmt.Errorf("Copilot bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
 		default:
 		}
 		if copilotBridgeHealthy(dialect) {
-			return nil
+			return unwind, nil
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
 	cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
-	return errors.Join(fmt.Errorf("timed out starting Copilot bridge; see %s", logPath), cleanupErr)
+	return nil, errors.Join(fmt.Errorf("timed out starting Copilot bridge; see %s", logPath), cleanupErr)
 }
 
 func copilotBridgeEnvironment(bridgeKey, stateDir string) []string {

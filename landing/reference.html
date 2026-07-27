@@ -229,6 +229,7 @@ cld</code></pre>
         <ul>
           <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
           <li>Per-dialect file I/O <em>performed by the CLI itself</em> confined to that dialect's own directory by the operating system, so a planted symlink cannot redirect a read, write or removal outside the tree or into another dialect — with four stated limits: removal unlinks a tampered directory rather than refusing; credentials written by the embedded proxy during OAuth are verified by file identity after the write rather than confined during it; launched processes (Claude Code, the Cursor and Copilot bridges) receive absolute paths and resolve them as ordinary programs do; and the embedded proxy's long-lived config watcher re-reads <code>proxy.yaml</code> by path after the initial rooted read</li>
+          <li>Ownership of a running proxy or bridge decided by the PID record under the dialect's own directory rather than by the health check, so <code>cc-dialect start</code> refuses a runtime already serving the dialect's port that the dialect holds no live record of owning, instead of adopting a process a later <code>stop</code> or <code>remove</code> could not find</li>
           <li>Secret-safe dashboard API responses omit keys, tokens, credential contents, and extra environment values</li>
           <li>Checked port allocation starting at <code>:43170</code></li>
           <li>Cursor/Copilot tools forwarded with <code>cc_tool_</code> schema aliases</li>
