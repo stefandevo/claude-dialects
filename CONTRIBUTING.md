@@ -37,7 +37,7 @@ Requirements:
 - macOS;
 - Go 1.26.5 or newer;
 - Claude Code installed and available as `claude`;
-- npm and Node.js 22.13.x or 24+ when changing or verifying the dashboard.
+- npm and Node.js 22.22.x or 24+ when changing or verifying the dashboard.
 
 The dashboard source is under `internal/app/dashboard/`. Its compiled
 `internal/app/dashboard/dist/` output is committed because Go embeds it into the
