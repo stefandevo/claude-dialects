@@ -71,3 +71,21 @@ func TestBuildIdentityTreatsEmptyVersionAsDev(t *testing.T) {
 		t.Fatalf("empty version must hash the executable like dev, got %q", identity)
 	}
 }
+
+func TestSpawnVersionsRejectSymlinkedInstance(t *testing.T) {
+	_, target := symlinkedInstance(t, "cc-test")
+	for _, file := range []string{"proxy.version", "cursor-bridge.version", "copilot-bridge.version"} {
+		if err := os.WriteFile(filepath.Join(target, file), []byte("external-version\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := proxySpawnVersion("cc-test"); got != "" {
+		t.Fatalf("proxy version read through escaping symlink: %q", got)
+	}
+	if got := cursorBridgeSpawnVersion("cc-test"); got != "" {
+		t.Fatalf("Cursor version read through escaping symlink: %q", got)
+	}
+	if got := copilotBridgeSpawnVersion("cc-test"); got != "" {
+		t.Fatalf("Copilot version read through escaping symlink: %q", got)
+	}
+}

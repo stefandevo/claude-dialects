@@ -75,17 +75,6 @@ func copilotRuntimePaths() (runtimeDir, bridgePath, packagePath, cliPath string,
 	return
 }
 
-func copilotInstancePaths(name string) (pidPath, logPath, stateDir, versionPath string, err error) {
-	home, err := homeDir()
-	if err != nil {
-		return "", "", "", "", err
-	}
-	instanceDir := filepath.Join(home, "instances", name)
-	return filepath.Join(instanceDir, "copilot-bridge.pid"),
-		filepath.Join(instanceDir, "copilot-bridge.log"),
-		filepath.Join(instanceDir, "copilot-home"), filepath.Join(instanceDir, "copilot-bridge.version"), nil
-}
-
 func installCopilotRuntime() (CopilotInstallResult, error) {
 	nodePath, version, err := copilotNode()
 	if err != nil {
@@ -287,16 +276,30 @@ try { ` + action + ` } finally { await client.stop(); }`
 }
 
 func copilotBridgePID(name string) int {
-	pidPath, _, _, _, err := copilotInstancePaths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return 0
 	}
-	raw, err := os.ReadFile(pidPath)
-	if err != nil {
-		return 0
+	defer instance.Close()
+	return instance.runningPID("copilot-bridge.pid")
+}
+
+func prepareCopilotBridgeFiles(instance *instanceFS) (string, *os.File, error) {
+	if err := instance.MkdirAll("copilot-home", 0o700); err != nil {
+		return "", nil, err
 	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
-	return pid
+	if err := instance.Chmod("copilot-home", 0o700); err != nil {
+		return "", nil, err
+	}
+	stateDir, err := instance.Abs("copilot-home")
+	if err != nil {
+		return "", nil, err
+	}
+	logFile, err := instance.OpenAppend("copilot-bridge.log", 0o600)
+	if err != nil {
+		return "", nil, err
+	}
+	return stateDir, logFile, nil
 }
 
 func copilotBridgeHealthy(dialect Dialect) bool {
@@ -314,48 +317,73 @@ func copilotBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func startCopilotBridge(name string, dialect Dialect) error {
+// startCopilotBridge returns a closure that tears down the bridge it launched,
+// or nil when it launched nothing. A caller whose own startup fails afterwards
+// uses it to undo exactly what this call did. The closure carries the child's
+// process handle rather than deferring to stopCopilotBridge, which removes the
+// PID without signalling whenever its health probe fails — for a bridge that is
+// alive but wedged that deletes the only record of it and strands the process.
+//
+// An already-serving bridge is adopted only when the pinned directory holds a
+// live record of owning it. Health is answered by the port, and the port cannot
+// say which directory the process belongs to: a bridge left over from a
+// directory that has since been replaced answers just as readily, and adopting
+// it would record nothing under the pinned root for a later stop to find.
+func startCopilotBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
 	if dialect.Bridge != "copilot" {
-		return nil
+		return nil, nil
 	}
 	if copilotBridgeHealthy(dialect) {
-		return nil
+		if pid := instance.runningPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf(
+			"a Copilot bridge is already serving port %d but dialect %q holds no record of owning it; stop it and start again",
+			dialect.BridgePort, instance.name)
 	}
+	return launchCopilotBridge(instance, dialect)
+}
+
+func launchCopilotBridge(instance *instanceFS, dialect Dialect) (func() error, error) {
+	name := instance.name
 	nodePath, _, err := copilotNode()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	runtimeDir, bridgePath, _, _, err := copilotRuntimePaths()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err = requireCopilotRuntime(); err != nil {
-		return err
+		return nil, err
 	}
 	if err = writeCopilotBridge(bridgePath); err != nil {
-		return err
+		return nil, err
 	}
-	pidPath, logPath, stateDir, versionPath, err := copilotInstancePaths(name)
+	stateDir, logFile, err := prepareCopilotBridgeFiles(instance)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err = os.MkdirAll(stateDir, 0o700); err != nil {
-		return err
+	// The child dups the descriptor at Start, so holding the parent's copy
+	// until return costs one fd and removes a close from every error path.
+	defer func() { _ = logFile.Close() }()
+	logPath, err := instance.Abs("copilot-bridge.log")
+	if err != nil {
+		return nil, err
 	}
-	if pid := copilotBridgePID(name); pid > 0 && processAlive(pid) {
+	if pid := instance.runningPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
-			return fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
+			return nil, fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
-		_ = os.Remove(pidPath)
+		_ = instance.RemoveIfExists("copilot-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
-		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
+		return nil, fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
+	// The Copilot SDK accepts its home/working directory only as an absolute
+	// pathname. Rooted preparation above rejects a pre-existing escape; later SDK
+	// pathname I/O is an external subprocess trust boundary.
 	cmd := exec.Command(nodePath, bridgePath,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(dialect.BridgePort),
@@ -367,25 +395,40 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	detach(cmd)
 	if err = cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return err
+		return nil, err
 	}
-	_ = logFile.Close()
-	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
-		_ = cmd.Process.Kill()
-		return err
+	exited := monitorStartedProcess(cmd)
+	// Bound to this child, so unwinding kills the process itself rather than
+	// asking the health endpoint whether it deserves to be signalled. A PID this
+	// call just started cannot be a stale or reused one, which is the only reason
+	// the shared stop path withholds the signal.
+	unwind := func() error { return cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid") }
+	if err = instance.WritePID("copilot-bridge.pid", cmd.Process.Pid); err != nil {
+		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
+		return nil, errors.Join(fmt.Errorf("record Copilot bridge PID: %w", err), cleanupErr)
 	}
-	_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
+	// Best-effort, unlike the PID: the bridge is already started and serving, and
+	// a missing version marker only makes doctor report an unknown build and
+	// prompt a restart. Tearing down a working bridge over it would be worse than
+	// the stale marker it avoids.
+	_ = instance.WriteBuildIdentity("copilot-bridge.version")
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
-		if copilotBridgeHealthy(dialect) {
-			return nil
+		select {
+		case waitErr := <-exited:
+			cleanupErr := instance.RemoveIfExists("copilot-bridge.pid")
+			if waitErr == nil {
+				return nil, errors.Join(fmt.Errorf("Copilot bridge exited during startup; see %s", logPath), cleanupErr)
+			}
+			return nil, errors.Join(fmt.Errorf("Copilot bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
+		default:
 		}
-		if !processAlive(cmd.Process.Pid) {
-			return fmt.Errorf("Copilot bridge exited during startup; see %s", logPath)
+		if copilotBridgeHealthy(dialect) {
+			return unwind, nil
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Errorf("timed out starting Copilot bridge; see %s", logPath)
+	cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
+	return nil, errors.Join(fmt.Errorf("timed out starting Copilot bridge; see %s", logPath), cleanupErr)
 }
 
 func copilotBridgeEnvironment(bridgeKey, stateDir string) []string {
@@ -419,28 +462,38 @@ func stopCopilotDialects() []string {
 	sort.Strings(names)
 	stopped := make([]string, 0, len(names))
 	for _, name := range names {
-		if stopProxyDialect(name, cfg.Dialects[name]) == nil {
+		if stopProxyDialectByName(name, cfg.Dialects[name]) == nil {
 			stopped = append(stopped, name)
 		}
 	}
 	return stopped
 }
 
-func stopCopilotBridge(name string, dialect Dialect) error {
+// stopCopilotBridge takes the caller's pinned instance for the same reason
+// startCopilotBridge does: opening a second handle would resolve the dialect
+// name again, and a directory replaced in between would hide the running
+// bridge's PID behind the replacement's missing one.
+func stopCopilotBridge(instance *instanceFS, dialect Dialect) error {
 	if dialect.Bridge != "copilot" {
 		return nil
 	}
-	pidPath, _, _, _, err := copilotInstancePaths(name)
-	if err != nil {
-		return err
+	name := instance.name
+	pid, pidErr := instance.ReadPID("copilot-bridge.pid")
+	if pidErr != nil {
+		// An unreadable ownership record must not read as "already stopped": that
+		// would abandon a live bridge with nothing left pointing at it. The port is
+		// the liveness signal — a wedged or still-starting bridge fails a health
+		// probe while alive, but still holds its port.
+		if portBusy(dialect.BridgePort) {
+			return fmt.Errorf("Copilot bridge for %q still holds port %d but its PID record cannot be read safely: %w", name, dialect.BridgePort, pidErr)
+		}
+		return nil
 	}
-	pid := copilotBridgePID(name)
 	if pid == 0 {
 		return nil
 	}
 	if !copilotBridgeHealthy(dialect) {
-		_ = os.Remove(pidPath)
-		return nil
+		return instance.RemoveIfExists("copilot-bridge.pid")
 	}
 	process, err := os.FindProcess(pid)
 	if err == nil && processAlive(pid) {
@@ -452,5 +505,5 @@ func stopCopilotBridge(name string, dialect Dialect) error {
 			_ = process.Kill()
 		}
 	}
-	return os.Remove(pidPath)
+	return instance.RemoveIfExists("copilot-bridge.pid")
 }

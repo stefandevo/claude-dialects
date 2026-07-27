@@ -55,38 +55,27 @@ func buildIdentity(version string, executable func() (string, error)) string {
 	return "dev-" + hex.EncodeToString(digest.Sum(nil))[:16]
 }
 
-func proxySpawnVersion(name string) string {
-	_, _, _, _, _, _, versionPath, err := paths(name)
+func instanceSpawnVersion(name, file string) string {
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return ""
 	}
-	raw, err := os.ReadFile(versionPath)
+	defer instance.Close()
+	raw, err := instance.ReadFile(file)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+func proxySpawnVersion(name string) string {
+	return instanceSpawnVersion(name, "proxy.version")
 }
 
 func cursorBridgeSpawnVersion(name string) string {
-	_, _, _, versionPath, err := cursorInstancePaths(name)
-	if err != nil {
-		return ""
-	}
-	raw, err := os.ReadFile(versionPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(raw))
+	return instanceSpawnVersion(name, "cursor-bridge.version")
 }
 
 func copilotBridgeSpawnVersion(name string) string {
-	_, _, _, versionPath, err := copilotInstancePaths(name)
-	if err != nil {
-		return ""
-	}
-	raw, err := os.ReadFile(versionPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(raw))
+	return instanceSpawnVersion(name, "copilot-bridge.version")
 }

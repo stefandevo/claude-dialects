@@ -225,17 +225,78 @@ func claudeConfigDir(name string) (string, error) {
 }
 
 func ensureClaudeConfigDir(name string) (string, error) {
-	path, err := claudeConfigDir(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return "", err
 	}
-	if err = os.MkdirAll(path, 0o700); err != nil {
+	defer instance.Close()
+	if err = instance.MkdirAll("claude", 0o700); err != nil {
 		return "", fmt.Errorf("create isolated Claude config for %q: %w", name, err)
 	}
-	if err = os.Chmod(path, 0o700); err != nil {
+	if err = instance.Chmod("claude", 0o700); err != nil {
 		return "", fmt.Errorf("secure isolated Claude config for %q: %w", name, err)
 	}
-	return path, nil
+	return instance.Abs("claude")
+}
+
+// openRootChild opens child, a direct entry of parent, as a root in its own
+// right and refuses anything that is not a real directory. os.Root confines
+// paths to the root it was opened on but still follows symlinks whose targets
+// stay inside it, so a nested root is the only way to make the child itself a
+// boundary. The already-open root is matched against the parent's directory
+// entry with SameFile, which closes the check/open race: an entry swapped
+// between the two calls cannot satisfy both. display names the path in errors.
+func openRootChild(parent *os.Root, child, display string) (*os.Root, error) {
+	root, err := parent.OpenRoot(child)
+	if err != nil {
+		return nil, err
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			_ = root.Close()
+		}
+	}()
+	info, err := parent.Lstat(child)
+	if err != nil {
+		return nil, err
+	}
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !os.SameFile(info, rootInfo) {
+		return nil, fmt.Errorf("%s must be a stable real directory", display)
+	}
+	valid = true
+	return root, nil
+}
+
+// instancesRoot returns an os.Root confined to <home>/instances, creating the
+// directory when it does not yet exist. DIALECT_HOME itself may be a symlink,
+// but the instances child must be a stable real directory.
+//
+// This root spans every dialect, so it is the boundary for the tree as a whole,
+// not for one dialect: use instanceFS for per-dialect I/O, which roots each
+// dialect separately. The root is opened per operation so tests may change
+// DIALECT_HOME; callers Close it when done.
+func instancesRoot() (*os.Root, error) {
+	home, err := homeDir()
+	if err != nil {
+		return nil, err
+	}
+	if err = os.MkdirAll(home, 0o700); err != nil {
+		return nil, err
+	}
+	homeRoot, err := os.OpenRoot(home)
+	if err != nil {
+		return nil, err
+	}
+	defer homeRoot.Close()
+	if err = homeRoot.MkdirAll("instances", 0o700); err != nil {
+		return nil, err
+	}
+	return openRootChild(homeRoot, "instances", filepath.Join(home, "instances"))
 }
 
 func defaultConfig() *Config {
@@ -422,17 +483,29 @@ func atomicWriteCommitted(err error) bool {
 	return errors.As(err, &writeErr) && writeErr.committed
 }
 
-var syncParentDirectory = func(dir string) error {
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
+func syncDirectory(directory *os.File) error {
 	syncErr := directory.Sync()
 	closeErr := directory.Close()
 	if syncErr != nil && !errors.Is(syncErr, syscall.EINVAL) && !errors.Is(syncErr, syscall.ENOTSUP) {
 		return syncErr
 	}
 	return closeErr
+}
+
+var syncParentDirectory = func(dir string) error {
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	return syncDirectory(directory)
+}
+
+var syncParentDirectoryAt = func(root *os.Root, dir string) error {
+	directory, err := root.Open(dir)
+	if err != nil {
+		return err
+	}
+	return syncDirectory(directory)
 }
 
 func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
@@ -472,12 +545,153 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) (err error) {
 	return nil
 }
 
+// atomicWriteFileAt is the root-confined counterpart of atomicWriteFile: it
+// writes data to root/relPath atomically, refusing to escape the instances root.
+// Every filesystem operation, including the parent-directory sync, is resolved
+// through root.
+//
+// os.Root has no CreateTemp, so the temp file is created beside the destination
+// with OpenFile using O_RDWR|O_CREATE|O_EXCL and a random suffix, retrying on
+// EEXIST to mirror os.CreateTemp's contract. The atomicWriteError/
+// atomicWriteCommitted semantics are preserved exactly: seedStatusline relies
+// on them for its opt-out logic.
+func atomicWriteFileAt(root *os.Root, relPath string, data []byte, mode os.FileMode) (err error) {
+	relDir := filepath.Dir(relPath)
+	if err = root.MkdirAll(relDir, 0o700); err != nil {
+		return err
+	}
+	base := filepath.Base(relPath)
+	var tempName string
+	var temp *os.File
+	for {
+		suffix, sErr := randomSuffix()
+		if sErr != nil {
+			return sErr
+		}
+		tempName = filepath.Join(relDir, "."+base+".tmp-"+suffix)
+		temp, err = root.OpenFile(tempName, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil || !errors.Is(err, os.ErrExist) {
+			break
+		}
+	}
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = temp.Close()
+		if err != nil {
+			_ = root.Remove(tempName)
+		}
+	}()
+	if err = temp.Chmod(mode); err != nil {
+		return err
+	}
+	if _, err = temp.Write(data); err != nil {
+		return err
+	}
+	if err = temp.Sync(); err != nil {
+		return err
+	}
+	if err = temp.Close(); err != nil {
+		return err
+	}
+	if err = root.Rename(tempName, relPath); err != nil {
+		return err
+	}
+	if syncErr := syncParentDirectoryAt(root, relDir); syncErr != nil {
+		return &atomicWriteError{err: syncErr, committed: true}
+	}
+	return nil
+}
+
+// rootChmod changes the mode of root/rel. os.Root has no Chmod method, so the
+// entry is opened through the root (which keeps it confined) and chmod'd via
+// the file descriptor; on Unix fchmod does not require write access.
+func rootChmod(root *os.Root, rel string, mode os.FileMode) error {
+	entry, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer entry.Close()
+	return entry.Chmod(mode)
+}
+
+// A removal that fails is retried, mirroring os.RemoveAll: an entry created
+// after the scan fails the Remove with ENOTEMPTY and would orphan the instance,
+// which matters because RemoveDialect has already committed the config change
+// by then. Retries are bounded so a directory another process is actively
+// refilling surfaces the error instead of spinning. The bound is the only stop
+// condition — an empty scan is no reason to give up, since the racing write
+// that empties-then-refills is exactly the case this exists for.
+const maxRemoveAllRescans = 8
+
+// removeAllUnder recursively empties dir within an already-open root, removing
+// dir itself unless it is the root (". "). The caller unlinks the root's own
+// entry from its parent.
+//
+// Entries are classified from the readdir result rather than a second Lstat, so
+// there is no window between deciding what an entry is and acting on it: a
+// symlink is unlinked on the strength of its directory-entry type instead of
+// being re-resolved by name. Everything resolves through the caller's root, so
+// a link swapped in mid-removal cannot redirect the recursion outside it.
+func removeAllUnder(root *os.Root, dir string) error {
+	entries, err := readDirAt(root, dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		child := entry.Name()
+		if dir != "." {
+			child = filepath.Join(dir, child)
+		}
+		if entry.IsDir() {
+			err = removeAllUnder(root, child)
+		} else {
+			err = root.Remove(child)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if dir == "." {
+		return nil
+	}
+	if err = root.Remove(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+var readDirAt = func(root *os.Root, rel string) ([]os.DirEntry, error) {
+	dir, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	entries, readErr := dir.ReadDir(-1)
+	closeErr := dir.Close()
+	return entries, errors.Join(readErr, closeErr)
+}
+
 func writeProxyConfig(name string, dialect Dialect) (string, error) {
-	home, _, path, authDir, _, _, _, err := paths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return "", err
 	}
-	if err = os.MkdirAll(authDir, 0o700); err != nil {
+	defer instance.Close()
+	return writeProxyConfigAt(instance, dialect)
+}
+
+func writeProxyConfigAt(instance *instanceFS, dialect Dialect) (string, error) {
+	name := instance.name
+	path, err := instance.Abs("proxy.yaml")
+	if err != nil {
+		return "", err
+	}
+	authDir, err := instance.Abs("auth")
+	if err != nil {
 		return "", err
 	}
 	content := fmt.Sprintf(`host: "127.0.0.1"
@@ -528,10 +742,12 @@ usage-statistics-enabled: false
 			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
 		}
 	}
-	if err = os.MkdirAll(home, 0o700); err != nil {
+	// CLIProxyAPI requires an absolute auth-dir string, but directory creation and
+	// config persistence remain confined to the instances root.
+	if err = instance.MkdirAll("auth", 0o700); err != nil {
 		return "", err
 	}
-	if err = atomicWriteFile(path, []byte(content), 0o600); err != nil {
+	if err = instance.AtomicWrite("proxy.yaml", []byte(content), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -543,6 +759,17 @@ func newAPIKey() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(key), nil
+}
+
+// randomSuffix returns a short hex string for a uniquely-named temp file inside
+// the instances root, replacing the random component os.CreateTemp would
+// normally generate (os.Root has no CreateTemp).
+func randomSuffix() (string, error) {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf[:]), nil
 }
 
 func nextPort(cfg *Config) int {
@@ -575,6 +802,25 @@ func portAvailable(port int) bool {
 	}
 	_ = listener.Close()
 	return true
+}
+
+// portBusy reports whether something is actually listening on a dialect's
+// loopback port. It is the liveness signal used when a PID record cannot be
+// read: a runtime that is wedged or still starting fails a health probe while
+// very much alive, but still holds its port.
+//
+// This is deliberately not !portAvailable. A port that merely cannot be bound —
+// a privileged one, say — says nothing about whether the dialect is alive, and
+// treating it as busy would block cleanup forever. Only "address in use"
+// counts. It is a var so tests can describe the runtime state they mean instead
+// of depending on what happens to be listening on the developer's machine.
+var portBusy = func(port int) bool {
+	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+	if err == nil {
+		_ = listener.Close()
+		return false
+	}
+	return errors.Is(err, syscall.EADDRINUSE)
 }
 
 func presetNames() []string {

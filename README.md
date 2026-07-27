@@ -997,6 +997,59 @@ only for the launched Claude Code process. Mutating operations are serialized
 across CLI and dashboard processes with the owner-only `.state.lock`; configuration
 and launcher files are written atomically.
 
+Per-dialect reads, writes and deletes **performed by `cc-dialect` itself** are
+confined to that dialect's own directory by the operating system rather than by
+path checks alone: the CLI opens `instances/<dialect>/` as a root and resolves
+every path relative to it. A symlink planted inside cannot redirect one of those
+reads, writes or removals — neither outside the state tree nor into a *sibling
+dialect*. Dialect names remain restricted to `[a-z0-9_-]`.
+
+Ownership of a running proxy or bridge is decided by the PID record under that
+dialect's own directory, never by the health check alone. A port answers the
+same way whichever directory the process behind it was started from, so a
+runtime left over from a directory that has since been replaced would otherwise
+be adopted by the replacement — which records nothing for a later `stop` or
+`remove` to find. `cc-dialect start` therefore refuses a proxy or bridge that is
+already serving the dialect's port while the dialect holds no live record of
+owning it, rather than reporting a success that leaves the process unmanageable.
+Stop it and start again.
+
+The scope of that sentence is deliberate. It covers the CLI's own file
+operations, and not the processes the CLI launches. Four limits are worth
+stating plainly:
+
+- **Removal is the exception.** Every other operation refuses to run when
+  `instances/` or the dialect's own directory has been replaced by a symlink, and
+  refuses before anything is changed. `cc-dialect remove` instead unlinks the
+  symlink itself and commits the configuration change, so a dialect whose
+  directory was tampered with can still be cleaned up. It unlinks the link and
+  never follows it, so the link's target is left untouched.
+- **Credentials written during OAuth are not root-confined.** `cc-dialect auth`
+  hands the embedded CLIProxyAPI an absolute `auth-dir` and that dependency
+  writes the token itself through provider-specific code, so the write is guarded
+  by the pathname rather than by the root. Afterwards the CLI checks that the
+  file it was handed back really is the one the dialect's own `auth/` resolves
+  to — comparing file identity, not just the path string — and fails the login
+  naming the file to inspect if it is not. That is detection, not confinement:
+  the token has already been written by the time it runs. Closing this properly
+  needs a root-aware persistence API in CLIProxyAPI.
+- **Launched processes use ordinary path-based I/O.** Claude Code receives the
+  dialect's `claude/` directory as an absolute `CLAUDE_CONFIG_DIR`, and the
+  Cursor and Copilot bridges receive absolute `cursor-workspace/` and
+  `copilot-home/` paths. `cc-dialect` creates and validates those directories
+  through the root before handing them over, so an escape that is already in
+  place is rejected — but the processes themselves are ordinary programs
+  resolving ordinary paths. A symlink introduced *underneath* one of those
+  directories after hand-off, or nested inside `claude/`, is followed by those
+  processes like any other path. Confining them would mean changing Claude Code
+  and the vendor SDKs, not this CLI.
+- **The embedded proxy re-reads its own config by path.** The proxy runs as a
+  separate `cc-dialect` process, which pins the dialect directory and refuses to
+  serve if the name resolved somewhere else. Its initial `proxy.yaml` read goes
+  through that root — but CLIProxyAPI is then handed the absolute path for its
+  long-lived config watcher, and every later re-read and credential write it
+  performs resolves that path itself, outside the root.
+
 The dashboard accepts only numeric loopback listeners. Every request must use
 the exact bound `Host`; state-changing API requests must also use the exact local
 `Origin` and the per-process CSRF token obtained by the embedded frontend. These

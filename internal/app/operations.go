@@ -141,7 +141,7 @@ type appService struct {
 	proxyProbe      func(Dialect) bool
 	bridgeProbe     func(Dialect) bool
 	startRuntime    func(string, Dialect) error
-	stopRuntime     func(string, Dialect) error
+	stopRuntime     func(*instanceFS, Dialect) error
 	statusWorkers   int
 	cursorStatusFn  func() CursorRuntimeStatus
 	cursorInstallFn func() (CursorInstallResult, error)
@@ -157,6 +157,19 @@ func newAppService() *appService {
 		cursorStatusFn:  inspectCursorRuntime,
 		cursorInstallFn: installCursorRuntime,
 	}
+}
+
+// stopRuntimeByName opens and pins the dialect directory, then stops the runtime
+// through it. Callers that already hold a pinned handle — RemoveDialect, which
+// goes on to delete that directory — call stopRuntime with their own handle
+// instead, so the stop and what follows it cannot land in different directories.
+func (service *appService) stopRuntimeByName(name string, dialect Dialect) error {
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
+	return service.stopRuntime(instance, dialect)
 }
 
 func safeDialectView(name string, dialect Dialect) DialectView {
@@ -303,7 +316,7 @@ func (service *appService) mutateDialect(input DialectInput, expectedRevision st
 			return prepareErr
 		}
 		if exists {
-			if stopErr := service.stopRuntime(input.Name, existing); stopErr != nil {
+			if stopErr := service.stopRuntimeByName(input.Name, existing); stopErr != nil {
 				return fmt.Errorf("stop existing dialect %q: %w", input.Name, stopErr)
 			}
 		}
@@ -563,18 +576,34 @@ func (service *appService) RemoveDialect(name, expectedRevision string) error {
 		if !ok {
 			return operationError(ErrorNotFound, "dialect %q does not exist", name)
 		}
-		if err = service.stopRuntime(name, dialect); err != nil {
+		// Validate the instances root and pin the dialect's own directory before
+		// anything destructive happens. A symlinked instances anchor must not
+		// remove the dialect from config and then fail filesystem cleanup, and the
+		// dialect directory must be resolved now rather than when RemoveAll finally
+		// runs: the handle resolves lazily, so a rename between here and there
+		// would delete the replacement while the original survived with its config
+		// entry already gone. An entry that is not a real directory stays unpinned
+		// on purpose — RemoveAll unlinks it without following it.
+		//
+		// The same pinned handle drives the stop, so the runtime is stopped in the
+		// directory that is about to be deleted: re-opening the name there would
+		// let a replacement without a PID read as "already stopped" and leave the
+		// original proxy serving after its configuration and PID record are gone.
+		instance, openErr := openInstanceFS(name)
+		if openErr != nil {
+			return openErr
+		}
+		defer instance.Close()
+		instance.Pin()
+		if err = service.stopRuntime(instance, dialect); err != nil {
 			return fmt.Errorf("stop dialect %q: %w", name, err)
 		}
 		delete(cfg.Dialects, name)
-		if err = saveConfig(cfg); err != nil {
-			return err
+		saveErr := saveConfig(cfg)
+		if saveErr != nil && !atomicWriteCommitted(saveErr) {
+			return saveErr
 		}
-		home, _, _, _, _, _, _, err := paths(name)
-		if err != nil {
-			return err
-		}
-		return os.RemoveAll(filepath.Join(home, "instances", name))
+		return errors.Join(saveErr, instance.RemoveAll())
 	})
 }
 
@@ -596,7 +625,7 @@ func (service *appService) StartDialect(name string) (RuntimeStatus, error) {
 func (service *appService) StopDialect(name string) (RuntimeStatus, error) {
 	var status RuntimeStatus
 	err := service.withDialectMutation(name, func(dialect Dialect) error {
-		if err := service.stopRuntime(name, dialect); err != nil {
+		if err := service.stopRuntimeByName(name, dialect); err != nil {
 			return err
 		}
 		status = service.runtimeStatus(name, dialect)
@@ -611,7 +640,7 @@ func (service *appService) RestartDialect(name string) (RuntimeStatus, error) {
 		if missing := missingAuthProviders(name, dialect); len(missing) > 0 {
 			return notAuthenticatedError(name, missing)
 		}
-		if err := service.stopRuntime(name, dialect); err != nil {
+		if err := service.stopRuntimeByName(name, dialect); err != nil {
 			return err
 		}
 		if err := service.startRuntime(name, dialect); err != nil {

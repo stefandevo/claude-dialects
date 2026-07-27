@@ -178,14 +178,14 @@ func TestSeedStatuslineRewiresWhenSettingsFileMissing(t *testing.T) {
 func TestSeedStatuslineCommittedSettingsWriteLandsKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("DIALECT_HOME", home)
-	original := syncParentDirectory
-	syncParentDirectory = func(dir string) error {
+	original := syncParentDirectoryAt
+	syncParentDirectoryAt = func(root *os.Root, dir string) error {
 		if filepath.Base(dir) == "claude" {
 			return errors.New("sync failed")
 		}
-		return original(dir)
+		return original(root, dir)
 	}
-	t.Cleanup(func() { syncParentDirectory = original })
+	t.Cleanup(func() { syncParentDirectoryAt = original })
 	err := seedStatusline("cc-test", presets["codex"])
 	if err == nil || !atomicWriteCommitted(err) {
 		t.Fatalf("expected committed settings write error, got %v", err)
@@ -330,14 +330,17 @@ func TestSeedStatuslineWiresSettingsAfterCommittedScriptWrite(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(`{"theme":"dark"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original := syncParentDirectory
-	syncParentDirectory = func(dir string) error {
-		if filepath.Base(dir) == "cc-test" {
+	original := syncParentDirectoryAt
+	// Paths are relative to the dialect's own root, so the script sits directly
+	// in it (".") while the settings file is under "claude" — fail only the
+	// script write's sync.
+	syncParentDirectoryAt = func(root *os.Root, dir string) error {
+		if dir == "." {
 			return errors.New("sync failed")
 		}
-		return original(dir)
+		return original(root, dir)
 	}
-	t.Cleanup(func() { syncParentDirectory = original })
+	t.Cleanup(func() { syncParentDirectoryAt = original })
 	err := seedStatusline("cc-test", presets["codex"])
 	if err == nil || !atomicWriteCommitted(err) {
 		t.Fatalf("expected committed script write error, got %v", err)
@@ -389,5 +392,34 @@ func TestStatuslineScriptDegradesWithoutJq(t *testing.T) {
 	}
 	if len(output) != 0 {
 		t.Fatalf("statusline script should stay silent without jq, got %q", output)
+	}
+}
+
+// A symlink planted at <home>/instances/<name> pointing outside the tree must
+// not be followed: per-dialect writes are confined to an os.Root over
+// <home>/instances, so seeding refuses the symlinked instance and writes
+// nothing through it into the escape target. validName blocks path traversal
+// but cannot block symlink escape — the root confinement is what closes it.
+func TestSeedStatuslineRejectsSymlinkedInstance(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Escape target lives outside the <home>/instances tree entirely. It must
+	// exist as a real directory so that naive os.* calls can follow the symlink
+	// and write into it — that is exactly the bug the root confinement closes.
+	target := filepath.Join(t.TempDir(), "escape")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, "instances", "cc-test")); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedStatusline("cc-test", presets["codex"]); err == nil {
+		t.Fatal("seedStatusline should refuse a symlinked instance directory")
+	}
+	if _, err := os.Stat(filepath.Join(target, "statusline.sh")); !os.IsNotExist(err) {
+		t.Fatalf("seedStatusline wrote through the symlink into the escape target: %v", err)
 	}
 }
