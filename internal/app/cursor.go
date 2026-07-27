@@ -94,17 +94,6 @@ func cursorRuntimePaths() (runtimeDir, bridgePath, packagePath string, err error
 	return
 }
 
-func cursorInstancePaths(name string) (pidPath, logPath, workspace, versionPath string, err error) {
-	home, err := homeDir()
-	if err != nil {
-		return "", "", "", "", err
-	}
-	instanceDir := filepath.Join(home, "instances", name)
-	return filepath.Join(instanceDir, "cursor-bridge.pid"),
-		filepath.Join(instanceDir, "cursor-bridge.log"),
-		filepath.Join(instanceDir, "cursor-workspace"), filepath.Join(instanceDir, "cursor-bridge.version"), nil
-}
-
 type CursorRuntimeStatus struct {
 	NodePath         string `json:"nodePath,omitempty"`
 	NodeVersion      string `json:"nodeVersion,omitempty"`
@@ -290,16 +279,30 @@ process.stdout.write(JSON.stringify(items.map((item) => item.id).filter(Boolean)
 }
 
 func cursorBridgePID(name string) int {
-	pidPath, _, _, _, err := cursorInstancePaths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return 0
 	}
-	raw, err := os.ReadFile(pidPath)
-	if err != nil {
-		return 0
+	defer instance.Close()
+	return instance.ReadPID("cursor-bridge.pid")
+}
+
+func prepareCursorBridgeFiles(instance *instanceFS) (string, *os.File, error) {
+	if err := instance.MkdirAll("cursor-workspace", 0o700); err != nil {
+		return "", nil, err
 	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
-	return pid
+	if err := instance.Chmod("cursor-workspace", 0o700); err != nil {
+		return "", nil, err
+	}
+	workspace, err := instance.Abs("cursor-workspace")
+	if err != nil {
+		return "", nil, err
+	}
+	logFile, err := instance.OpenAppend("cursor-bridge.log", 0o600)
+	if err != nil {
+		return "", nil, err
+	}
+	return workspace, logFile, nil
 }
 
 func cursorBridgeHealthy(dialect Dialect) bool {
@@ -327,6 +330,11 @@ func startCursorBridge(name string, dialect Dialect) error {
 	if os.Getenv("CURSOR_API_KEY") == "" {
 		return errors.New("CURSOR_API_KEY is not set")
 	}
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
 	nodePath, _, err := cursorNode()
 	if err != nil {
 		return err
@@ -341,30 +349,30 @@ func startCursorBridge(name string, dialect Dialect) error {
 	if err = writeCursorBridge(bridgePath); err != nil {
 		return err
 	}
-	pidPath, logPath, workspace, versionPath, err := cursorInstancePaths(name)
+	workspace, logFile, err := prepareCursorBridgeFiles(instance)
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(pidPath), 0o700); err != nil {
+	logPath, err := instance.Abs("cursor-bridge.log")
+	if err != nil {
+		_ = logFile.Close()
 		return err
 	}
-	if err = os.MkdirAll(workspace, 0o700); err != nil {
-		return err
-	}
-	if pid := cursorBridgePID(name); pid > 0 && processAlive(pid) {
+	if pid := instance.ReadPID("cursor-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
+			_ = logFile.Close()
 			return fmt.Errorf("Cursor bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
-		_ = os.Remove(pidPath)
+		_ = instance.RemoveIfExists("cursor-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
+		_ = logFile.Close()
 		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
+	// The Cursor SDK accepts the workspace only as an absolute pathname. Rooted
+	// preparation above rejects a pre-existing escape; later SDK pathname I/O is
+	// an external subprocess trust boundary.
 	cmd := exec.Command(nodePath, bridgePath,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(dialect.BridgePort),
@@ -380,21 +388,32 @@ func startCursorBridge(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
-		_ = cmd.Process.Kill()
-		return err
+	exited := monitorStartedProcess(cmd)
+	if err = instance.WritePID("cursor-bridge.pid", cmd.Process.Pid); err != nil {
+		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
+		return errors.Join(fmt.Errorf("record Cursor bridge PID: %w", err), cleanupErr)
 	}
-	_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
+	if err = instance.WriteBuildIdentity("cursor-bridge.version"); err != nil {
+		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
+		return errors.Join(fmt.Errorf("record Cursor bridge build identity: %w", err), cleanupErr)
+	}
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
+		select {
+		case waitErr := <-exited:
+			cleanupErr := instance.RemoveIfExists("cursor-bridge.pid")
+			if waitErr == nil {
+				return errors.Join(fmt.Errorf("Cursor bridge exited during startup; see %s", logPath), cleanupErr)
+			}
+			return errors.Join(fmt.Errorf("Cursor bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
+		default:
+		}
 		if cursorBridgeHealthy(dialect) {
 			return nil
 		}
-		if !processAlive(cmd.Process.Pid) {
-			return fmt.Errorf("Cursor bridge exited during startup; see %s", logPath)
-		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Errorf("timed out starting Cursor bridge; see %s", logPath)
+	cleanupErr := cleanupStartedProcess(cmd, exited, instance, "cursor-bridge.pid")
+	return errors.Join(fmt.Errorf("timed out starting Cursor bridge; see %s", logPath), cleanupErr)
 }
 
 func requireCursorRuntime() error {
@@ -429,19 +448,19 @@ func stopCursorBridge(name string, dialect Dialect) error {
 	if dialect.Bridge != "cursor" {
 		return nil
 	}
-	pidPath, _, _, _, err := cursorInstancePaths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
 	}
-	pid := cursorBridgePID(name)
+	defer instance.Close()
+	pid := instance.ReadPID("cursor-bridge.pid")
 	if pid == 0 {
 		return nil
 	}
 	if !cursorBridgeHealthy(dialect) {
 		// Never signal a stale or reused PID unless the process proves ownership
 		// of this dialect's private bridge key.
-		_ = os.Remove(pidPath)
-		return nil
+		return instance.RemoveIfExists("cursor-bridge.pid")
 	}
 	process, err := os.FindProcess(pid)
 	if err == nil && processAlive(pid) {
@@ -453,7 +472,7 @@ func stopCursorBridge(name string, dialect Dialect) error {
 			_ = process.Kill()
 		}
 	}
-	return os.Remove(pidPath)
+	return instance.RemoveIfExists("cursor-bridge.pid")
 }
 
 func dialectHealthy(dialect Dialect) bool {

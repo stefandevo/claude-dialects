@@ -511,6 +511,9 @@ func TestRemoveDialectUnlinksSymlinkedInstance(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, "keep"), []byte("keep me"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(target, "proxy.pid"), []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(home, "instances"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +521,6 @@ func TestRemoveDialectUnlinksSymlinkedInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newAppService()
-	service.stopRuntime = func(string, Dialect) error { return nil }
 	if err := service.RemoveDialect("cc-link", ""); err != nil {
 		t.Fatalf("RemoveDialect failed: %v", err)
 	}
@@ -527,6 +529,107 @@ func TestRemoveDialectUnlinksSymlinkedInstance(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(target, "keep")); err != nil || string(data) != "keep me" {
 		t.Fatalf("symlink target was deleted through the instance: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "proxy.pid")); err != nil || string(data) != "4242\n" {
+		t.Fatalf("real stop path touched external PID: %q, %v", data, err)
+	}
+}
+
+func TestRemoveDialectUnlinksNestedSymlinkWithoutTouchingTarget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	cfg := defaultConfig()
+	cfg.Dialects["cc-link"] = Dialect{Model: "model", Port: 43170, APIKey: "key"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	instance := filepath.Join(home, "instances", "cc-link")
+	if err := os.MkdirAll(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(target, "keep"), []byte("keep me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(instance, "nested")); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	service.stopRuntime = func(string, Dialect) error { return nil }
+	if err := service.RemoveDialect("cc-link", ""); err != nil {
+		t.Fatalf("RemoveDialect failed: %v", err)
+	}
+	if _, err := os.Stat(instance); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("instance directory still exists: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "keep")); err != nil || string(data) != "keep me" {
+		t.Fatalf("nested symlink target was modified: %q, %v", data, err)
+	}
+}
+
+func TestRemoveDialectCleansInstanceAfterCommittedConfigError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	cfg := defaultConfig()
+	cfg.Dialects["cc-remove"] = Dialect{Model: "model", Port: 43170, APIKey: "key"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	instance := filepath.Join(home, "instances", "cc-remove")
+	if err := os.MkdirAll(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instance, "state"), []byte("remove me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalSync := syncParentDirectory
+	syncParentDirectory = func(dir string) error {
+		if filepath.Clean(dir) == filepath.Clean(home) {
+			return errors.New("sentinel config directory sync failure")
+		}
+		return originalSync(dir)
+	}
+	t.Cleanup(func() { syncParentDirectory = originalSync })
+	service := newAppService()
+	service.stopRuntime = func(string, Dialect) error { return nil }
+
+	err := service.RemoveDialect("cc-remove", "")
+	if err == nil || !atomicWriteCommitted(err) {
+		t.Fatalf("RemoveDialect error = %v, want committed config error", err)
+	}
+	loaded, loadErr := loadConfig()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, exists := loaded.Dialects["cc-remove"]; exists {
+		t.Fatal("committed config still contains removed dialect")
+	}
+	if _, statErr := os.Stat(instance); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("instance remained after committed config removal: %v", statErr)
+	}
+}
+
+func TestRemoveDialectRejectsSymlinkedInstancesAnchorBeforeConfigMutation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	cfg := defaultConfig()
+	cfg.Dialects["cc-link"] = Dialect{Model: "model", Port: 43170, APIKey: "key"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(home, "instances")); err != nil {
+		t.Fatal(err)
+	}
+	if err := newAppService().RemoveDialect("cc-link", ""); err == nil {
+		t.Fatal("RemoveDialect should reject a symlinked instances anchor")
+	}
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := loaded.Dialects["cc-link"]; !exists {
+		t.Fatal("failed root validation removed the dialect configuration")
 	}
 }
 

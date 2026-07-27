@@ -75,17 +75,6 @@ func copilotRuntimePaths() (runtimeDir, bridgePath, packagePath, cliPath string,
 	return
 }
 
-func copilotInstancePaths(name string) (pidPath, logPath, stateDir, versionPath string, err error) {
-	home, err := homeDir()
-	if err != nil {
-		return "", "", "", "", err
-	}
-	instanceDir := filepath.Join(home, "instances", name)
-	return filepath.Join(instanceDir, "copilot-bridge.pid"),
-		filepath.Join(instanceDir, "copilot-bridge.log"),
-		filepath.Join(instanceDir, "copilot-home"), filepath.Join(instanceDir, "copilot-bridge.version"), nil
-}
-
 func installCopilotRuntime() (CopilotInstallResult, error) {
 	nodePath, version, err := copilotNode()
 	if err != nil {
@@ -287,16 +276,30 @@ try { ` + action + ` } finally { await client.stop(); }`
 }
 
 func copilotBridgePID(name string) int {
-	pidPath, _, _, _, err := copilotInstancePaths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return 0
 	}
-	raw, err := os.ReadFile(pidPath)
-	if err != nil {
-		return 0
+	defer instance.Close()
+	return instance.ReadPID("copilot-bridge.pid")
+}
+
+func prepareCopilotBridgeFiles(instance *instanceFS) (string, *os.File, error) {
+	if err := instance.MkdirAll("copilot-home", 0o700); err != nil {
+		return "", nil, err
 	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
-	return pid
+	if err := instance.Chmod("copilot-home", 0o700); err != nil {
+		return "", nil, err
+	}
+	stateDir, err := instance.Abs("copilot-home")
+	if err != nil {
+		return "", nil, err
+	}
+	logFile, err := instance.OpenAppend("copilot-bridge.log", 0o600)
+	if err != nil {
+		return "", nil, err
+	}
+	return stateDir, logFile, nil
 }
 
 func copilotBridgeHealthy(dialect Dialect) bool {
@@ -321,6 +324,11 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	if copilotBridgeHealthy(dialect) {
 		return nil
 	}
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
 	nodePath, _, err := copilotNode()
 	if err != nil {
 		return err
@@ -335,27 +343,30 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	if err = writeCopilotBridge(bridgePath); err != nil {
 		return err
 	}
-	pidPath, logPath, stateDir, versionPath, err := copilotInstancePaths(name)
+	stateDir, logFile, err := prepareCopilotBridgeFiles(instance)
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(stateDir, 0o700); err != nil {
+	logPath, err := instance.Abs("copilot-bridge.log")
+	if err != nil {
+		_ = logFile.Close()
 		return err
 	}
-	if pid := copilotBridgePID(name); pid > 0 && processAlive(pid) {
+	if pid := instance.ReadPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
+			_ = logFile.Close()
 			return fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
 		}
-		_ = os.Remove(pidPath)
+		_ = instance.RemoveIfExists("copilot-bridge.pid")
 	}
 	if !portAvailable(dialect.BridgePort) {
+		_ = logFile.Close()
 		return fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
+	// The Copilot SDK accepts its home/working directory only as an absolute
+	// pathname. Rooted preparation above rejects a pre-existing escape; later SDK
+	// pathname I/O is an external subprocess trust boundary.
 	cmd := exec.Command(nodePath, bridgePath,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(dialect.BridgePort),
@@ -371,21 +382,32 @@ func startCopilotBridge(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
-		_ = cmd.Process.Kill()
-		return err
+	exited := monitorStartedProcess(cmd)
+	if err = instance.WritePID("copilot-bridge.pid", cmd.Process.Pid); err != nil {
+		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
+		return errors.Join(fmt.Errorf("record Copilot bridge PID: %w", err), cleanupErr)
 	}
-	_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
+	if err = instance.WriteBuildIdentity("copilot-bridge.version"); err != nil {
+		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
+		return errors.Join(fmt.Errorf("record Copilot bridge build identity: %w", err), cleanupErr)
+	}
 	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
+		select {
+		case waitErr := <-exited:
+			cleanupErr := instance.RemoveIfExists("copilot-bridge.pid")
+			if waitErr == nil {
+				return errors.Join(fmt.Errorf("Copilot bridge exited during startup; see %s", logPath), cleanupErr)
+			}
+			return errors.Join(fmt.Errorf("Copilot bridge exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
+		default:
+		}
 		if copilotBridgeHealthy(dialect) {
 			return nil
 		}
-		if !processAlive(cmd.Process.Pid) {
-			return fmt.Errorf("Copilot bridge exited during startup; see %s", logPath)
-		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Errorf("timed out starting Copilot bridge; see %s", logPath)
+	cleanupErr := cleanupStartedProcess(cmd, exited, instance, "copilot-bridge.pid")
+	return errors.Join(fmt.Errorf("timed out starting Copilot bridge; see %s", logPath), cleanupErr)
 }
 
 func copilotBridgeEnvironment(bridgeKey, stateDir string) []string {
@@ -430,17 +452,17 @@ func stopCopilotBridge(name string, dialect Dialect) error {
 	if dialect.Bridge != "copilot" {
 		return nil
 	}
-	pidPath, _, _, _, err := copilotInstancePaths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
 	}
-	pid := copilotBridgePID(name)
+	defer instance.Close()
+	pid := instance.ReadPID("copilot-bridge.pid")
 	if pid == 0 {
 		return nil
 	}
 	if !copilotBridgeHealthy(dialect) {
-		_ = os.Remove(pidPath)
-		return nil
+		return instance.RemoveIfExists("copilot-bridge.pid")
 	}
 	process, err := os.FindProcess(pid)
 	if err == nil && processAlive(pid) {
@@ -452,5 +474,5 @@ func stopCopilotBridge(name string, dialect Dialect) error {
 			_ = process.Kill()
 		}
 	}
-	return os.Remove(pidPath)
+	return instance.RemoveIfExists("copilot-bridge.pid")
 }

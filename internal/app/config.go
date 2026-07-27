@@ -220,40 +220,67 @@ func claudeConfigDir(name string) (string, error) {
 }
 
 func ensureClaudeConfigDir(name string) (string, error) {
-	path, err := claudeConfigDir(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return "", err
 	}
-	root, err := instancesRoot()
-	if err != nil {
-		return "", err
-	}
-	defer root.Close()
-	rel := filepath.Join(name, "claude")
-	if err = root.MkdirAll(rel, 0o700); err != nil {
+	defer instance.Close()
+	if err = instance.MkdirAll("claude", 0o700); err != nil {
 		return "", fmt.Errorf("create isolated Claude config for %q: %w", name, err)
 	}
-	if err = rootChmod(root, rel, 0o700); err != nil {
+	if err = instance.Chmod("claude", 0o700); err != nil {
 		return "", fmt.Errorf("secure isolated Claude config for %q: %w", name, err)
 	}
-	return path, nil
+	return instance.Abs("claude")
 }
 
 // instancesRoot returns an os.Root confined to <home>/instances, creating the
-// directory when it does not yet exist. os.Root refuses to traverse symlinks or
-// escape its root, which closes the symlink-escape gap that validName (a
-// path-traversal guard) cannot. It is opened per operation so DIALECT_HOME can
-// change between calls (as it does under test); callers Close it when done.
+// directory when it does not yet exist. DIALECT_HOME itself may be a symlink,
+// but the instances child must be a stable real directory. The child root is
+// opened first and then matched against the parent's directory entry, closing
+// the check/open race while keeping it confined beneath home. Paths beneath the
+// returned root may follow symlinks only when they remain inside it.
+// The root is opened per operation so tests may change DIALECT_HOME; callers
+// Close it when done.
 func instancesRoot() (*os.Root, error) {
 	home, err := homeDir()
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(home, "instances")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err = os.MkdirAll(home, 0o700); err != nil {
 		return nil, err
 	}
-	return os.OpenRoot(dir)
+	homeRoot, err := os.OpenRoot(home)
+	if err != nil {
+		return nil, err
+	}
+	defer homeRoot.Close()
+	if err = homeRoot.MkdirAll("instances", 0o700); err != nil {
+		return nil, err
+	}
+	root, err := homeRoot.OpenRoot("instances")
+	if err != nil {
+		return nil, err
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			_ = root.Close()
+		}
+	}()
+	info, err := homeRoot.Lstat("instances")
+	if err != nil {
+		return nil, err
+	}
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !os.SameFile(info, rootInfo) {
+		return nil, fmt.Errorf("instances path %s must be a stable real directory", filepath.Join(home, "instances"))
+	}
+	valid = true
+	return root, nil
 }
 
 func defaultConfig() *Config {
@@ -507,11 +534,22 @@ func removeAllAt(root *os.Root, rel string) error {
 }
 
 func writeProxyConfig(name string, dialect Dialect) (string, error) {
-	home, _, path, authDir, _, _, _, err := paths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return "", err
 	}
-	if err = os.MkdirAll(home, 0o700); err != nil {
+	defer instance.Close()
+	return writeProxyConfigAt(instance, dialect)
+}
+
+func writeProxyConfigAt(instance *instanceFS, dialect Dialect) (string, error) {
+	name := instance.name
+	path, err := instance.Abs("proxy.yaml")
+	if err != nil {
+		return "", err
+	}
+	authDir, err := instance.Abs("auth")
+	if err != nil {
 		return "", err
 	}
 	content := fmt.Sprintf(`host: "127.0.0.1"
@@ -562,18 +600,12 @@ usage-statistics-enabled: false
 			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
 		}
 	}
-	// Confine the auth directory and proxy config write to the instances root so
-	// a symlinked instance cannot escape the tree. authDir (absolute) is still
-	// embedded in the config for the proxy process to read.
-	root, err := instancesRoot()
-	if err != nil {
+	// CLIProxyAPI requires an absolute auth-dir string, but directory creation and
+	// config persistence remain confined to the instances root.
+	if err = instance.MkdirAll("auth", 0o700); err != nil {
 		return "", err
 	}
-	defer root.Close()
-	if err = root.MkdirAll(filepath.Join(name, "auth"), 0o700); err != nil {
-		return "", err
-	}
-	if err = atomicWriteFileAt(root, filepath.Join(name, "proxy.yaml"), []byte(content), 0o600); err != nil {
+	if err = instance.AtomicWrite("proxy.yaml", []byte(content), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil

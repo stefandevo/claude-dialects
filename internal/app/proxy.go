@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -93,11 +92,12 @@ func fetchBridgeModels(dialect Dialect) ([]string, error) {
 }
 
 func hasProviderCredentials(name, provider string) bool {
-	_, _, _, authDir, _, _, _, err := paths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return false
 	}
-	entries, err := os.ReadDir(authDir)
+	defer instance.Close()
+	entries, err := instance.ReadDir("auth")
 	if err != nil {
 		return false
 	}
@@ -105,7 +105,7 @@ func hasProviderCredentials(name, provider string) bool {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		data, readErr := os.ReadFile(filepath.Join(authDir, entry.Name()))
+		data, readErr := instance.ReadFile(filepath.Join("auth", entry.Name()))
 		if readErr != nil {
 			continue
 		}
@@ -134,48 +134,48 @@ func missingAuthProviders(name string, dialect Dialect) []string {
 }
 
 func proxyPID(name string) int {
-	_, _, _, _, pidPath, _, _, err := paths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return 0
 	}
-	raw, err := os.ReadFile(pidPath)
-	if err != nil {
-		return 0
-	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
-	return pid
+	defer instance.Close()
+	return instance.ReadPID("proxy.pid")
 }
 
 func startProxy(name string, dialect Dialect) error {
-	if err := startManagedBridge(name, dialect); err != nil {
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
+	if err = startManagedBridge(name, dialect); err != nil {
 		return err
 	}
 	if proxyHealthy(dialect) {
 		return nil
 	}
-	if pid := proxyPID(name); pid > 0 && processAlive(pid) {
+	if pid := instance.ReadPID("proxy.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.Port) {
 			return fmt.Errorf("proxy process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`", pid, dialect.Port, name)
 		}
 		// The PID was reused by an unrelated process. Never signal it.
-		_, _, _, _, pidPath, _, _, _ := paths(name)
-		_ = os.Remove(pidPath)
+		_ = instance.RemoveIfExists("proxy.pid")
 	}
 	if !portAvailable(dialect.Port) {
 		return fmt.Errorf("port %d for %q is already in use by another process", dialect.Port, name)
 	}
-	if _, err := writeProxyConfig(name, dialect); err != nil {
+	if _, err = writeProxyConfigAt(instance, dialect); err != nil {
 		return err
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	_, _, _, _, pidPath, logPath, _, err := paths(name)
+	logPath, err := instance.Abs("proxy.log")
 	if err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logFile, err := instance.OpenAppend("proxy.log", 0o600)
 	if err != nil {
 		return err
 	}
@@ -189,23 +189,31 @@ func startProxy(name string, dialect Dialect) error {
 		return err
 	}
 	_ = logFile.Close()
-	if err = atomicWriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
-		_ = cmd.Process.Kill()
-		return err
+	exited := monitorStartedProcess(cmd)
+	if err = instance.WritePID("proxy.pid", cmd.Process.Pid); err != nil {
+		cleanupErr := cleanupStartedProcess(cmd, exited, instance, "proxy.pid")
+		return errors.Join(fmt.Errorf("record proxy PID: %w", err), cleanupErr)
 	}
 	// The version sidecar is written by the __proxy child (runEmbeddedProxy):
 	// exec.Command re-executes the on-disk binary, which can be newer than this
 	// parent process, so only the child knows the identity actually serving.
 	for deadline := time.Now().Add(12 * time.Second); time.Now().Before(deadline); {
+		select {
+		case waitErr := <-exited:
+			cleanupErr := instance.RemoveIfExists("proxy.pid")
+			if waitErr == nil {
+				return errors.Join(fmt.Errorf("embedded proxy exited during startup; see %s", logPath), cleanupErr)
+			}
+			return errors.Join(fmt.Errorf("embedded proxy exited during startup: %w; see %s", waitErr, logPath), cleanupErr)
+		default:
+		}
 		if proxyHealthy(dialect) {
 			return nil
 		}
-		if !processAlive(cmd.Process.Pid) {
-			return fmt.Errorf("embedded proxy exited during startup; see %s", logPath)
-		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Errorf("timed out starting embedded proxy; see %s", logPath)
+	cleanupErr := cleanupStartedProcess(cmd, exited, instance, "proxy.pid")
+	return errors.Join(fmt.Errorf("timed out starting embedded proxy; see %s", logPath), cleanupErr)
 }
 
 func stopProxy(name string) error {
@@ -216,32 +224,33 @@ func stopProxy(name string) error {
 	dialect, exists := cfg.Dialects[name]
 	if !exists {
 		// Without the private key there is no safe way to prove PID ownership.
-		_, _, _, _, pidPath, _, _, _ := paths(name)
-		_ = os.Remove(pidPath)
-		return nil
+		instance, openErr := openInstanceFS(name)
+		if openErr != nil {
+			return openErr
+		}
+		defer instance.Close()
+		return instance.RemoveIfExists("proxy.pid")
 	}
 	return stopProxyDialect(name, dialect)
 }
 
 func stopProxyDialect(name string, dialect Dialect) (err error) {
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
 	defer func() {
 		err = errors.Join(err, stopManagedBridge(name, dialect))
 	}()
-	pid := proxyPID(name)
+	pid := instance.ReadPID("proxy.pid")
 	if pid == 0 {
 		return nil
-	}
-	_, _, _, _, pidPath, _, _, pathErr := paths(name)
-	if pathErr != nil {
-		return pathErr
 	}
 	if !proxyHealthy(dialect) {
 		// A stale PID can refer to an unrelated process after reboot or PID reuse.
 		// Only signal a process that answers with this dialect's private API key.
-		if removeErr := os.Remove(pidPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return removeErr
-		}
-		return nil
+		return instance.RemoveIfExists("proxy.pid")
 	}
 	process, err := os.FindProcess(pid)
 	if err != nil {
@@ -260,10 +269,7 @@ func stopProxyDialect(name string, dialect Dialect) (err error) {
 			}
 		}
 	}
-	if err = os.Remove(pidPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return instance.RemoveIfExists("proxy.pid")
 }
 
 func runEmbeddedProxy(name string) error {
@@ -275,20 +281,28 @@ func runEmbeddedProxy(name string) error {
 	if !ok {
 		return fmt.Errorf("dialect %q does not exist", name)
 	}
+	instance, err := openInstanceFS(name)
+	if err != nil {
+		return err
+	}
+	defer instance.Close()
 	// Stamp this process's own identity before serving: the spawning parent may
 	// be an older cc-dialect build that re-executed a newer on-disk binary, so
 	// only this child knows which build is actually running the proxy.
-	if _, _, _, _, _, _, versionPath, pathErr := paths(name); pathErr == nil {
-		_ = atomicWriteFile(versionPath, []byte(appBuildIdentity()+"\n"), 0o600)
+	if err = instance.WriteBuildIdentity("proxy.version"); err != nil {
+		return fmt.Errorf("record proxy build identity: %w", err)
 	}
-	path, err := writeProxyConfig(name, dialect)
+	path, err := writeProxyConfigAt(instance, dialect)
 	if err != nil {
 		return err
 	}
-	proxyCfg, err := proxyconfig.LoadConfig(path)
+	proxyCfg, err := readProxyConfigAt(instance)
 	if err != nil {
 		return err
 	}
+	// CLIProxyAPI requires the absolute config path for its long-lived file
+	// watcher. The initial read is confined above; later watcher/auth persistence
+	// is an external pathname-based trust boundary, not an os.Root operation.
 	service, err := cliproxy.NewBuilder().WithConfig(proxyCfg).WithConfigPath(path).Build()
 	if err != nil {
 		return err
@@ -300,6 +314,14 @@ func runEmbeddedProxy(name string) error {
 		return nil
 	}
 	return err
+}
+
+func readProxyConfigAt(instance *instanceFS) (*proxyconfig.Config, error) {
+	data, err := instance.ReadFile("proxy.yaml")
+	if err != nil {
+		return nil, err
+	}
+	return proxyconfig.ParseConfigBytes(data)
 }
 
 func authenticate(name, provider string, noBrowser bool) error {
@@ -314,11 +336,15 @@ func authenticate(name, provider string, noBrowser bool) error {
 	if dialect.BaseURL != "" {
 		return fmt.Errorf("dialect %q uses upstream API authentication via %s; OAuth login is not needed", name, dialect.AuthTokenEnv)
 	}
-	path, err := writeProxyConfig(name, dialect)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
 	}
-	proxyCfg, err := proxyconfig.LoadConfig(path)
+	defer instance.Close()
+	if _, err = writeProxyConfigAt(instance, dialect); err != nil {
+		return err
+	}
+	proxyCfg, err := readProxyConfigAt(instance)
 	if err != nil {
 		return err
 	}
@@ -335,6 +361,9 @@ func authenticate(name, provider string, noBrowser bool) error {
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		return strings.TrimSpace(line), err
 	}
+	// CLIProxyAPI's provider token serializers accept only absolute pathname
+	// strings. Rooted setup above prevents a pre-existing escape; the dependency's
+	// write remains an external pathname-based trust boundary.
 	_, saved, err := manager.Login(context.Background(), provider, proxyCfg, &proxyauth.LoginOptions{
 		NoBrowser: noBrowser,
 		Prompt:    prompt,
@@ -344,7 +373,14 @@ func authenticate(name, provider string, noBrowser bool) error {
 	}
 	fmt.Println("Authenticated", provider)
 	if saved != "" {
-		if chmodErr := os.Chmod(saved, 0o600); chmodErr != nil {
+		rel, relErr := instance.Rel(saved)
+		if relErr != nil {
+			return fmt.Errorf("secure saved credentials: %w", relErr)
+		}
+		if validateErr := instance.ValidateUnder(rel, "auth"); validateErr != nil {
+			return fmt.Errorf("secure saved credentials: %w", validateErr)
+		}
+		if chmodErr := instance.Chmod(rel, 0o600); chmodErr != nil {
 			return fmt.Errorf("secure saved credentials: %w", chmodErr)
 		}
 		fmt.Println("Credentials:", saved)
@@ -358,53 +394,37 @@ func authenticate(name, provider string, noBrowser bool) error {
 }
 
 func tailLog(name string) error {
-	_, _, _, _, _, path, _, err := paths(name)
+	instance, err := openInstanceFS(name)
 	if err != nil {
 		return err
 	}
+	defer instance.Close()
+	logs := []struct {
+		path  string
+		label string
+	}{
+		{path: "proxy.log", label: "embedded proxy"},
+		{path: "cursor-bridge.log", label: "Cursor bridge"},
+		{path: "copilot-bridge.log", label: "Copilot bridge"},
+	}
 	printed := false
-	if file, openErr := os.Open(path); openErr == nil {
-		fmt.Println("== embedded proxy ==")
-		_, err = io.Copy(os.Stdout, file)
-		_ = file.Close()
-		if err != nil {
-			return err
+	for _, log := range logs {
+		file, openErr := instance.Open(log.path)
+		if openErr != nil {
+			continue
+		}
+		fmt.Printf("== %s ==\n", log.label)
+		_, copyErr := io.Copy(os.Stdout, file)
+		closeErr := file.Close()
+		if copyErr != nil || closeErr != nil {
+			return errors.Join(copyErr, closeErr)
 		}
 		printed = true
-	}
-	_, cursorLog, _, _, cursorErr := cursorInstancePaths(name)
-	if cursorErr == nil && fileExists(cursorLog) {
-		if file, openErr := os.Open(cursorLog); openErr == nil {
-			fmt.Println("== Cursor bridge ==")
-			_, err = io.Copy(os.Stdout, file)
-			_ = file.Close()
-			if err != nil {
-				return err
-			}
-			printed = true
-		}
-	}
-	_, copilotLog, _, _, copilotErr := copilotInstancePaths(name)
-	if copilotErr == nil && fileExists(copilotLog) {
-		if file, openErr := os.Open(copilotLog); openErr == nil {
-			fmt.Println("== Copilot bridge ==")
-			_, err = io.Copy(os.Stdout, file)
-			_ = file.Close()
-			if err != nil {
-				return err
-			}
-			printed = true
-		}
 	}
 	if !printed {
 		return fmt.Errorf("no logs found for %q", name)
 	}
 	return nil
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }
 
 func startManagedBridge(name string, dialect Dialect) error {

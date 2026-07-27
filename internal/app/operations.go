@@ -516,19 +516,23 @@ func (service *appService) RemoveDialect(name, expectedRevision string) error {
 		if !ok {
 			return operationError(ErrorNotFound, "dialect %q does not exist", name)
 		}
+		// Validate and pin the instances root before committing the destructive
+		// config mutation. In particular, a symlinked instances anchor must not
+		// remove the dialect from config and then fail filesystem cleanup.
+		instance, openErr := openInstanceFS(name)
+		if openErr != nil {
+			return openErr
+		}
+		defer instance.Close()
 		if err = service.stopRuntime(name, dialect); err != nil {
 			return fmt.Errorf("stop dialect %q: %w", name, err)
 		}
 		delete(cfg.Dialects, name)
-		if err = saveConfig(cfg); err != nil {
-			return err
+		saveErr := saveConfig(cfg)
+		if saveErr != nil && !atomicWriteCommitted(saveErr) {
+			return saveErr
 		}
-		root, err := instancesRoot()
-		if err != nil {
-			return err
-		}
-		defer root.Close()
-		return removeAllAt(root, name)
+		return errors.Join(saveErr, instance.RemoveAll())
 	})
 }
 
