@@ -32,16 +32,21 @@ type NativeLauncher struct {
 }
 
 type Dialect struct {
-	Preset        string            `json:"preset,omitempty"`
-	Model         string            `json:"model"`
-	SubagentModel string            `json:"subagentModel,omitempty"`
-	Effort        bool              `json:"effort"`
-	Concurrency   int               `json:"concurrency"`
-	ToolSearch    bool              `json:"toolSearch"`
-	OpusModel     string            `json:"opusModel,omitempty"`
-	SonnetModel   string            `json:"sonnetModel,omitempty"`
-	HaikuModel    string            `json:"haikuModel,omitempty"`
-	EffortLevel   string            `json:"effortLevel,omitempty"`
+	Preset        string `json:"preset,omitempty"`
+	Model         string `json:"model"`
+	SubagentModel string `json:"subagentModel,omitempty"`
+	Effort        bool   `json:"effort"`
+	Concurrency   int    `json:"concurrency"`
+	ToolSearch    bool   `json:"toolSearch"`
+	OpusModel     string `json:"opusModel,omitempty"`
+	SonnetModel   string `json:"sonnetModel,omitempty"`
+	HaikuModel    string `json:"haikuModel,omitempty"`
+	EffortLevel   string `json:"effortLevel,omitempty"`
+	// ContextWindow is the smallest context window supported by any model this
+	// dialect can select, in tokens. It calibrates Claude Code auto-compaction
+	// for provider model IDs Claude Code cannot recognize. Zero means unknown or
+	// unconfigured, which is distinct from a real capacity — see context_window.go.
+	ContextWindow int               `json:"contextWindow,omitempty"`
 	Port          int               `json:"port"`
 	APIKey        string            `json:"apiKey"`
 	BaseURL       string            `json:"baseUrl,omitempty"`
@@ -257,6 +262,51 @@ func normalizeConfig(cfg *Config) {
 	}
 }
 
+// backfillContextWindows gives dialects written before capacity metadata existed
+// the reviewed window of the preset they were created from.
+//
+// It fills only where the answer is unambiguous: the dialect must name a known
+// preset and still carry that preset's exact model, tier, and route mapping. A
+// dialect that was re-pointed at other models, or that never named a preset, is
+// left unknown and reported by doctor instead — a capacity guessed from a model
+// name could be larger than the route really supports, which is worse than no
+// calibration at all. An explicit stored value is never overwritten.
+//
+// Migration runs once per load rather than inside normalizeConfig, which
+// configRevision applies to a shallow copy that still shares the dialect map —
+// hashing a configuration must not rewrite it. Loading is the only entry point
+// that needs it: every writer starts from a loaded configuration, so the value
+// reaches disk on the next saveConfig, which is already atomic and owner-only,
+// and the revision stays stable across that write.
+func backfillContextWindows(cfg *Config) {
+	for name, dialect := range cfg.Dialects {
+		if dialect.ContextWindow != 0 {
+			continue
+		}
+		preset, ok := presets[dialect.Preset]
+		if !ok || !matchesPresetRoute(dialect, preset) {
+			continue
+		}
+		dialect.ContextWindow = preset.ContextWindow
+		cfg.Dialects[name] = dialect
+	}
+}
+
+// matchesPresetRoute reports whether a dialect still selects exactly the models
+// and upstream its preset declares, which is what makes the preset's capacity
+// safe to adopt. Any divergence means the smallest supported window may differ.
+func matchesPresetRoute(dialect, preset Dialect) bool {
+	return dialect.Model == preset.Model &&
+		dialect.SubagentModel == preset.SubagentModel &&
+		dialect.OpusModel == preset.OpusModel &&
+		dialect.SonnetModel == preset.SonnetModel &&
+		dialect.HaikuModel == preset.HaikuModel &&
+		dialect.AuthProvider == preset.AuthProvider &&
+		dialect.Bridge == preset.Bridge &&
+		dialect.BaseURL == preset.BaseURL &&
+		dialect.AuthTokenEnv == preset.AuthTokenEnv
+}
+
 func loadConfig() (*Config, error) {
 	_, path, _, _, _, _, _, err := paths("")
 	if err != nil {
@@ -274,6 +324,7 @@ func loadConfig() (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	normalizeConfig(&cfg)
+	backfillContextWindows(&cfg)
 	return &cfg, nil
 }
 

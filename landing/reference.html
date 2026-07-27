@@ -62,6 +62,7 @@
       <nav id="doc-toc">
         <a href="#model-switch">Model &amp; effort</a>
         <a href="#presets">Presets &amp; custom</a>
+        <a href="#context-window">Context window</a>
         <a href="#detect">Detect dialects</a>
         <a href="#dashboard">Web dashboard</a>
         <a href="#proxy">Proxy lifecycle</a>
@@ -115,6 +116,7 @@
   --haiku-model gpt-5.6-luna \
   --effort-level auto \
   --concurrency 3 \
+  --context-window 372000 \
   --effort=true \
   --tool-search=false \
   --port 53170</code></pre>
@@ -136,6 +138,59 @@ cc-dialect shim install cc-my-model</code></pre>
           <div class="callout__title">⚠ Updating presets</div>
           <p>Updating <code>cc-dialect</code> does not silently change existing dialects. Re-run <code>cc-dialect create cc-kimi --preset kimi</code> to apply the latest preset while preserving port, credentials, and history. Start a new conversation after changing the underlying model.</p>
         </div>
+      </section>
+
+      <section id="context-window" class="doc-section reveal">
+        <h2>Context window and auto-compaction</h2>
+        <p>Claude Code compacts a conversation before it outgrows the model's context window, but it cannot recognize the provider model IDs a dialect routes to, such as <code>gpt-5.6-sol</code> or <code>composer-2.5</code>. Without a declared capacity a conversation can reach the provider's real limit before compacting, after which further requests fail.</p>
+        <p>Every dialect therefore carries a context window in tokens, exported as <code>CLAUDE_CODE_AUTO_COMPACT_WINDOW</code> for that Claude Code process. Claude Dialects supplies only the capacity — it never summarizes, truncates, or deletes conversation turns. Claude Code owns compaction and applies its own threshold inside the declared capacity, so the value is raw model capacity rather than a pre-discounted trigger point.</p>
+        <p>A preset that maps different models to <code>opus</code>, <code>sonnet</code>, <code>haiku</code>, or subagents uses the smallest window across every model it can select, because Claude Code receives one window per process. That keeps model switching and subagents safe.</p>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Preset</th>
+                <th>Context window</th>
+                <th>Smallest supported model</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>gemini</code></td><td>1,048,576</td><td>Gemini Pro Agent and 3.5 Flash routes</td></tr>
+              <tr><td><code>copilot-gemini</code></td><td>1,048,576</td><td>Gemini 3.1 Pro and 3.5 Flash</td></tr>
+              <tr><td><code>deepseek</code></td><td>1,000,000</td><td>DeepSeek V4 Pro and V4 Flash</td></tr>
+              <tr><td><code>grok</code></td><td>500,000</td><td>Grok 4.5</td></tr>
+              <tr><td><code>codex-sol</code>, <code>codex</code></td><td>372,000</td><td>GPT-5.6 Sol, Terra, and Luna</td></tr>
+              <tr><td><code>kimi</code></td><td>262,144</td><td>Kimi K3, K2.7 Code Highspeed, K2.6</td></tr>
+              <tr><td><code>mixed-frontier</code></td><td>262,144</td><td>Kimi K3</td></tr>
+              <tr><td><code>grok-build</code></td><td>256,000</td><td>Grok Build 0.1</td></tr>
+              <tr><td><code>copilot-mai</code></td><td>256,000</td><td>MAI-Code-1-Flash</td></tr>
+              <tr><td><code>minimax</code></td><td>204,800</td><td>MiniMax-M2.7 (input and output combined)</td></tr>
+              <tr><td><code>claude</code></td><td>200,000</td><td>Claude Sonnet 4.6 and Haiku 4.5</td></tr>
+              <tr><td><code>composer</code></td><td>200,000</td><td>Grok Composer 2.5 Fast</td></tr>
+              <tr><td><code>cursor-composer</code>, <code>cursor-composer-fast</code></td><td>200,000</td><td>Cursor Composer 2.5 route</td></tr>
+              <tr><td><code>cursor-grok</code></td><td>200,000</td><td>Cursor Grok route</td></tr>
+              <tr><td><code>copilot-codex</code></td><td>200,000</td><td>Copilot GPT-5.3-Codex route</td></tr>
+              <tr><td><code>copilot-claude</code></td><td>200,000</td><td>Claude Sonnet 4.6 and Haiku 4.5</td></tr>
+              <tr><td><code>glm</code></td><td>131,072</td><td>GLM-4.5-Air</td></tr>
+              <tr><td><code>cursor-auto</code>, <code>copilot-auto</code></td><td>128,000</td><td>any model the route may select</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>OAuth-backed values come from the embedded CLIProxyAPI model registry. Cursor and GitHub publish no per-route context window, so those presets use a conservative fallback rather than borrowing a number from a same-named direct provider model, and the <code>auto</code> routes are set low enough to cover whatever the vendor selects.</p>
+        <p>A custom model ID has no reviewed value, and Claude Dialects never guesses one from a model name — a window larger than the route really supports is worse than none. Declare it yourself:</p>
+        <div class="code-block">
+          <div class="code-block__header">
+            <span>Custom context window</span>
+            <button class="copy-btn" data-copy="context-window">Copy</button>
+          </div>
+          <pre><code id="code-context-window">cc-dialect create cc-my-model \
+  --model vendor-model-id \
+  --context-window 262144 \
+  --base-url https://provider.example.com/api/anthropic \
+  --token-env MY_PROVIDER_TOKEN</code></pre>
+        </div>
+        <p>The value must be a positive integer of at most 20,000,000 tokens. Updating a dialect without passing <code>--context-window</code> keeps the stored value, so changing a port or model never silently uncalibrates a working dialect; re-applying a preset adopts that preset's current value. Dialects created before this field existed are migrated on first read when they still carry their preset's exact model and route mapping, while modified or genuinely custom mappings are left unset and reported by <code>cc-dialect doctor</code>.</p>
+        <p><code>cc-dialect doctor</code> reports dialects with a missing or invalid context window, the fill level of the most recent request per dialect, and a Claude Code build that no longer references <code>CLAUDE_CODE_AUTO_COMPACT_WINDOW</code>. Each dialect's embedded proxy records the latest request's input usage to <code>instances/&lt;name&gt;/context.json</code> and warns once per 80%, 90%, and 95% threshold. Only counters are recorded — never prompts, tool results, request bodies, or credentials.</p>
       </section>
 
       <section id="detect" class="doc-section reveal">
@@ -173,7 +228,7 @@ cc-dialect web --listen 127.0.0.1:8765
 cc-dialect web --listen '[::1]:8765'</code></pre>
         </div>
         <p>Without flags, the command binds an available ephemeral port on <code>127.0.0.1</code>, prints the URL, opens the default browser, and remains in the foreground until Ctrl-C. <code>--no-browser</code> suppresses only browser launch. <code>--listen</code> accepts a numeric loopback IP and port; <code>localhost</code>, wildcard and LAN addresses, remote access, and reverse proxies are unsupported.</p>
-        <p>The dashboard shows safe views of presets, preset-backed and custom dialects, runtime health, tracked native launchers, and Cursor readiness. It can create or update dialects, start/stop/restart runtimes, manage tracked native launchers, and install or refresh the pinned Cursor runtime. A successful Cursor runtime update stops running Cursor dialects so stale bridges cannot continue; start them again explicitly.</p>
+        <p>The dashboard shows safe views of presets, preset-backed and custom dialects, runtime health, tracked native launchers, and Cursor readiness. It can create or update dialects — including their <a href="#context-window">context window</a> — start/stop/restart runtimes, manage tracked native launchers, and install or refresh the pinned Cursor runtime. A successful Cursor runtime update stops running Cursor dialects so stale bridges cannot continue; start them again explicitly.</p>
         <p>Dialect edits validate first, stop the old runtime, save the replacement, and leave it stopped. Private local API keys, isolated auth and Claude Code state, history, shims, and stable ports are preserved where applicable. Edits replace only public dashboard fields, so use the CLI for custom configurations that rely on unexposed extra environment values, bridge/auth fields, or URL userinfo, query strings, or fragments.</p>
         <div class="callout callout--info">
           <div class="callout__title">Dashboard scope</div>
@@ -255,6 +310,7 @@ instances/
     proxy.pid
     proxy.log
     proxy.version
+    context.json
   cc-kimi/
     auth/
     claude/
@@ -263,6 +319,7 @@ instances/
     proxy.pid
     proxy.log
     proxy.version
+    context.json
   cc-cursor/
     claude/
     statusline.sh
@@ -274,6 +331,7 @@ instances/
     proxy.pid
     proxy.log
     proxy.version
+    context.json
   cc-copilot-mai/
     claude/
     statusline.sh
@@ -285,6 +343,7 @@ instances/
     proxy.pid
     proxy.log
     proxy.version
+    context.json
 cursor-runtime/
   cursor_bridge.mjs
   node_modules/@cursor/sdk/

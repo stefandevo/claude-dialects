@@ -166,6 +166,7 @@ func createDialect(args []string) error {
 	haikuModel := fs.String("haiku-model", "", "model selected by /model haiku")
 	effortLevel := fs.String("effort-level", "", "initial effort: auto, low, medium, high, xhigh, or max")
 	concurrency := fs.Int("concurrency", 0, "maximum tool concurrency")
+	contextWindow := fs.Int("context-window", 0, "model context capacity in tokens used to calibrate Claude Code auto-compaction")
 	port := fs.Int("port", 0, "isolated proxy port (allocated automatically by default)")
 	bridgePort := fs.Int("bridge-port", 0, "isolated provider bridge port (allocated automatically by default)")
 	baseURL := fs.String("base-url", "", "Anthropic-compatible upstream URL routed through the embedded proxy")
@@ -179,7 +180,8 @@ func createDialect(args []string) error {
 	result, err := service.UpsertDialect(DialectInput{
 		Name: name, Preset: *preset, Model: *model, SubagentModel: *subagent,
 		OpusModel: *opusModel, SonnetModel: *sonnetModel, HaikuModel: *haikuModel,
-		EffortLevel: *effortLevel, Concurrency: *concurrency, Port: *port, BridgePort: *bridgePort,
+		EffortLevel: *effortLevel, Concurrency: *concurrency, ContextWindow: *contextWindow,
+		Port: *port, BridgePort: *bridgePort,
 		BaseURL: *baseURL, AuthTokenEnv: *tokenEnv, Effort: *effort, ToolSearch: *toolSearch,
 	}, "")
 	if err != nil {
@@ -189,6 +191,7 @@ func createDialect(args []string) error {
 	if !result.Created {
 		fmt.Printf("Updated %q to model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
 		fmt.Println("Authentication, isolated Claude Code state, and installed shims were preserved.")
+		warnMissingContextWindow(name, dialect)
 		cfg, loadErr := loadConfig()
 		if loadErr != nil {
 			return loadErr
@@ -203,6 +206,7 @@ func createDialect(args []string) error {
 		return nil
 	}
 	fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
+	warnMissingContextWindow(name, dialect)
 	home, _ := os.UserHomeDir()
 	shimName := preferredShimName(name)
 	target := filepath.Join(home, ".local", "bin", shimName)
@@ -224,6 +228,22 @@ func createDialect(args []string) error {
 	}
 	return nil
 }
+
+// warnMissingContextWindow tells the operator that a dialect carries no capacity
+// metadata. Claude Code cannot recognize an arbitrary provider model ID, so
+// without a declared window its auto-compaction is uncalibrated and the
+// conversation can reach the provider's real limit before compacting. The value
+// is never guessed from the model name — a wrong denominator is worse than none.
+func warnMissingContextWindow(name string, view DialectView) {
+	if validContextWindow(view.ContextWindow) {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"Warning: %q has no context window, so Claude Code auto-compaction is uncalibrated for %s.\n"+
+			"         Set the model's capacity: cc-dialect create %s --model %s --context-window <tokens>\n",
+		name, view.Model, name, view.Model)
+}
+
 func createNextSteps(name, shimName string, dialect Dialect) []string {
 	var steps []string
 	if dialect.Bridge == "cursor" {
@@ -503,20 +523,7 @@ func runDialect(args []string) error {
 		return err
 	}
 	d = cfg.Dialects[name]
-	env = setEnv(env, "CLAUDE_CONFIG_DIR", claudeDir)
-	env = setEnv(env, "ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d", d.Port))
-	env = setEnv(env, "ANTHROPIC_AUTH_TOKEN", d.APIKey)
-	env = setEnv(env, "ANTHROPIC_MODEL", d.Model)
-	env = setEnv(env, "ANTHROPIC_DEFAULT_OPUS_MODEL", d.OpusModel)
-	env = setEnv(env, "ANTHROPIC_DEFAULT_SONNET_MODEL", d.SonnetModel)
-	env = setEnv(env, "ANTHROPIC_DEFAULT_HAIKU_MODEL", d.HaikuModel)
-	env = setEnv(env, "CLAUDE_CODE_SUBAGENT_MODEL", d.SubagentModel)
-	env = setEnv(env, "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", boolNumber(d.Effort))
-	env = setEnv(env, "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY", strconv.Itoa(d.Concurrency))
-	env = setEnv(env, "ENABLE_TOOL_SEARCH", strconv.FormatBool(d.ToolSearch))
-	for key, value := range d.ExtraEnv {
-		env = setEnv(env, key, value)
-	}
+	env = claudeEnvironment(env, claudeDir, d)
 	if !hasModelFlag(claudeArgs) {
 		claudeArgs = append([]string{"--model", d.Model}, claudeArgs...)
 	}
@@ -532,6 +539,31 @@ func runDialect(args []string) error {
 		}
 	}
 	return err
+}
+
+// claudeEnvironment builds the environment the isolated Claude Code process is
+// launched with, starting from the inherited environment. Every value the
+// dialect owns replaces whatever the parent shell exported, so a launch behaves
+// the same in every terminal; the dialect's own ExtraEnv is applied last and
+// stays the explicit last word.
+func claudeEnvironment(inherited []string, claudeDir string, dialect Dialect) []string {
+	env := append([]string{}, inherited...)
+	env = setEnv(env, "CLAUDE_CONFIG_DIR", claudeDir)
+	env = setEnv(env, "ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d", dialect.Port))
+	env = setEnv(env, "ANTHROPIC_AUTH_TOKEN", dialect.APIKey)
+	env = setEnv(env, "ANTHROPIC_MODEL", dialect.Model)
+	env = setEnv(env, "ANTHROPIC_DEFAULT_OPUS_MODEL", dialect.OpusModel)
+	env = setEnv(env, "ANTHROPIC_DEFAULT_SONNET_MODEL", dialect.SonnetModel)
+	env = setEnv(env, "ANTHROPIC_DEFAULT_HAIKU_MODEL", dialect.HaikuModel)
+	env = setEnv(env, "CLAUDE_CODE_SUBAGENT_MODEL", dialect.SubagentModel)
+	env = setEnv(env, "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", boolNumber(dialect.Effort))
+	env = setEnv(env, "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY", strconv.Itoa(dialect.Concurrency))
+	env = setEnv(env, "ENABLE_TOOL_SEARCH", strconv.FormatBool(dialect.ToolSearch))
+	env = applyAutoCompactWindow(env, dialect.ContextWindow)
+	for key, value := range dialect.ExtraEnv {
+		env = setEnv(env, key, value)
+	}
+	return env
 }
 
 func setEnv(env []string, key, value string) []string {
@@ -839,6 +871,9 @@ func doctor(args []string, version string) error {
 	fmt.Println("✓ configuration")
 	if path, err := exec.LookPath("claude"); err == nil {
 		fmt.Println("✓ Claude Code:", path)
+		if problem := autoCompactCompatibilityDiagnostic(path); problem != "" {
+			fmt.Println(problem)
+		}
 	} else {
 		fmt.Println("✗ Claude Code not found in PATH")
 	}
@@ -918,6 +953,12 @@ func doctor(args []string, version string) error {
 		dialect := cfg.Dialects[name]
 		for _, provider := range missingAuthProviders(name, dialect) {
 			fmt.Printf("✗ %s is not authenticated for %s (run: cc-dialect auth %s %s)\n", name, provider, name, provider)
+		}
+		for _, problem := range contextWindowDiagnostics(name, dialect) {
+			fmt.Println(problem)
+		}
+		if line := contextUsageReport(name); line != "" {
+			fmt.Println(line)
 		}
 		if proxyHealthy(dialect) {
 			proxyVersion := proxySpawnVersion(name)

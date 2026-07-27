@@ -15,8 +15,12 @@ import { isValidName } from '../utils';
 
 const emptyInput: DialectInput = {
   name: '', preset: '', model: '', subagentModel: '', opusModel: '', sonnetModel: '', haikuModel: '',
-  effortLevel: 'auto', concurrency: 3, port: 0, bridgePort: 0, baseUrl: '', authTokenEnv: '', effort: false, toolSearch: false,
+  effortLevel: 'auto', concurrency: 3, contextWindow: 0, port: 0, bridgePort: 0, baseUrl: '', authTokenEnv: '', effort: false, toolSearch: false,
 };
+
+// Matches the Go maxContextWindow bound, so an obvious typo is caught before the
+// request rather than surfacing as a server-side validation error.
+const maxContextWindow = 20_000_000;
 
 function inputFromView(view: DialectView): DialectInput {
   return {
@@ -29,6 +33,7 @@ function inputFromView(view: DialectView): DialectInput {
     haikuModel: view.haikuModel || '',
     effortLevel: view.effortLevel || 'auto',
     concurrency: view.concurrency || 3,
+    contextWindow: view.contextWindow || 0,
     port: view.port || 0,
     bridgePort: view.bridgePort || 0,
     baseUrl: view.baseUrl || '',
@@ -111,6 +116,10 @@ export function DialectFormPage() {
       setValidation('Concurrency must be at least 1.');
       return;
     }
+    if (input.contextWindow !== 0 && (input.contextWindow < 1 || input.contextWindow > maxContextWindow)) {
+      setValidation(`Context window must be between 1 and ${maxContextWindow.toLocaleString('en-US')} tokens.`);
+      return;
+    }
     for (const [label, port] of [['Proxy', input.port], ['Bridge', input.bridgePort]] as const) {
       if (port !== 0 && (port < 1024 || port > 65535)) {
         setValidation(`${label} port must be between 1024 and 65535.`);
@@ -166,6 +175,9 @@ export function DialectFormPage() {
   if (loadError) return <ErrorState message={loadError} onRetry={() => void refresh().catch((caught) => reportError(caught))} />;
 
   const portHint = editing ? 'Leave empty to preserve the current proxy port.' : 'Leave empty for automatic allocation.';
+  const contextWindowHint = input.preset
+    ? 'Tokens of model capacity used to calibrate Claude Code auto-compaction. Leave empty to use the preset value.'
+    : 'Tokens of model capacity used to calibrate Claude Code auto-compaction. Without it, auto-compaction is uncalibrated for this model.';
   const bridgePortHint = editing ? 'Leave empty to preserve the current managed bridge port.' : 'Only managed bridge presets allocate this automatically.';
 
   return (
@@ -213,6 +225,7 @@ export function DialectFormPage() {
             <summary className="flex cursor-pointer list-none items-center gap-3 p-5 font-semibold sm:p-6"><SlidersHorizontal className="size-4 text-primary" />Advanced runtime settings<span className="ml-auto text-xs font-normal text-muted-foreground group-open:hidden">Show</span><span className="ml-auto hidden text-xs font-normal text-muted-foreground group-open:inline">Hide</span></summary>
             <div className="grid gap-5 border-t p-5 sm:p-6 md:grid-cols-3">
               <NumberField id="concurrency" label="Concurrency" value={input.concurrency} min={1} onChange={(value) => update('concurrency', value)} hint="Maximum concurrent tool uses." />
+              <NumberField id="context-window" label="Context window" value={input.contextWindow} min={1} max={maxContextWindow} onChange={(value) => update('contextWindow', value)} hint={contextWindowHint} />
               <NumberField id="port" label="Proxy port" value={input.port} min={1024} max={65535} onChange={(value) => update('port', value)} hint={portHint} />
               <NumberField id="bridge-port" label="Bridge port" value={input.bridgePort} min={1024} max={65535} onChange={(value) => update('bridgePort', value)} hint={bridgePortHint} />
             </div>

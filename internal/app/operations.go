@@ -45,6 +45,9 @@ type DialectInput struct {
 	HaikuModel    string
 	EffortLevel   string
 	Concurrency   int
+	// ContextWindow declares the route's capacity in tokens. Zero leaves the
+	// resolved value to the preset or, on update, to the stored value.
+	ContextWindow int
 	Port          int
 	BridgePort    int
 	BaseURL       string
@@ -54,18 +57,22 @@ type DialectInput struct {
 }
 
 type DialectView struct {
-	Name          string   `json:"name"`
-	Preset        string   `json:"preset"`
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model"`
-	SubagentModel string   `json:"subagentModel,omitempty"`
-	OpusModel     string   `json:"opusModel,omitempty"`
-	SonnetModel   string   `json:"sonnetModel,omitempty"`
-	HaikuModel    string   `json:"haikuModel,omitempty"`
-	Effort        bool     `json:"effort"`
-	EffortLevel   string   `json:"effortLevel,omitempty"`
-	Concurrency   int      `json:"concurrency"`
-	ToolSearch    bool     `json:"toolSearch"`
+	Name          string `json:"name"`
+	Preset        string `json:"preset"`
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
+	SubagentModel string `json:"subagentModel,omitempty"`
+	OpusModel     string `json:"opusModel,omitempty"`
+	SonnetModel   string `json:"sonnetModel,omitempty"`
+	HaikuModel    string `json:"haikuModel,omitempty"`
+	Effort        bool   `json:"effort"`
+	EffortLevel   string `json:"effortLevel,omitempty"`
+	Concurrency   int    `json:"concurrency"`
+	ToolSearch    bool   `json:"toolSearch"`
+	// ContextWindow is the capacity Claude Code is calibrated with, in tokens.
+	// It is omitted when unknown so clients can tell "unconfigured" apart from a
+	// real value.
+	ContextWindow int      `json:"contextWindow,omitempty"`
 	Port          int      `json:"port"`
 	BaseURL       string   `json:"baseUrl,omitempty"`
 	AuthTokenEnv  string   `json:"authTokenEnv,omitempty"`
@@ -175,7 +182,8 @@ func safeDialectView(name string, dialect Dialect) DialectView {
 		Model: dialect.Model, SubagentModel: dialect.SubagentModel,
 		OpusModel: dialect.OpusModel, SonnetModel: dialect.SonnetModel, HaikuModel: dialect.HaikuModel,
 		Effort: dialect.Effort, EffortLevel: dialect.EffortLevel, Concurrency: dialect.Concurrency,
-		ToolSearch: dialect.ToolSearch, Port: dialect.Port, BaseURL: dialect.BaseURL,
+		ToolSearch: dialect.ToolSearch, ContextWindow: dialect.ContextWindow,
+		Port: dialect.Port, BaseURL: dialect.BaseURL,
 		AuthTokenEnv: dialect.AuthTokenEnv, AuthProvider: dialect.AuthProvider,
 		AuthProviders: expectedAuthProviders(dialect),
 		Bridge:        dialect.Bridge, BridgePort: dialect.BridgePort, ExtraEnvKeys: extraEnvKeys,
@@ -407,6 +415,27 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	}
 	if dialect.Concurrency == 0 {
 		dialect.Concurrency = 3
+	}
+	// Capacity resolution, most specific first: an explicit value is the
+	// operator's measured capacity for their own route and always wins; a preset
+	// supplies its reviewed value; otherwise an existing dialect keeps the value
+	// it already had. Capacity is derived metadata rather than a model choice, so
+	// an update that does not mention it must not silently uncalibrate a working
+	// dialect the way replacing a model field does.
+	if input.ContextWindow != 0 {
+		if !validContextWindow(input.ContextWindow) {
+			return Dialect{}, operationError(ErrorInvalidInput,
+				"--context-window must be between 1 and %d tokens", maxContextWindow)
+		}
+		dialect.ContextWindow = input.ContextWindow
+	}
+	if dialect.ContextWindow == 0 && exists {
+		dialect.ContextWindow = existing.ContextWindow
+	}
+	// A hand-edited configuration can carry a nonsensical capacity. Treat it as
+	// unknown rather than refusing every later operation; doctor reports it.
+	if !validContextWindow(dialect.ContextWindow) {
+		dialect.ContextWindow = 0
 	}
 	if input.BaseURL != "" {
 		dialect.BaseURL = input.BaseURL
