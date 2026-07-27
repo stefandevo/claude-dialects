@@ -286,7 +286,7 @@ func backfillContextWindows(cfg *Config) []string {
 			continue
 		}
 		preset, ok := presets[dialect.Preset]
-		if !ok || !matchesPresetRoute(dialect, preset) {
+		if !ok || !sharesContextRoute(dialect, preset) {
 			continue
 		}
 		dialect.ContextWindow = preset.ContextWindow
@@ -327,19 +327,25 @@ func persistContextWindowBackfill() ([]string, error) {
 	return migrated, nil
 }
 
-// matchesPresetRoute reports whether a dialect still selects exactly the models
-// and upstream its preset declares, which is what makes the preset's capacity
-// safe to adopt. Any divergence means the smallest supported window may differ.
-func matchesPresetRoute(dialect, preset Dialect) bool {
-	return dialect.Model == preset.Model &&
-		dialect.SubagentModel == preset.SubagentModel &&
-		dialect.OpusModel == preset.OpusModel &&
-		dialect.SonnetModel == preset.SonnetModel &&
-		dialect.HaikuModel == preset.HaikuModel &&
-		dialect.AuthProvider == preset.AuthProvider &&
-		dialect.Bridge == preset.Bridge &&
-		dialect.BaseURL == preset.BaseURL &&
-		dialect.AuthTokenEnv == preset.AuthTokenEnv
+// sharesContextRoute reports whether two dialects select exactly the same models
+// over the same upstream, which is what makes one's context capacity valid for
+// the other. Any divergence means the smallest supported window may differ.
+//
+// A dialect carrying ExtraEnv shares no route with anything: claudeEnvironment
+// applies that map last, so it can replace the base URL, the model variables, or
+// the auto-compact window itself, and the stored fields then no longer describe
+// what the dialect actually talks to.
+func sharesContextRoute(dialect, other Dialect) bool {
+	return dialect.Model == other.Model &&
+		dialect.SubagentModel == other.SubagentModel &&
+		dialect.OpusModel == other.OpusModel &&
+		dialect.SonnetModel == other.SonnetModel &&
+		dialect.HaikuModel == other.HaikuModel &&
+		dialect.AuthProvider == other.AuthProvider &&
+		dialect.Bridge == other.Bridge &&
+		dialect.BaseURL == other.BaseURL &&
+		dialect.AuthTokenEnv == other.AuthTokenEnv &&
+		len(dialect.ExtraEnv) == 0 && len(other.ExtraEnv) == 0
 }
 
 // readStoredConfig returns the configuration exactly as it sits on disk. Only

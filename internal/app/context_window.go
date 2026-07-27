@@ -187,6 +187,63 @@ func applyAutoCompactWindow(env []string, window int) []string {
 	return setEnv(env, autoCompactWindowEnv, strconv.Itoa(window))
 }
 
+// contextWindowFixCommand renders a command that records a capacity for a
+// dialect without losing the rest of its configuration.
+//
+// `create` rebuilds a dialect from the flags it is given rather than patching
+// it, so a command naming only the model would quietly delete tier overrides,
+// the upstream URL and token variable, and any non-default behavior settings.
+// A preset-backed dialect is restated through its preset, which restores the
+// whole route in one flag; a custom one restates every flag it actually differs
+// on. A bridge or OAuth route has no flag to express it, so rather than print a
+// command that would break the dialect this returns "" and the caller says to
+// use the dashboard instead.
+func contextWindowFixCommand(name string, dialect Dialect) string {
+	command := "cc-dialect create " + name
+	base, presetBacked := presets[dialect.Preset]
+	switch {
+	case presetBacked:
+		command += " --preset " + dialect.Preset
+	case dialect.Bridge != "" || dialect.AuthProvider != "":
+		return ""
+	default:
+		// prepareDialect fills empty tiers from the primary model, so an
+		// unmentioned tier round-trips unchanged.
+		base = Dialect{
+			Model: dialect.Model, SubagentModel: dialect.Model, OpusModel: dialect.Model,
+			SonnetModel: dialect.Model, HaikuModel: dialect.Model,
+			Effort: true, EffortLevel: "auto", Concurrency: 3,
+		}
+		command += " --model " + dialect.Model
+	}
+	for _, field := range []struct{ flag, value, base string }{
+		{"--model", dialect.Model, base.Model},
+		{"--subagent-model", dialect.SubagentModel, base.SubagentModel},
+		{"--opus-model", dialect.OpusModel, base.OpusModel},
+		{"--sonnet-model", dialect.SonnetModel, base.SonnetModel},
+		{"--haiku-model", dialect.HaikuModel, base.HaikuModel},
+		{"--base-url", dialect.BaseURL, base.BaseURL},
+		{"--token-env", dialect.AuthTokenEnv, base.AuthTokenEnv},
+		{"--effort-level", dialect.EffortLevel, base.EffortLevel},
+	} {
+		if field.value != "" && field.value != field.base {
+			command += " " + field.flag + " " + field.value
+		}
+	}
+	if dialect.Concurrency != 0 && dialect.Concurrency != base.Concurrency {
+		command += fmt.Sprintf(" --concurrency %d", dialect.Concurrency)
+	}
+	// Both are plain booleans on the command line whose flag defaults are fixed,
+	// so they have to be restated whenever the dialect disagrees with them.
+	if !dialect.Effort {
+		command += " --effort=false"
+	}
+	if dialect.ToolSearch {
+		command += " --tool-search=true"
+	}
+	return command + " --context-window <tokens>"
+}
+
 // contextWindowDiagnostics reports capacity problems doctor should surface for a
 // dialect. An uncalibrated dialect is the exact condition issue #44 describes,
 // so it is actionable rather than silent.
@@ -194,16 +251,22 @@ func contextWindowDiagnostics(name string, dialect Dialect) []string {
 	if validContextWindow(dialect.ContextWindow) {
 		return nil
 	}
+	problem := fmt.Sprintf("%s has no context window; Claude Code auto-compaction is uncalibrated for %s",
+		name, dialect.Model)
 	if dialect.ContextWindow != 0 {
-		return []string{fmt.Sprintf(
-			"✗ %s has an invalid context window (%d); auto-compaction is uncalibrated "+
-				"(run: cc-dialect create %s --model %s --context-window <tokens>)",
-			name, dialect.ContextWindow, name, dialect.Model)}
+		problem = fmt.Sprintf("%s has an invalid context window (%d); auto-compaction is uncalibrated",
+			name, dialect.ContextWindow)
 	}
-	return []string{fmt.Sprintf(
-		"✗ %s has no context window; Claude Code auto-compaction is uncalibrated for %s "+
-			"(run: cc-dialect create %s --model %s --context-window <tokens>)",
-		name, dialect.Model, name, dialect.Model)}
+	return []string{"✗ " + problem + " (" + contextWindowRemedy(name, dialect) + ")"}
+}
+
+// contextWindowRemedy phrases how to record a capacity for a dialect, falling
+// back to the dashboard when no command can express its route faithfully.
+func contextWindowRemedy(name string, dialect Dialect) string {
+	if command := contextWindowFixCommand(name, dialect); command != "" {
+		return "run: " + command
+	}
+	return "set a context window for " + name + " in cc-dialect web"
 }
 
 // autoCompactSupportProbe reports whether an installed Claude Code build still

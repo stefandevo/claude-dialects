@@ -191,12 +191,12 @@ func createDialect(args []string) error {
 	if !result.Created {
 		fmt.Printf("Updated %q to model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
 		fmt.Println("Authentication, isolated Claude Code state, and installed shims were preserved.")
-		warnMissingContextWindow(name, dialect)
 		cfg, loadErr := loadConfig()
 		if loadErr != nil {
 			return loadErr
 		}
 		stored := cfg.Dialects[name]
+		warnMissingContextWindow(name, stored)
 		if steps := missingAuthenticationSteps(name, stored); len(steps) > 0 {
 			fmt.Println("Next:")
 			for index, step := range steps {
@@ -206,7 +206,6 @@ func createDialect(args []string) error {
 		return nil
 	}
 	fmt.Printf("Created %q using model %s (isolated port %d)\n", name, dialect.Model, dialect.Port)
-	warnMissingContextWindow(name, dialect)
 	home, _ := os.UserHomeDir()
 	shimName := preferredShimName(name)
 	target := filepath.Join(home, ".local", "bin", shimName)
@@ -222,6 +221,7 @@ func createDialect(args []string) error {
 		return loadErr
 	}
 	stored := cfg.Dialects[name]
+	warnMissingContextWindow(name, stored)
 	fmt.Println("Next:")
 	for index, step := range createNextSteps(name, shimName, stored) {
 		fmt.Printf("  %d. %s\n", index+1, step)
@@ -234,14 +234,14 @@ func createDialect(args []string) error {
 // without a declared window its auto-compaction is uncalibrated and the
 // conversation can reach the provider's real limit before compacting. The value
 // is never guessed from the model name — a wrong denominator is worse than none.
-func warnMissingContextWindow(name string, view DialectView) {
-	if validContextWindow(view.ContextWindow) {
+func warnMissingContextWindow(name string, dialect Dialect) {
+	if validContextWindow(dialect.ContextWindow) {
 		return
 	}
 	fmt.Fprintf(os.Stderr,
 		"Warning: %q has no context window, so Claude Code auto-compaction is uncalibrated for %s.\n"+
-			"         Set the model's capacity: cc-dialect create %s --model %s --context-window <tokens>\n",
-		name, view.Model, name, view.Model)
+			"         Set the model's capacity — %s\n",
+		name, dialect.Model, contextWindowRemedy(name, dialect))
 }
 
 func createNextSteps(name, shimName string, dialect Dialect) []string {
@@ -530,6 +530,9 @@ func runDialect(args []string) error {
 	if d.Effort && d.EffortLevel != "" && d.EffortLevel != "auto" && !hasFlag(claudeArgs, "--effort") {
 		claudeArgs = append([]string{"--effort", d.EffortLevel}, claudeArgs...)
 	}
+	if warning := modelOverrideWarning(name, d, claudeArgs); warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
 	cmd := exec.Command("claude", claudeArgs...)
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = env, os.Stdin, os.Stdout, os.Stderr
 	if err = cmd.Run(); err != nil {
@@ -579,6 +582,43 @@ func setEnv(env []string, key, value string) []string {
 
 func hasModelFlag(args []string) bool {
 	return hasFlag(args, "--model")
+}
+
+// modelOverrideWarning flags a launch-time model the dialect's declared capacity
+// was not reviewed for.
+//
+// Claude Code receives one auto-compact window for the whole process, sized to
+// the smallest model the dialect can select. A `--model` naming something
+// outside that set — a bridge's wider live catalog, or an unrelated provider ID
+// — may hold less than the window claims, which would let a conversation run
+// past the provider's real limit. The same limitation applies to `/model`
+// switching mid-session, which no environment variable can re-calibrate.
+func modelOverrideWarning(name string, dialect Dialect, claudeArgs []string) string {
+	if !validContextWindow(dialect.ContextWindow) {
+		return ""
+	}
+	override := flagValue(claudeArgs, "--model")
+	if override == "" || slices.Contains(dialectModels(dialect), override) {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Warning: %s is not one of %s's configured models, so its %d-token auto-compact window\n"+
+			"         may not match that model's capacity. Create a dialect for it to calibrate compaction.",
+		override, name, dialect.ContextWindow)
+}
+
+// flagValue returns the value given to a flag in either the `--flag value` or
+// `--flag=value` form, or "" when the flag is absent or has no value.
+func flagValue(args []string, name string) string {
+	for index, arg := range args {
+		if value, found := strings.CutPrefix(arg, name+"="); found {
+			return value
+		}
+		if arg == name && index+1 < len(args) {
+			return args[index+1]
+		}
+	}
+	return ""
 }
 
 func hasFlag(args []string, name string) bool {

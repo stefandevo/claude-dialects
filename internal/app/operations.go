@@ -416,27 +416,6 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	if dialect.Concurrency == 0 {
 		dialect.Concurrency = 3
 	}
-	// Capacity resolution, most specific first: an explicit value is the
-	// operator's measured capacity for their own route and always wins; a preset
-	// supplies its reviewed value; otherwise an existing dialect keeps the value
-	// it already had. Capacity is derived metadata rather than a model choice, so
-	// an update that does not mention it must not silently uncalibrate a working
-	// dialect the way replacing a model field does.
-	if input.ContextWindow != 0 {
-		if !validContextWindow(input.ContextWindow) {
-			return Dialect{}, operationError(ErrorInvalidInput,
-				"--context-window must be between 1 and %d tokens", maxContextWindow)
-		}
-		dialect.ContextWindow = input.ContextWindow
-	}
-	if dialect.ContextWindow == 0 && exists {
-		dialect.ContextWindow = existing.ContextWindow
-	}
-	// A hand-edited configuration can carry a nonsensical capacity. Treat it as
-	// unknown rather than refusing every later operation; doctor reports it.
-	if !validContextWindow(dialect.ContextWindow) {
-		dialect.ContextWindow = 0
-	}
 	if input.BaseURL != "" {
 		dialect.BaseURL = input.BaseURL
 	}
@@ -445,6 +424,22 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	}
 	if err := validateCustomUpstream(dialect); err != nil {
 		return Dialect{}, err
+	}
+	// Resolved last, because it can only be judged once the whole route —
+	// models, tiers, and upstream — is known.
+	if input.ContextWindow != 0 {
+		if !validContextWindow(input.ContextWindow) {
+			return Dialect{}, operationError(ErrorInvalidInput,
+				"--context-window must be between 1 and %d tokens", maxContextWindow)
+		}
+		dialect.ContextWindow = input.ContextWindow
+	} else {
+		dialect.ContextWindow = inheritedContextWindow(dialect, input.Preset, existing, exists)
+	}
+	// A hand-edited configuration can carry a nonsensical capacity. Treat it as
+	// unknown rather than refusing every later operation; doctor reports it.
+	if !validContextWindow(dialect.ContextWindow) {
+		dialect.ContextWindow = 0
 	}
 	dialect.Effort = input.Effort
 	dialect.ToolSearch = input.ToolSearch
@@ -513,6 +508,29 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 		return Dialect{}, operationError(ErrorInvalidInput, "proxy and provider bridge cannot share port %d", dialect.Port)
 	}
 	return dialect, nil
+}
+
+// inheritedContextWindow returns the capacity a dialect may keep when the
+// request did not state one.
+//
+// Capacity describes a specific set of models, so it only carries over while the
+// resolved route is still that same set: a preset's reviewed value when the
+// request did not move off the preset's mapping, or the stored value when an
+// update left the mapping untouched. Anything else leaves it unknown.
+//
+// Carrying a window across a model change would be the more damaging default. A
+// window larger than the new route supports lets a conversation run past the
+// provider's real limit before compacting — the exact failure this metadata
+// exists to prevent — while an unknown one only returns to uncalibrated
+// behavior, which create warns about and doctor keeps reporting.
+func inheritedContextWindow(resolved Dialect, preset string, existing Dialect, exists bool) int {
+	if source, ok := presets[preset]; ok && sharesContextRoute(resolved, source) {
+		return source.ContextWindow
+	}
+	if exists && sharesContextRoute(resolved, existing) {
+		return existing.ContextWindow
+	}
+	return 0
 }
 
 func requireConfigRevision(cfg *Config, expected string) error {

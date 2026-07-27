@@ -716,10 +716,17 @@ cc-dialect create cc-my-model \
   --token-env MY_PROVIDER_TOKEN
 ```
 
-The value must be a positive integer of at most 20,000,000 tokens. Updating a
-dialect without passing `--context-window` keeps the stored value, so changing a
-port or model never silently uncalibrates a working dialect. Re-applying a
-preset adopts that preset's current value.
+The value must be a positive integer of at most 20,000,000 tokens.
+
+A capacity describes one specific set of models, so it is kept only while that
+set is unchanged. Updating a port, concurrency, or effort keeps the stored
+value; changing the primary model, a tier, or the upstream clears it unless you
+pass a new `--context-window`, and `create` then warns that the dialect is
+uncalibrated. Carrying the old number across a model change would be the more
+damaging default: a window larger than the new route supports is exactly what
+lets a conversation run past the provider's real limit, while an unset one only
+returns to uncalibrated behavior and says so. Re-applying a preset restores its
+mapping and therefore its value, and an explicit `--context-window` always wins.
 
 Dialects created before this field existed are migrated on first read: a dialect
 that still carries its preset's exact model and route mapping adopts that
@@ -747,6 +754,20 @@ Each dialect's embedded proxy also records the latest request's input usage to
 `instances/<name>/context.json` and warns once per 80%, 90%, and 95% threshold.
 Only counters are recorded — never prompts, tool results, request bodies, or
 credentials.
+
+### Known limitation: one window per process
+
+Claude Code takes a single auto-compact window for the whole process, so a
+dialect's window covers every model it can select — which is why a preset uses
+the smallest one, and why the dynamic Cursor and Copilot `auto` routes sit at a
+conservative floor.
+
+Selecting a model outside that set is therefore not calibrated for. Launching
+with `cc-dialect run <name> --model <other>` warns when the model is not one the
+dialect configures, and switching with `/model <arbitrary-id>` mid-session
+cannot be re-calibrated at all, because the window is fixed for the life of the
+process. For a model you use regularly, give it its own dialect so it gets its
+own window.
 
 ## Switch model and effort inside a conversation
 
