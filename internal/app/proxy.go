@@ -139,7 +139,7 @@ func proxyPID(name string) int {
 		return 0
 	}
 	defer instance.Close()
-	return instance.ReadPID("proxy.pid")
+	return instance.runningPID("proxy.pid")
 }
 
 func startProxy(name string, dialect Dialect) error {
@@ -148,13 +148,19 @@ func startProxy(name string, dialect Dialect) error {
 		return err
 	}
 	defer instance.Close()
-	if err = startManagedBridge(name, dialect); err != nil {
+	// Pin the directory before anything is started. The handle resolves the
+	// dialect name lazily, so without this the bridge below could be launched
+	// against one directory and the proxy's own I/O land in another.
+	if _, err = instance.ensureDir(); err != nil {
+		return err
+	}
+	if err = startManagedBridge(instance, dialect); err != nil {
 		return err
 	}
 	if proxyHealthy(dialect) {
 		return nil
 	}
-	if pid := instance.ReadPID("proxy.pid"); pid > 0 && processAlive(pid) {
+	if pid := instance.runningPID("proxy.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.Port) {
 			return fmt.Errorf("proxy process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`", pid, dialect.Port, name)
 		}
@@ -255,7 +261,17 @@ func stopProxyDialect(name string, dialect Dialect) (err error) {
 	defer func() {
 		err = errors.Join(err, stopManagedBridge(name, dialect))
 	}()
-	pid := instance.ReadPID("proxy.pid")
+	pid, pidErr := instance.ReadPID("proxy.pid")
+	if pidErr != nil {
+		// The ownership record cannot be read — the instance or the PID path was
+		// replaced with something the root refuses to follow. Reporting success
+		// here would let RemoveDialect drop the config and unlink the entry while
+		// the proxy keeps serving, with nothing left pointing at it.
+		if proxyHealthy(dialect) {
+			return fmt.Errorf("proxy for %q is still running but its PID record cannot be read safely: %w", name, pidErr)
+		}
+		return nil
+	}
 	if pid == 0 {
 		return nil
 	}
@@ -445,14 +461,18 @@ func tailLog(name string) error {
 	return nil
 }
 
-func startManagedBridge(name string, dialect Dialect) error {
+// startManagedBridge takes the caller's already-pinned instance rather than
+// opening its own: a second handle would resolve the dialect name again, so a
+// directory replaced in between would leave the bridge and its PID in one
+// directory while the proxy serves from another.
+func startManagedBridge(instance *instanceFS, dialect Dialect) error {
 	switch dialect.Bridge {
 	case "":
 		return nil
 	case "cursor":
-		return startCursorBridge(name, dialect)
+		return startCursorBridge(instance, dialect)
 	case "copilot":
-		return startCopilotBridge(name, dialect)
+		return startCopilotBridge(instance, dialect)
 	default:
 		return fmt.Errorf("unsupported managed bridge %q", dialect.Bridge)
 	}

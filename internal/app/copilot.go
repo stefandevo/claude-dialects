@@ -281,7 +281,7 @@ func copilotBridgePID(name string) int {
 		return 0
 	}
 	defer instance.Close()
-	return instance.ReadPID("copilot-bridge.pid")
+	return instance.runningPID("copilot-bridge.pid")
 }
 
 func prepareCopilotBridgeFiles(instance *instanceFS) (string, *os.File, error) {
@@ -317,18 +317,14 @@ func copilotBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func startCopilotBridge(name string, dialect Dialect) error {
+func startCopilotBridge(instance *instanceFS, dialect Dialect) error {
 	if dialect.Bridge != "copilot" {
 		return nil
 	}
 	if copilotBridgeHealthy(dialect) {
 		return nil
 	}
-	instance, err := openInstanceFS(name)
-	if err != nil {
-		return err
-	}
-	defer instance.Close()
+	name := instance.name
 	nodePath, _, err := copilotNode()
 	if err != nil {
 		return err
@@ -354,7 +350,7 @@ func startCopilotBridge(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if pid := instance.ReadPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
+	if pid := instance.runningPID("copilot-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
 			return fmt.Errorf("Copilot bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
@@ -456,7 +452,15 @@ func stopCopilotBridge(name string, dialect Dialect) error {
 		return err
 	}
 	defer instance.Close()
-	pid := instance.ReadPID("copilot-bridge.pid")
+	pid, pidErr := instance.ReadPID("copilot-bridge.pid")
+	if pidErr != nil {
+		// An unreadable ownership record must not read as "already stopped": that
+		// would abandon a live bridge with nothing left pointing at it.
+		if copilotBridgeHealthy(dialect) {
+			return fmt.Errorf("Copilot bridge for %q is still running but its PID record cannot be read safely: %w", name, pidErr)
+		}
+		return nil
+	}
 	if pid == 0 {
 		return nil
 	}

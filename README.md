@@ -865,15 +865,16 @@ only for the launched Claude Code process. Mutating operations are serialized
 across CLI and dashboard processes with the owner-only `.state.lock`; configuration
 and launcher files are written atomically.
 
-Per-dialect reads, writes and deletes are confined to that dialect's own
-directory by the operating system rather than by path checks alone: the CLI
-opens `instances/<dialect>/` as a root and resolves every path relative to it.
-A symlink planted inside cannot redirect a read, a write or a removal — neither
-outside the state tree nor into a *sibling dialect*, so one dialect's
-credentials, configuration and history stay unreachable from another. Dialect
-names remain restricted to `[a-z0-9_-]`.
+Per-dialect reads, writes and deletes **performed by `cc-dialect` itself** are
+confined to that dialect's own directory by the operating system rather than by
+path checks alone: the CLI opens `instances/<dialect>/` as a root and resolves
+every path relative to it. A symlink planted inside cannot redirect one of those
+reads, writes or removals — neither outside the state tree nor into a *sibling
+dialect*. Dialect names remain restricted to `[a-z0-9_-]`.
 
-Two limits on that guarantee are worth stating plainly:
+The scope of that sentence is deliberate. It covers the CLI's own file
+operations, and not the processes the CLI launches. Three limits are worth
+stating plainly:
 
 - **Removal is the exception.** Every other operation refuses to run when
   `instances/` or the dialect's own directory has been replaced by a symlink, and
@@ -890,6 +891,16 @@ Two limits on that guarantee are worth stating plainly:
   naming the file to inspect if it is not. That is detection, not confinement:
   the token has already been written by the time it runs. Closing this properly
   needs a root-aware persistence API in CLIProxyAPI.
+- **Launched processes use ordinary path-based I/O.** Claude Code receives the
+  dialect's `claude/` directory as an absolute `CLAUDE_CONFIG_DIR`, and the
+  Cursor and Copilot bridges receive absolute `cursor-workspace/` and
+  `copilot-home/` paths. `cc-dialect` creates and validates those directories
+  through the root before handing them over, so an escape that is already in
+  place is rejected — but the processes themselves are ordinary programs
+  resolving ordinary paths. A symlink introduced *underneath* one of those
+  directories after hand-off, or nested inside `claude/`, is followed by those
+  processes like any other path. Confining them would mean changing Claude Code
+  and the vendor SDKs, not this CLI.
 
 The dashboard accepts only numeric loopback listeners. Every request must use
 the exact bound `Host`; state-changing API requests must also use the exact local

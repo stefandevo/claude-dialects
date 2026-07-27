@@ -399,6 +399,51 @@ func TestConfirmWrittenInsideRejectsALookalikePath(t *testing.T) {
 	}
 }
 
+// A missing PID file means "not running"; a PID file that cannot be read safely
+// means the ownership record is unknown. Collapsing the second into the first
+// lets a stop report success while the process keeps running.
+func TestReadPIDSeparatesAbsentFromUnreadable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, "instances", "cc-test"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+
+	pid, err := instance.ReadPID("proxy.pid")
+	if pid != 0 || err != nil {
+		t.Fatalf("absent PID file = (%d, %v), want (0, nil)", pid, err)
+	}
+	if err = instance.AtomicWrite("proxy.pid", []byte("4242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pid, err = instance.ReadPID("proxy.pid"); pid != 4242 || err != nil {
+		t.Fatalf("readable PID = (%d, %v), want (4242, nil)", pid, err)
+	}
+
+	// A separate handle onto an instance the root refuses to follow: present, but
+	// unreadable. That must not look the same as absent.
+	_, target := symlinkedInstance(t, "cc-linked")
+	if err = os.WriteFile(filepath.Join(target, "proxy.pid"), []byte("99\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linked, err := openInstanceFS("cc-linked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer linked.Close()
+	if pid, err = linked.ReadPID("proxy.pid"); err == nil {
+		t.Fatalf("unreadable PID file reported (%d, nil) instead of an error", pid)
+	}
+	if pid != 0 {
+		t.Fatalf("unreadable PID returned %d alongside its error", pid)
+	}
+}
+
 func TestInstanceFSAbsRejectsNonLocalPaths(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	instance, err := openInstanceFS("cc-test")

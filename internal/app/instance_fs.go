@@ -326,12 +326,31 @@ func (instance *instanceFS) ConfirmWrittenInside(rel, abs string) error {
 	return nil
 }
 
-func (instance *instanceFS) ReadPID(rel string) int {
+// ReadPID returns the recorded PID, or 0 when no PID file exists. A file that
+// exists but cannot be read safely — because the instance or the path itself was
+// replaced with something the root refuses to follow — returns an error rather
+// than 0: callers that stop or remove a runtime must be able to tell "nothing is
+// running" apart from "the ownership record is unreadable", since treating the
+// second as the first abandons a live process with no way to find it again.
+func (instance *instanceFS) ReadPID(rel string) (int, error) {
 	raw, err := instance.ReadFile(rel)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	return pid, nil
+}
+
+// runningPID reports the PID for callers that only need to know whether this
+// dialect looks alive and have nothing to abandon if the answer is wrong.
+func (instance *instanceFS) runningPID(rel string) int {
+	pid, err := instance.ReadPID(rel)
 	if err != nil {
 		return 0
 	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	return pid
 }
 

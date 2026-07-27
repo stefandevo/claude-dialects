@@ -228,7 +228,7 @@ cld</code></pre>
         <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. The dashboard accepts numeric loopback listeners only and requires the exact bound Host on every request; mutations also require the exact Origin and a per-process CSRF token. It is designed for one trusted local user, not remote or reverse-proxy exposure.</p>
         <ul>
           <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
-          <li>Per-dialect file I/O confined to that dialect's own directory by the operating system, so a planted symlink cannot redirect a read, write or removal outside the tree or into another dialect — with two stated exceptions: removal unlinks a tampered directory rather than refusing, and credentials written by the embedded proxy during OAuth are verified by file identity after the write rather than confined during it</li>
+          <li>Per-dialect file I/O <em>performed by the CLI itself</em> confined to that dialect's own directory by the operating system, so a planted symlink cannot redirect a read, write or removal outside the tree or into another dialect — with three stated limits: removal unlinks a tampered directory rather than refusing; credentials written by the embedded proxy during OAuth are verified by file identity after the write rather than confined during it; and launched processes (Claude Code, the Cursor and Copilot bridges) receive absolute paths and resolve them as ordinary programs do</li>
           <li>Secret-safe dashboard API responses omit keys, tokens, credential contents, and extra environment values</li>
           <li>Checked port allocation starting at <code>:43170</code></li>
           <li>Cursor/Copilot tools forwarded with <code>cc_tool_</code> schema aliases</li>

@@ -284,7 +284,7 @@ func cursorBridgePID(name string) int {
 		return 0
 	}
 	defer instance.Close()
-	return instance.ReadPID("cursor-bridge.pid")
+	return instance.runningPID("cursor-bridge.pid")
 }
 
 func prepareCursorBridgeFiles(instance *instanceFS) (string, *os.File, error) {
@@ -320,7 +320,7 @@ func cursorBridgeHealthy(dialect Dialect) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-func startCursorBridge(name string, dialect Dialect) error {
+func startCursorBridge(instance *instanceFS, dialect Dialect) error {
 	if dialect.Bridge != "cursor" {
 		return nil
 	}
@@ -330,11 +330,7 @@ func startCursorBridge(name string, dialect Dialect) error {
 	if os.Getenv("CURSOR_API_KEY") == "" {
 		return errors.New("CURSOR_API_KEY is not set")
 	}
-	instance, err := openInstanceFS(name)
-	if err != nil {
-		return err
-	}
-	defer instance.Close()
+	name := instance.name
 	nodePath, _, err := cursorNode()
 	if err != nil {
 		return err
@@ -360,7 +356,7 @@ func startCursorBridge(name string, dialect Dialect) error {
 	if err != nil {
 		return err
 	}
-	if pid := instance.ReadPID("cursor-bridge.pid"); pid > 0 && processAlive(pid) {
+	if pid := instance.runningPID("cursor-bridge.pid"); pid > 0 && processAlive(pid) {
 		if !portAvailable(dialect.BridgePort) {
 			return fmt.Errorf("Cursor bridge process %d is alive but not responding on port %d; see `cc-dialect proxy %s logs`",
 				pid, dialect.BridgePort, name)
@@ -452,7 +448,15 @@ func stopCursorBridge(name string, dialect Dialect) error {
 		return err
 	}
 	defer instance.Close()
-	pid := instance.ReadPID("cursor-bridge.pid")
+	pid, pidErr := instance.ReadPID("cursor-bridge.pid")
+	if pidErr != nil {
+		// An unreadable ownership record must not read as "already stopped": that
+		// would abandon a live bridge with nothing left pointing at it.
+		if cursorBridgeHealthy(dialect) {
+			return fmt.Errorf("Cursor bridge for %q is still running but its PID record cannot be read safely: %w", name, pidErr)
+		}
+		return nil
+	}
 	if pid == 0 {
 		return nil
 	}
