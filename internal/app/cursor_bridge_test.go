@@ -175,6 +175,7 @@ func TestEmbeddedCursorBridgeSurvivesUncaughtFaults(t *testing.T) {
 		`const inFlight = new Set()`,
 		`inFlight.add(pending)`,
 		`inFlight.delete(pending)`,
+		`for (const pending of [...inFlight]) pending.abandon()`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
@@ -182,35 +183,80 @@ func TestEmbeddedCursorBridgeSurvivesUncaughtFaults(t *testing.T) {
 	}
 }
 
-// Cancelling an abandoned request only works once the run exists. Agent.create
-// and agent.send are each an await during which nothing can be cancelled, so
-// without a checked abort flag a request failed by a fault handler would go on
-// to start a generation that is billed and whose response is discarded.
+// Cancelling an abandoned request only works once the run exists, and
+// selectModel, Agent.create, and agent.send are each an await during which there
+// is nothing to cancel. Without a flag checked in every one of those windows, a
+// request whose client is already gone goes on to start a generation that is
+// billed and whose response is discarded.
 func TestEmbeddedCursorBridgeStopsAbandonedRequestsBeforeBilling(t *testing.T) {
 	text := string(cursorBridgeSource)
 	for _, expected := range []string{
-		`let aborted = false`,
-		`aborted = true`,
-		`if (aborted) return;`,
-		`if (aborted) {`,
+		`if (pending.aborted) return;`,
+		`if (pending.aborted) {`,
+		`pending.onAbort = () => activeRun?.cancel()`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
 		}
 	}
+	selection := strings.Index(text, "await selectModel(")
 	create := strings.Index(text, "agent = await Agent.create(")
 	send := strings.Index(text, "activeRun = await agent.send(")
 	stream := strings.Index(text, "for await (const event of activeRun.stream())")
-	if create < 0 || send < 0 || stream < 0 {
+	if selection < 0 || create < 0 || send < 0 || stream < 0 {
 		t.Fatal("embedded Cursor bridge no longer has the expected run sequence")
 	}
-	// One abort check between agent creation and the send that starts billing,
-	// and one between that send and the stream it feeds.
-	if !strings.Contains(text[create:send], "if (aborted) return;") {
-		t.Fatal("embedded Cursor bridge starts a run without rechecking the abort flag after Agent.create")
+	// An abort check in each window: after the catalog lookup, after the agent is
+	// created, and after the send that starts billing.
+	if !strings.Contains(text[selection:create], "if (pending.aborted) return;") {
+		t.Fatal("embedded Cursor bridge builds a run without rechecking abandonment after selectModel")
 	}
-	if !strings.Contains(text[send:stream], "if (aborted) {") {
-		t.Fatal("embedded Cursor bridge streams a run without rechecking the abort flag after agent.send")
+	if !strings.Contains(text[create:send], "if (pending.aborted) return;") {
+		t.Fatal("embedded Cursor bridge starts a run without rechecking abandonment after Agent.create")
+	}
+	if !strings.Contains(text[send:stream], "if (pending.aborted) {") {
+		t.Fatal("embedded Cursor bridge streams a run without rechecking abandonment after agent.send")
+	}
+}
+
+// A close event fires once, immediately. A listener attached after the handler's
+// first await never hears it, so a client that disconnects during the catalog
+// lookup would leave the request believing it still has a reader. Tracking has
+// to be installed before any route awaits anything.
+func TestEmbeddedCursorBridgeTracksRequestsBeforeTheFirstAwait(t *testing.T) {
+	text := string(cursorBridgeSource)
+	handler := strings.Index(text, "http.createServer(")
+	track := strings.Index(text, "const pending = trackRequest(response)")
+	if handler < 0 || track < 0 {
+		t.Fatal("embedded Cursor bridge no longer registers requests in its server handler")
+	}
+	if track < handler {
+		t.Fatal("embedded Cursor bridge registers requests outside the server handler")
+	}
+	// Every await a route can reach must come after registration.
+	for _, await := range []string{
+		"await listCursorModels()",
+		"await readJSON(request)",
+		"await chatCompletion(",
+	} {
+		index := strings.Index(text[handler:], await)
+		if index < 0 {
+			t.Fatalf("embedded Cursor bridge server handler no longer contains %q", await)
+		}
+		if handler+index < track {
+			t.Fatalf("embedded Cursor bridge awaits %q before the request is tracked", await)
+		}
+	}
+	// The handler owns the entry's lifetime, so no route can leak one by throwing.
+	// The release therefore has to sit past the handler's own catch, in a finally.
+	catchStart := strings.Index(text[handler:], "} catch (error) {")
+	listen := strings.Index(text, "server.listen(")
+	if catchStart < 0 || listen < 0 {
+		t.Fatal("embedded Cursor bridge no longer has the expected server handler shape")
+	}
+	tail := text[handler+catchStart : listen]
+	if !strings.Contains(tail, "} finally {") || !strings.Contains(tail, "inFlight.delete(pending)") {
+		t.Fatal("embedded Cursor bridge does not release tracked requests in the server handler's finally")
 	}
 }
 

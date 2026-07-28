@@ -32,6 +32,11 @@ if (!cursorAPIKey) {
 fs.mkdirSync(workspace, { recursive: true, mode: 0o700 });
 
 const server = http.createServer(async (request, response) => {
+  // Tracked before the first await of any route. Every route reaches the SDK
+  // eventually — /v1/models and the chat completion's model selection both call
+  // the catalog — and a client that goes away during one of those awaits fires
+  // 'close' once, immediately: a listener attached afterwards never hears it.
+  const pending = trackRequest(response);
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || host}`);
     if (url.pathname === "/health" && request.method === "GET") {
@@ -41,6 +46,7 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === "/v1/models" && request.method === "GET") {
       if (!authorized(request)) return unauthorized(response);
       const items = await listCursorModels();
+      if (pending.aborted) return;
       return json(response, 200, {
         object: "list",
         data: items.map((item) => ({
@@ -55,7 +61,7 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === "/v1/chat/completions" && request.method === "POST") {
       if (!authorized(request)) return unauthorized(response);
       const body = await readJSON(request);
-      return await chatCompletion(request, response, body);
+      return await chatCompletion(request, response, body, pending);
     }
     return json(response, 404, {
       error: { message: "Not found", type: "invalid_request_error", code: "not_found" },
@@ -83,6 +89,10 @@ const server = http.createServer(async (request, response) => {
       });
     }
     response.end();
+  } finally {
+    // The single owner of the entry's lifetime, so no route can leak one by
+    // throwing between registration and its own cleanup.
+    inFlight.delete(pending);
   }
 });
 
@@ -97,6 +107,39 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 // Requests currently being served, so a fault raised outside any of their await
 // chains can end them instead of leaving them hanging.
 const inFlight = new Set();
+
+// trackRequest registers a request the moment it arrives and reports, through
+// `aborted`, whether it can still be answered. Handlers check that flag after
+// every await that precedes irreversible work, and attach any cancellable work
+// they own to `onAbort` — cancelling an SDK run needs the run to exist, so
+// before that the flag is the only thing that can stop it from starting.
+//
+// Removal from the set is the server handler's job, not this function's: an
+// entry has to survive every path a route can take, and only the handler's
+// finally sees them all.
+function trackRequest(response) {
+  const pending = {
+    aborted: false,
+    onAbort: undefined,
+    abandon: () => {
+      // Deregister first: an abandoned request may never settle, so an entry
+      // left here would be abandoned again by every later fault.
+      inFlight.delete(pending);
+      pending.aborted = true;
+      pending.onAbort?.();
+      failPending(response);
+    },
+  };
+  response.once("close", () => {
+    if (response.writableEnded) return;
+    // The client is gone, so there is nothing to fail — only work to stop.
+    inFlight.delete(pending);
+    pending.aborted = true;
+    pending.onAbort?.();
+  });
+  inFlight.add(pending);
+  return pending;
+}
 
 // A fault the request handler's try/catch cannot see — an 'error' event on a
 // socket the SDK owns, a rejection with nothing awaiting it — reaches Node's
@@ -116,9 +159,12 @@ for (const fault of ["uncaughtException", "unhandledRejection"]) {
   });
 }
 
-async function chatCompletion(request, response, body) {
+async function chatCompletion(request, response, body, pending) {
   const model = typeof body.model === "string" && body.model ? body.model : "auto";
+  // The catalog lookup behind selectModel is an SDK call whenever the cache is
+  // cold, so the request can already have been abandoned by the time it returns.
   const modelSelection = await selectModel(model, body);
+  if (pending.aborted) return;
   const toolDefinitions = normalizeTools(body.tools);
   const forwardedTools = aliasTools(toolDefinitions);
   const prompt = buildPrompt(body.messages, forwardedTools);
@@ -163,37 +209,14 @@ async function chatCompletion(request, response, body) {
 
   let text = "";
   let usage;
-  // Set once this request can no longer be answered — the client went away, or a
-  // fault handler failed it. Checked after every SDK await that precedes a run:
-  // cancelling requires activeRun to exist, so until then this flag is the only
-  // thing keeping an abandoned request from going on to start a generation that
-  // is billed and never read.
-  let aborted = false;
-  response.once("close", () => {
-    if (!response.writableEnded) {
-      aborted = true;
-      activeRun?.cancel().catch(() => {});
-    }
-  });
+  // The run is the cancellable work this request owns. The state directory is
+  // deliberately not removed on abort: the run may still be writing to it, and
+  // unlinking underneath a live writer turns a request that was merely failed
+  // into fresh errors from inside the SDK. What is left behind is one directory
+  // per abandoned run, bounded by the faults a single bridge process sees and
+  // cleared by the next launch.
+  pending.onAbort = () => activeRun?.cancel().catch(() => {});
 
-  const pending = {
-    // Deregister first: an abandoned run may never settle, so the finally below
-    // may never run, and an entry left here would be abandoned again by every
-    // later fault and never released.
-    //
-    // The run's state directory is deliberately not removed here. The run may
-    // still be writing to it, and unlinking underneath a live writer turns a
-    // request that was merely failed into fresh errors from inside the SDK.
-    // What is left behind is one directory per abandoned run, bounded by the
-    // faults a single bridge process sees and cleared by the next launch.
-    abandon: () => {
-      inFlight.delete(pending);
-      aborted = true;
-      activeRun?.cancel().catch(() => {});
-      failPending(response);
-    },
-  };
-  inFlight.add(pending);
   let agent;
   try {
     agent = await Agent.create({
@@ -220,7 +243,7 @@ async function chatCompletion(request, response, body) {
     // Creating the agent is itself an await, so the request may have been
     // abandoned in the meantime. Starting the run now would bill a generation
     // whose response has already been sent.
-    if (aborted) return;
+    if (pending.aborted) return;
 
     activeRun = await agent.send(prompt, {
       model: modelSelection,
@@ -229,7 +252,7 @@ async function chatCompletion(request, response, body) {
     });
     // Same window again: nothing could cancel this run while it was starting,
     // because until the assignment above there was no run to cancel.
-    if (aborted) {
+    if (pending.aborted) {
       await activeRun.cancel().catch(() => {});
       return;
     }
@@ -267,7 +290,6 @@ async function chatCompletion(request, response, body) {
       usage ||= result.usage;
     }
   } finally {
-    inFlight.delete(pending);
     agent?.close();
     discardRunState(runStateDir);
   }
@@ -275,7 +297,7 @@ async function chatCompletion(request, response, body) {
   // writableEnded as well as aborted: a fault handler may have already failed
   // this response, and the close event that follows arrives too late to be the
   // thing that tells us.
-  if (aborted || response.writableEnded) return;
+  if (pending.aborted || response.writableEnded) return;
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
   const normalizedUsage = openAIUsage(usage, prompt, text, capturedToolCall);
