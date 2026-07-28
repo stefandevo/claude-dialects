@@ -217,16 +217,24 @@ async function chatCompletion(request, response, body, pending) {
   let text = "";
   let usage;
   let agent;
-  let released = false;
-  // Runs from two places and must be safe from both: the request's own finally
-  // on every ordinary path, and a timer when the request was abandoned and its
-  // run never settled — in which case that finally is never reached at all.
-  // Closing the agent before discarding the directory is what keeps the removal
-  // from landing underneath an SDK that is still writing.
+  let agentClosed = false;
+  // Runs from the request's own finally on every ordinary path, and from a timer
+  // when the request was abandoned and its run never settled — in which case
+  // that finally is never reached at all. Both can run, in either order, so each
+  // resource is released on its own terms rather than behind one flag meaning
+  // "this request is done": a timer that fires while Agent.create is still
+  // pending would otherwise spend that flag on an agent which does not exist
+  // yet, and the one created afterwards would never be closed.
+  //
+  // The agent is closed once, and only once there is one. The directory is
+  // discarded every time — the SDK may have recreated it since an earlier
+  // release, and removing an absent one costs nothing. Closing first is what
+  // keeps the removal from landing underneath an SDK that is still writing.
   const releaseRun = () => {
-    if (released) return;
-    released = true;
-    agent?.close();
+    if (agent && !agentClosed) {
+      agentClosed = true;
+      agent.close();
+    }
     discardRunState(runStateDir);
   };
   // The run is the cancellable work this request owns. Cancelling normally lets
