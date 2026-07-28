@@ -138,3 +138,37 @@ func TestBridgePreparationReturnsRootedStatePath(t *testing.T) {
 		}
 	}
 }
+
+// The bridge pid/version writes are the write-side counterpart to the pid
+// readers and stop removes above: launchCursorBridge/launchCopilotBridge stamp
+// them through instance.WritePID/WriteBuildIdentity, so a symlinked instance must
+// refuse them rather than follow the link and plant a pid or build marker
+// outside the instances tree. Mirrors TestSeedStatuslineRejectsSymlinkedInstance.
+func TestBridgeWritesRejectSymlinkedInstance(t *testing.T) {
+	tests := []struct {
+		name  string
+		file  string
+		write func(*instanceFS) error
+	}{
+		{name: "CursorPID", file: "cursor-bridge.pid", write: func(i *instanceFS) error { return i.WritePID("cursor-bridge.pid", 4242) }},
+		{name: "CopilotPID", file: "copilot-bridge.pid", write: func(i *instanceFS) error { return i.WritePID("copilot-bridge.pid", 4242) }},
+		{name: "CursorVersion", file: "cursor-bridge.version", write: func(i *instanceFS) error { return i.WriteBuildIdentity("cursor-bridge.version") }},
+		{name: "CopilotVersion", file: "copilot-bridge.version", write: func(i *instanceFS) error { return i.WriteBuildIdentity("copilot-bridge.version") }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, target := symlinkedInstance(t, "cc-test")
+			instance, err := openInstanceFS("cc-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer instance.Close()
+			if err := test.write(instance); err == nil {
+				t.Fatalf("%s write should reject a symlinked instance", test.file)
+			}
+			if _, statErr := os.Stat(filepath.Join(target, test.file)); !os.IsNotExist(statErr) {
+				t.Fatalf("%s was written through the symlink into the escape target: %v", test.file, statErr)
+			}
+		})
+	}
+}
