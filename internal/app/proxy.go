@@ -593,6 +593,22 @@ func managedBridgeHealthy(dialect Dialect) bool {
 	}
 }
 
+// managedBridgeCrashed reports a bridge that recorded a PID it no longer owns.
+//
+// A bridge which dies mid-session stops answering its port while its PID record
+// stays on disk asserting ownership, and the proxy in front of it keeps
+// forwarding into the dead port. That is not the same condition as a dialect
+// that was stopped, and reporting the two alike is what left the failure with no
+// signal pointing at the bridge log. A PID that is alive is deliberately not
+// reported: a reused PID must never be mistaken for the bridge itself.
+func managedBridgeCrashed(name string, dialect Dialect) bool {
+	if dialect.Bridge == "" {
+		return false
+	}
+	pid := managedBridgePID(name, dialect)
+	return pid > 0 && !processAlive(pid)
+}
+
 func managedBridgePID(name string, dialect Dialect) int {
 	switch dialect.Bridge {
 	case "cursor":

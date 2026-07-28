@@ -104,6 +104,10 @@ const (
 	RuntimeRunning  RuntimeState = "running"
 	RuntimeStopped  RuntimeState = "stopped"
 	RuntimeDegraded RuntimeState = "degraded"
+	// RuntimeCrashed is a component that is not answering while its PID record
+	// still claims a process. It applies to managed bridges, whose death is
+	// otherwise invisible until a request fails against the port they left.
+	RuntimeCrashed RuntimeState = "crashed"
 )
 
 type ComponentStatus struct {
@@ -140,6 +144,7 @@ type NativeLauncherResult struct {
 type appService struct {
 	proxyProbe      func(Dialect) bool
 	bridgeProbe     func(Dialect) bool
+	bridgeCrashed   func(string, Dialect) bool
 	startRuntime    func(string, Dialect) error
 	stopRuntime     func(*instanceFS, Dialect) error
 	statusWorkers   int
@@ -151,6 +156,7 @@ func newAppService() *appService {
 	return &appService{
 		proxyProbe:      proxyHealthy,
 		bridgeProbe:     managedBridgeHealthy,
+		bridgeCrashed:   managedBridgeCrashed,
 		startRuntime:    startProxy,
 		stopRuntime:     stopProxyDialect,
 		statusWorkers:   4,
@@ -711,17 +717,25 @@ func (service *appService) runtimeStatus(name string, dialect Dialect) RuntimeSt
 	}
 	bridgeRunning := service.bridgeProbe(dialect)
 	bridge := &ComponentStatus{State: RuntimeStopped, Port: dialect.BridgePort}
-	if bridgeRunning {
+	switch {
+	case bridgeRunning:
 		bridge.State = RuntimeRunning
+		bridge.PID = managedBridgePID(name, dialect)
+	case service.bridgeCrashed(name, dialect):
+		// Keep the PID: it is the only pointer left to what died, and the bridge
+		// log it wrote is where the fatal error is.
+		bridge.State = RuntimeCrashed
 		bridge.PID = managedBridgePID(name, dialect)
 	}
 	status.Bridge = bridge
 	switch {
 	case proxyRunning && bridgeRunning:
 		status.State = RuntimeRunning
-	case !proxyRunning && !bridgeRunning:
+	case !proxyRunning && !bridgeRunning && bridge.State != RuntimeCrashed:
 		status.State = RuntimeStopped
 	default:
+		// A crashed bridge is never a clean stop, even with the proxy down: a
+		// record still asserts ownership of a process that is gone.
 		status.State = RuntimeDegraded
 	}
 	return status
