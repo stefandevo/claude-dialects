@@ -19,6 +19,18 @@ const (
 	cursorSDKVersion   = "1.0.23"
 	cursorMinNodeMajor = 22
 	cursorMinNodeMinor = 13
+	// cursorAgentStoreDir is the SDK's local agent store, written by the bridge
+	// inside the workspace it is handed. The bridge scopes one store per request
+	// and discards it with the request; this is the parent every launch starts
+	// from empty, which is also what repairs an instance whose store grew under
+	// an older build.
+	cursorAgentStoreDir = "cursor-workspace/.cursor-dialect-state"
+	// cursorBridgeHeapMB pins the bridge's V8 old-space ceiling. Node derives its
+	// default from the machine's memory, so the size a bridge dies at otherwise
+	// depends on the host — a smaller machine crashes on a parse a larger one
+	// completes. This is a mitigation for a single oversized payload, not the
+	// bound on growth: that is the per-request store.
+	cursorBridgeHeapMB = 4096
 )
 
 //go:embed cursor_bridge.mjs
@@ -305,6 +317,38 @@ func prepareCursorBridgeFiles(instance *instanceFS) (string, *os.File, error) {
 	return workspace, logFile, nil
 }
 
+// resetCursorAgentStore empties the SDK's local agent store before a bridge is
+// launched.
+//
+// The SDK appends every checkpoint and run event to the store and reads the file
+// back whole, so a store shared across requests grows monotonically until a
+// parse of it exhausts the bridge's heap and kills the process mid-session. The
+// bridge now gives each request its own store underneath this directory, but a
+// bridge that died leaves its run's directory behind, and an instance created
+// under an older build still holds everything it ever wrote. Clearing the parent
+// at launch reclaims both.
+//
+// This runs only once no bridge holds the port, so it cannot truncate state a
+// concurrent run is appending to.
+func resetCursorAgentStore(instance *instanceFS) error {
+	if err := instance.RemoveTree(cursorAgentStoreDir); err != nil {
+		return fmt.Errorf("clear the Cursor agent store for %q: %w", instance.name, err)
+	}
+	return nil
+}
+
+// cursorBridgeNodeArgs builds the node argument vector. The V8 options come
+// first: everything after the script path is passed to the script instead.
+func cursorBridgeNodeArgs(bridgePath string, port int, workspace string) []string {
+	return []string{
+		fmt.Sprintf("--max-old-space-size=%d", cursorBridgeHeapMB),
+		bridgePath,
+		"--host", "127.0.0.1",
+		"--port", strconv.Itoa(port),
+		"--workspace", workspace,
+	}
+}
+
 func cursorBridgeHealthy(dialect Dialect) bool {
 	if dialect.Bridge != "cursor" || dialect.BridgePort == 0 {
 		return false
@@ -387,14 +431,15 @@ func launchCursorBridge(instance *instanceFS, dialect Dialect) (func() error, er
 	if !portAvailable(dialect.BridgePort) {
 		return nil, fmt.Errorf("bridge port %d for %q is already in use by another process", dialect.BridgePort, name)
 	}
+	// After the port and PID checks above, so a bridge that is alive but wedged
+	// keeps the store its in-flight runs are still writing to.
+	if err = resetCursorAgentStore(instance); err != nil {
+		return nil, err
+	}
 	// The Cursor SDK accepts the workspace only as an absolute pathname. Rooted
 	// preparation above rejects a pre-existing escape; later SDK pathname I/O is
 	// an external subprocess trust boundary.
-	cmd := exec.Command(nodePath, bridgePath,
-		"--host", "127.0.0.1",
-		"--port", strconv.Itoa(dialect.BridgePort),
-		"--workspace", workspace,
-	)
+	cmd := exec.Command(nodePath, cursorBridgeNodeArgs(bridgePath, dialect.BridgePort, workspace)...)
 	cmd.Dir = runtimeDir
 	cmd.Env = cursorBridgeEnvironment(dialect.APIKey)
 	cmd.Stdin = nil

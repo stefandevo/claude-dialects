@@ -1,11 +1,14 @@
-import { AlertTriangle, CircleCheck, CircleStop } from 'lucide-react';
+import { AlertTriangle, CircleCheck, CircleStop, CircleX } from 'lucide-react';
 import type { RuntimeState } from '../types';
 import { Badge } from './ui/badge';
 
-const stateConfig = {
-  running: { label: 'Running', variant: 'success' as const, icon: CircleCheck },
-  stopped: { label: 'Stopped', variant: 'secondary' as const, icon: CircleStop },
-  degraded: { label: 'Degraded', variant: 'warning' as const, icon: AlertTriangle },
+const stateConfig: Record<RuntimeState, { label: string; variant: 'success' | 'secondary' | 'warning' | 'destructive'; icon: typeof CircleCheck }> = {
+  running: { label: 'Running', variant: 'success', icon: CircleCheck },
+  stopped: { label: 'Stopped', variant: 'secondary', icon: CircleStop },
+  degraded: { label: 'Degraded', variant: 'warning', icon: AlertTriangle },
+  // A bridge that died leaving its PID record behind: not stopped, and not
+  // something a restart of the proxy alone repairs.
+  crashed: { label: 'Crashed', variant: 'destructive', icon: CircleX },
 };
 
 export function StatusBadge({ state = 'stopped' }: { state?: RuntimeState }) {

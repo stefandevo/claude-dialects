@@ -70,11 +70,7 @@ const server = http.createServer(async (request, response) => {
       // never reaches the client.
       const expose = error?.[CLIENT_SAFE] === true;
       if (!expose) {
-        process.stderr.write(
-          `cursor bridge error: ${
-            error instanceof Error ? error.stack || error.message : String(error)
-          }\n`,
-        );
+        process.stderr.write(`cursor bridge error: ${describeError(error)}\n`);
       }
       return json(response, expose ? error.status : 500, {
         error: {
@@ -98,6 +94,28 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => server.close(() => process.exit(0)));
 }
 
+// Requests currently being served, so a fault raised outside any of their await
+// chains can end them instead of leaving them hanging.
+const inFlight = new Set();
+
+// A fault the request handler's try/catch cannot see — an 'error' event on a
+// socket the SDK owns, a rejection with nothing awaiting it — reaches Node's
+// default handler and terminates the process. That takes down the listener and
+// every concurrent request with it, and the proxy in front keeps forwarding into
+// the dead port, so the dialect fails for the rest of the session with nothing
+// pointing at this log.
+//
+// Such a fault cannot be attributed to the request that provoked it, and a run
+// whose transport just died may never settle, so every request in flight is
+// failed rather than left pending: a 500 is retried, a response that never
+// arrives is waited on forever. The listener stays up, so the retry lands.
+for (const fault of ["uncaughtException", "unhandledRejection"]) {
+  process.on(fault, (reason) => {
+    process.stderr.write(`cursor bridge ${fault}: ${describeError(reason)}\n`);
+    for (const pending of [...inFlight]) pending.abandon();
+  });
+}
+
 async function chatCompletion(request, response, body) {
   const model = typeof body.model === "string" && body.model ? body.model : "auto";
   const modelSelection = await selectModel(model, body);
@@ -105,7 +123,18 @@ async function chatCompletion(request, response, body) {
   const forwardedTools = aliasTools(toolDefinitions);
   const prompt = buildPrompt(body.messages, forwardedTools);
   const customTools = {};
-  const store = new JsonlLocalAgentStore(path.join(workspace, ".cursor-dialect-state"));
+  // One agent store per request, not one per dialect. The SDK appends every
+  // checkpoint and run event to the store it is given and reads the file back
+  // whole, so a directory shared by every request a dialect has ever served
+  // grows without bound until parsing it exhausts the heap and kills the bridge
+  // mid-session. Nothing here spans requests — the agent is created per request
+  // and the whole transcript arrives in the request body — so the run's state
+  // has no reader once the run ends and is discarded with it. Per-run
+  // directories are also disjoint, so concurrent runs never touch each other's
+  // files.
+  const runStateDir = path.join(workspace, ".cursor-dialect-state", `run-${crypto.randomUUID()}`);
+  fs.mkdirSync(runStateDir, { recursive: true, mode: 0o700 });
+  const store = new JsonlLocalAgentStore(runStateDir);
   let capturedToolCall;
   let activeRun;
 
@@ -132,27 +161,6 @@ async function chatCompletion(request, response, body) {
     };
   }
 
-  const agent = await Agent.create({
-    apiKey: cursorAPIKey,
-    model: modelSelection,
-    name: "Claude Dialects Cursor bridge",
-    mode: "agent",
-    local: {
-      cwd: workspace,
-      settingSources: [],
-      // Cursor exposes SDK custom tools through its synthetic
-      // custom-user-tools MCP server. A sandboxed headless local run cannot
-      // request the interactive approval those calls require, so it blocks
-      // every tool before our callback can return it to Claude Code. Claude
-      // Code remains the permission and execution boundary; this bridge only
-      // captures the requested tool call.
-      sandboxOptions: { enabled: false },
-      autoReview: false,
-      store,
-      customTools,
-    },
-  });
-
   let text = "";
   let usage;
   let disconnected = false;
@@ -163,7 +171,39 @@ async function chatCompletion(request, response, body) {
     }
   });
 
+  const pending = {
+    // An abandoned run may never settle, so the finally below may never reach
+    // its cleanup. Discard the run's state here too; the removal is idempotent.
+    abandon: () => {
+      activeRun?.cancel().catch(() => {});
+      failPending(response);
+      discardRunState(runStateDir);
+    },
+  };
+  inFlight.add(pending);
+  let agent;
   try {
+    agent = await Agent.create({
+      apiKey: cursorAPIKey,
+      model: modelSelection,
+      name: "Claude Dialects Cursor bridge",
+      mode: "agent",
+      local: {
+        cwd: workspace,
+        settingSources: [],
+        // Cursor exposes SDK custom tools through its synthetic
+        // custom-user-tools MCP server. A sandboxed headless local run cannot
+        // request the interactive approval those calls require, so it blocks
+        // every tool before our callback can return it to Claude Code. Claude
+        // Code remains the permission and execution boundary; this bridge only
+        // captures the requested tool call.
+        sandboxOptions: { enabled: false },
+        autoReview: false,
+        store,
+        customTools,
+      },
+    });
+
     activeRun = await agent.send(prompt, {
       model: modelSelection,
       mode: "agent",
@@ -203,10 +243,15 @@ async function chatCompletion(request, response, body) {
       usage ||= result.usage;
     }
   } finally {
-    agent.close();
+    inFlight.delete(pending);
+    agent?.close();
+    discardRunState(runStateDir);
   }
 
-  if (disconnected) return;
+  // writableEnded, not just disconnected: a fault handler may have already
+  // failed this response while the run was in flight, and the close event it
+  // triggers arrives too late to set disconnected.
+  if (disconnected || response.writableEnded) return;
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
   const normalizedUsage = openAIUsage(usage, prompt, text, capturedToolCall);
@@ -520,6 +565,39 @@ function readJSON(request) {
       }
     });
     request.on("error", reject);
+  });
+}
+
+function describeError(error) {
+  return error instanceof Error ? error.stack || error.message : String(error);
+}
+
+// discardRunState deletes one request's agent store. A failure is logged and
+// never fails the request: what is left behind is bounded by the runs a single
+// bridge process serves, and the next launch clears the parent directory
+// outright.
+function discardRunState(directory) {
+  try {
+    fs.rmSync(directory, { recursive: true, force: true });
+  } catch (error) {
+    process.stderr.write(
+      `cursor bridge could not discard run state ${directory}: ${describeError(error)}\n`,
+    );
+  }
+}
+
+// failPending ends a request the bridge can no longer complete. A response
+// already streaming is closed rather than rewritten — its status is long since
+// sent — which is enough for the client to stop waiting and retry.
+function failPending(response) {
+  if (response.writableEnded) return;
+  if (response.headersSent) return response.end();
+  return json(response, 500, {
+    error: {
+      message: "The Cursor bridge recovered from an internal fault; see cursor-bridge.log",
+      type: "api_error",
+      code: "cursor_bridge_fault",
+    },
   });
 }
 

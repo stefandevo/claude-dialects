@@ -723,6 +723,11 @@ func proxyCommand(args []string) error {
 				fmt.Printf(", %s bridge %s", dialect.Bridge, status.Bridge.State)
 			}
 			fmt.Println(")")
+			if status.Bridge != nil && status.Bridge.State == RuntimeCrashed {
+				fmt.Printf("The %s bridge recorded process %d is gone; the fatal error is in `cc-dialect proxy %s logs`.\n",
+					bridgeDisplayName(dialect.Bridge), status.Bridge.PID, name)
+				fmt.Printf("Restart it with: cc-dialect proxy %s restart\n", name)
+			}
 		default:
 			fmt.Println("stopped")
 		}
@@ -1037,6 +1042,23 @@ func doctor(args []string, version string) error {
 				needsBridgeRestart = append(needsBridgeRestart, name)
 			} else if bridgeVersion == "" {
 				fmt.Printf("✗ %s Copilot bridge is running an unknown/stale cc-dialect build (run: cc-dialect proxy %s restart)\n", name, name)
+				needsBridgeRestart = append(needsBridgeRestart, name)
+			}
+		}
+
+		// A bridge that died mid-session leaves its PID record asserting a process
+		// that is gone, so the port stays silent while the proxy in front of it
+		// keeps forwarding into it. Nothing else surfaces that, and the fatal
+		// error is only in the bridge's own log.
+		if !managedBridgeHealthy(dialect) && managedBridgeCrashed(name, dialect) {
+			fmt.Printf("✗ %s %s bridge crashed; the fatal error is in `cc-dialect proxy %s logs` (run: cc-dialect proxy %s restart)\n",
+				name, bridgeDisplayName(dialect.Bridge), name, name)
+			// Repaired automatically only while the proxy is still serving — that
+			// is the mid-session failure, where the dialect is meant to be up and
+			// the restart puts it back. With the proxy down too there is nothing
+			// running to restore, and --fix must not start a dialect the user is
+			// not running; the next start reconciles the stale record.
+			if proxyHealthy(dialect) {
 				needsBridgeRestart = append(needsBridgeRestart, name)
 			}
 		}

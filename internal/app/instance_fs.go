@@ -233,6 +233,29 @@ func (instance *instanceFS) RemoveIfExists(rel string) error {
 	return err
 }
 
+// RemoveTree deletes rel and everything beneath it. The recursion resolves
+// every entry through the pinned per-dialect root, so a symlink planted inside
+// the tree cannot redirect it outside the dialect, and a symlinked instance is
+// refused outright rather than followed. An absent tree is not an error: callers
+// clear state that may never have been written.
+func (instance *instanceFS) RemoveTree(rel string) error {
+	path, err := instance.path(rel)
+	if err != nil {
+		return err
+	}
+	if path == "." {
+		return operationError(ErrorInvalidInput, "removing the whole dialect directory needs RemoveAll")
+	}
+	root, err := instance.dir()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return removeAllUnder(root, path)
+}
+
 // RemoveAll deletes the whole dialect directory.
 //
 // The contents go through the pinned per-dialect root, so the dialect name is

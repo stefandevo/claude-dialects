@@ -1,4 +1,4 @@
-export type RuntimeState = 'running' | 'stopped' | 'degraded';
+export type RuntimeState = 'running' | 'stopped' | 'degraded' | 'crashed';
 
 export interface ComponentStatus {
   state: RuntimeState;

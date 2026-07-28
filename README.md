@@ -332,6 +332,21 @@ translates them to the official SDK's `fast=true` and `fast=false` parameters.
 With the `cursor-composer` preset, `/model opus` selects Fast while `/model
 sonnet` or `/model haiku` selects Standard.
 
+The SDK writes checkpoints and run events to a local agent store and reads it
+back in full. The bridge therefore gives each request its own store inside
+`cursor-workspace/.cursor-dialect-state/` and deletes it when the request ends,
+and every bridge launch starts from an empty directory — so the store cannot
+grow across a session until parsing it exhausts the bridge's memory. Nothing is
+carried between requests: Claude Code sends the whole transcript each time.
+
+The bridge also survives faults raised outside a request, such as a broken pipe
+inside the SDK. It logs them to `cursor-bridge.log`, fails the requests that
+were in flight, and keeps serving instead of terminating. If the bridge does die
+anyway, `cc-dialect proxy <name> status` and `cc-dialect doctor` report it as
+**crashed** rather than stopped and point at `cc-dialect proxy <name> logs`,
+where the fatal error is recorded; `cc-dialect doctor --fix` restarts a bridge
+that crashed while its proxy is still running.
+
 `@cursor/sdk` is pinned by `cc-dialect` for reproducible installs but remains a
 separate Cursor-licensed dependency under Cursor's terms. Re-run
 `cc-dialect cursor install` after updating `cc-dialect` when its pinned SDK
@@ -970,6 +985,12 @@ cc-dialect proxy cc-codex logs
 cc-dialect proxy cc-codex stop
 ```
 
+`status` reports the proxy and, for bridge-backed dialects, the managed bridge.
+A bridge that died while its PID record remains on disk is reported as
+**crashed** rather than stopped, with the log to read and the restart command to
+run — the proxy in front of it otherwise keeps forwarding into a port nothing is
+listening on.
+
 The proxy starts automatically when its generated command runs and remains
 available for later sessions. OAuth credentials are scoped to that dialect:
 
@@ -1159,7 +1180,7 @@ cc-dialect remove cc-codex
 cc-dialect --version
 ```
 
-`cc-dialect doctor` detects misconfigurations (shadowed shims, missing API keys, incorrect SDK versions). Add the `--fix` flag (`cc-dialect doctor --fix`) to automatically apply deterministic repairs: it will restart any proxies or Node bridges that are running stale binaries (e.g. after you updated `cc-dialect`), and it will re-install any Node SDK bridge runtimes that do not match the current required version. Interactive steps like OAuth logins are left for you to complete.
+`cc-dialect doctor` detects misconfigurations (shadowed shims, missing API keys, incorrect SDK versions). Add the `--fix` flag (`cc-dialect doctor --fix`) to automatically apply deterministic repairs: it will restart any proxies or Node bridges that are running stale binaries (e.g. after you updated `cc-dialect`), restart a Node bridge that crashed while its proxy is still running, and re-install any Node SDK bridge runtimes that do not match the current required version. Interactive steps like OAuth logins are left for you to complete.
 
 `cc-dialect upgrade` fetches the latest source, rebuilds and atomically
 replaces the installed binary, and finishes with `cc-dialect doctor --fix` so

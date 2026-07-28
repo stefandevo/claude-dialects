@@ -251,7 +251,7 @@ cc-dialect web --listen '[::1]:8765'</code></pre>
           </div>
           <div class="command-item">
             <code>cc-dialect proxy cc-codex status</code>
-            <span>Check proxy state</span>
+            <span>Check proxy and managed bridge state; a bridge that died is reported as crashed, not stopped</span>
           </div>
           <div class="command-item">
             <code>cc-dialect proxy cc-codex logs</code>
@@ -376,7 +376,7 @@ copilot-runtime/
           </div>
           <div class="command-item">
             <code>cc-dialect doctor [--fix]</code>
-            <span>Diagnose configuration issues and apply deterministic repairs</span>
+            <span>Diagnose configuration issues, including a crashed provider bridge, and apply deterministic repairs</span>
           </div>
           <div class="command-item">
             <code>cc-dialect upgrade</code>
