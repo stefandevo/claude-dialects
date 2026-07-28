@@ -21,6 +21,12 @@ updates:
       time: "06:15"
       timezone: Europe/Brussels
     open-pull-requests-limit: 5
+    # Same 5-day minimum release age as ./scripts/npm-bump.sh and
+    # internal/app/dashboard/bunfig.toml. Dependabot writes package-lock.json
+    # directly, so without this it is the one bump path that bypasses the gate.
+    # Security updates ignore cooldown, so fixes are not delayed.
+    cooldown:
+      default-days: 5
     groups:
       dashboard-dependencies:
         patterns:
