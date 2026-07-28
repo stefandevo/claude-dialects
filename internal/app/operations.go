@@ -720,18 +720,19 @@ func (service *appService) runtimeStatus(name string, dialect Dialect) RuntimeSt
 	switch {
 	case bridgeRunning:
 		bridge.State = RuntimeRunning
-		bridge.PID = managedBridgePID(name, dialect)
 	case service.bridgeCrashed(name, dialect):
-		// Keep the PID: it is the only pointer left to what died, and the bridge
-		// log it wrote is where the fatal error is.
 		bridge.State = RuntimeCrashed
+	}
+	if bridge.State != RuntimeStopped {
+		// Reported for a crashed bridge too: the PID is the only pointer left to
+		// what died, and the log it wrote is where the fatal error is.
 		bridge.PID = managedBridgePID(name, dialect)
 	}
 	status.Bridge = bridge
 	switch {
 	case proxyRunning && bridgeRunning:
 		status.State = RuntimeRunning
-	case !proxyRunning && !bridgeRunning && bridge.State != RuntimeCrashed:
+	case !proxyRunning && bridge.State == RuntimeStopped:
 		status.State = RuntimeStopped
 	default:
 		// A crashed bridge is never a clean stop, even with the proxy down: a

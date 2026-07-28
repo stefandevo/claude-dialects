@@ -1050,7 +1050,9 @@ func doctor(args []string, version string) error {
 		// that is gone, so the port stays silent while the proxy in front of it
 		// keeps forwarding into it. Nothing else surfaces that, and the fatal
 		// error is only in the bridge's own log.
-		if !managedBridgeHealthy(dialect) && managedBridgeCrashed(name, dialect) {
+		// The PID test comes first: it is a file read and a signal probe, so a
+		// dialect with no stale record never pays for the health request.
+		if managedBridgeCrashed(name, dialect) && !managedBridgeHealthy(dialect) {
 			fmt.Printf("✗ %s %s bridge crashed; the fatal error is in `cc-dialect proxy %s logs` (run: cc-dialect proxy %s restart)\n",
 				name, bridgeDisplayName(dialect.Bridge), name, name)
 			// Repaired automatically only while the proxy is still serving — that
