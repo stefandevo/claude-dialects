@@ -193,7 +193,8 @@ func TestEmbeddedCursorBridgeStopsAbandonedRequestsBeforeBilling(t *testing.T) {
 	for _, expected := range []string{
 		`if (pending.aborted) return;`,
 		`if (pending.aborted) {`,
-		`pending.onAbort = () => activeRun?.cancel()`,
+		`pending.onAbort = () => {`,
+		`activeRun?.cancel().catch(() => {});`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
@@ -216,6 +217,36 @@ func TestEmbeddedCursorBridgeStopsAbandonedRequestsBeforeBilling(t *testing.T) {
 	}
 	if !strings.Contains(text[send:stream], "if (pending.aborted) {") {
 		t.Fatal("embedded Cursor bridge streams a run without rechecking abandonment after agent.send")
+	}
+}
+
+// A cancelled run normally settles, so the request's finally closes its agent
+// and removes its store. A run whose transport died may never settle, leaving
+// that finally unreached — so the release has to be reachable from a timer too,
+// or every fault permanently costs the bridge a live agent and a directory.
+func TestEmbeddedCursorBridgeReleasesRunsThatNeverSettle(t *testing.T) {
+	text := string(cursorBridgeSource)
+	for _, expected := range []string{
+		`const abandonedRunGraceMs =`,
+		`setTimeout(releaseRun, abandonedRunGraceMs).unref()`,
+		`if (released) return;`,
+		`released = true;`,
+		"} finally {\n    releaseRun();\n  }",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
+		}
+	}
+	// The agent has to stop before its directory goes, or the removal lands
+	// underneath an SDK that is still writing.
+	release := strings.Index(text, "const releaseRun = ()")
+	if release < 0 {
+		t.Fatal("embedded Cursor bridge no longer defines releaseRun")
+	}
+	closeAgent := strings.Index(text[release:], "agent?.close()")
+	discard := strings.Index(text[release:], "discardRunState(runStateDir)")
+	if closeAgent < 0 || discard < 0 || closeAgent > discard {
+		t.Fatal("embedded Cursor bridge discards the run store before closing its agent")
 	}
 }
 
