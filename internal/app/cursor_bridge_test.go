@@ -224,29 +224,48 @@ func TestEmbeddedCursorBridgeStopsAbandonedRequestsBeforeBilling(t *testing.T) {
 // and removes its store. A run whose transport died may never settle, leaving
 // that finally unreached — so the release has to be reachable from a timer too,
 // or every fault permanently costs the bridge a live agent and a directory.
+//
+// Both callers can run, in either order. Releasing behind a single "this request
+// is done" flag breaks that: a timer firing while Agent.create is still pending
+// spends the flag on an agent that does not exist, and the one created a moment
+// later is never closed. Each resource therefore carries its own condition.
 func TestEmbeddedCursorBridgeReleasesRunsThatNeverSettle(t *testing.T) {
 	text := string(cursorBridgeSource)
 	for _, expected := range []string{
 		`const abandonedRunGraceMs =`,
 		`setTimeout(releaseRun, abandonedRunGraceMs).unref()`,
-		`if (released) return;`,
-		`released = true;`,
+		`if (agent && !agentClosed) {`,
+		`agentClosed = true;`,
 		"} finally {\n    releaseRun();\n  }",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
 		}
 	}
-	// The agent has to stop before its directory goes, or the removal lands
-	// underneath an SDK that is still writing.
 	release := strings.Index(text, "const releaseRun = ()")
 	if release < 0 {
 		t.Fatal("embedded Cursor bridge no longer defines releaseRun")
 	}
-	closeAgent := strings.Index(text[release:], "agent?.close()")
-	discard := strings.Index(text[release:], "discardRunState(runStateDir)")
+	body := text[release:]
+	if end := strings.Index(body, "\n  };"); end > 0 {
+		body = body[:end]
+	}
+	// The agent has to stop before its directory goes, or the removal lands
+	// underneath an SDK that is still writing.
+	closeAgent := strings.Index(body, "agent.close()")
+	discard := strings.Index(body, "discardRunState(runStateDir)")
 	if closeAgent < 0 || discard < 0 || closeAgent > discard {
 		t.Fatal("embedded Cursor bridge discards the run store before closing its agent")
+	}
+	// The discard must not sit behind the agent's own guard, or a store the SDK
+	// recreated after an early release would survive for the life of the bridge.
+	guardEnd := strings.Index(body, "}")
+	if guardEnd < 0 || discard < guardEnd {
+		t.Fatal("embedded Cursor bridge discards the run store only when it closes an agent")
+	}
+	// A bare early return would restore exactly the spent-flag behaviour above.
+	if strings.Contains(body, "return;") {
+		t.Fatal("embedded Cursor bridge short-circuits releaseRun, so a later-created agent is never closed")
 	}
 }
 
