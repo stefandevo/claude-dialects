@@ -172,12 +172,19 @@ async function chatCompletion(request, response, body) {
   });
 
   const pending = {
-    // An abandoned run may never settle, so the finally below may never reach
-    // its cleanup. Discard the run's state here too; the removal is idempotent.
+    // Deregister first: an abandoned run may never settle, so the finally below
+    // may never run, and an entry left here would be abandoned again by every
+    // later fault and never released.
+    //
+    // The run's state directory is deliberately not removed here. The run may
+    // still be writing to it, and unlinking underneath a live writer turns a
+    // request that was merely failed into fresh errors from inside the SDK.
+    // What is left behind is one directory per abandoned run, bounded by the
+    // faults a single bridge process sees and cleared by the next launch.
     abandon: () => {
+      inFlight.delete(pending);
       activeRun?.cancel().catch(() => {});
       failPending(response);
-      discardRunState(runStateDir);
     },
   };
   inFlight.add(pending);
