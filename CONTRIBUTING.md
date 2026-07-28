@@ -47,6 +47,21 @@ Node.js and npm are contributor dependencies for dashboard work; they are not
 required to run the embedded dashboard or for a normal `make build` or
 `make install` from a clean checkout.
 
+Dashboard dependency bumps go through `./scripts/npm-bump.sh`, which holds new
+npm versions to a 5-day minimum release age:
+
+```sh
+./scripts/npm-bump.sh jsdom@30.0.0
+```
+
+The script resolves against the registry as it stood 5 days ago, so a version
+published inside that window is refused. Versions already in
+`package-lock.json` are untouched. Set `MIN_RELEASE_AGE_DAYS=0` to bypass the
+cooldown for an urgent security fix. `internal/app/dashboard/bunfig.toml`
+carries the equivalent `minimumReleaseAge` for the case where bun runs here
+instead. CI installs with `npm ci` from the committed lockfile, so both gates
+apply at bump time only and never turn CI red.
+
 Run the frontend checks in the same order as CI:
 
 ```sh
