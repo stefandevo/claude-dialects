@@ -108,6 +108,13 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 // chains can end them instead of leaving them hanging.
 const inFlight = new Set();
 
+// How long an abandoned run may take to settle after being cancelled before its
+// agent and store are released regardless. A run whose transport died may never
+// settle, and until it does the request stays suspended and its own cleanup is
+// never reached — so without this a bridge that keeps serving accumulates one
+// live agent and one store directory for every request a fault abandons.
+const abandonedRunGraceMs = 30_000;
+
 // trackRequest registers a request the moment it arrives and reports, through
 // `aborted`, whether it can still be answered. Handlers check that flag after
 // every await that precedes irreversible work, and attach any cancellable work
@@ -209,15 +216,29 @@ async function chatCompletion(request, response, body, pending) {
 
   let text = "";
   let usage;
-  // The run is the cancellable work this request owns. The state directory is
-  // deliberately not removed on abort: the run may still be writing to it, and
-  // unlinking underneath a live writer turns a request that was merely failed
-  // into fresh errors from inside the SDK. What is left behind is one directory
-  // per abandoned run, bounded by the faults a single bridge process sees and
-  // cleared by the next launch.
-  pending.onAbort = () => activeRun?.cancel().catch(() => {});
-
   let agent;
+  let released = false;
+  // Runs from two places and must be safe from both: the request's own finally
+  // on every ordinary path, and a timer when the request was abandoned and its
+  // run never settled — in which case that finally is never reached at all.
+  // Closing the agent before discarding the directory is what keeps the removal
+  // from landing underneath an SDK that is still writing.
+  const releaseRun = () => {
+    if (released) return;
+    released = true;
+    agent?.close();
+    discardRunState(runStateDir);
+  };
+  // The run is the cancellable work this request owns. Cancelling normally lets
+  // it settle so the finally releases it; when the transport is what died it may
+  // never settle, so release it anyway rather than leaving a live agent and its
+  // store behind for the rest of the bridge's life.
+  pending.onAbort = () => {
+    activeRun?.cancel().catch(() => {});
+    // unref so a pending release never holds the process open at shutdown.
+    setTimeout(releaseRun, abandonedRunGraceMs).unref();
+  };
+
   try {
     agent = await Agent.create({
       apiKey: cursorAPIKey,
@@ -290,8 +311,7 @@ async function chatCompletion(request, response, body, pending) {
       usage ||= result.usage;
     }
   } finally {
-    agent?.close();
-    discardRunState(runStateDir);
+    releaseRun();
   }
 
   // writableEnded as well as aborted: a fault handler may have already failed

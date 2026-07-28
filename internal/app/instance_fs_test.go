@@ -5,8 +5,67 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
+
+// A directory swapped for a symlink between the scan that classified it and the
+// recursion that reopens it by name must not redirect the removal. RemoveTree
+// descends through a root opened on the tree itself, so a target outside that
+// tree leaves the root and os.Root refuses it — where against the dialect root a
+// sibling such as auth/ would have resolved and been erased.
+func TestRemoveTreeRefusesADescendantSwappedForAnEscapingSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	dir := filepath.Join(home, "instances", "cc-test")
+	store := filepath.Join(dir, "cursor-workspace", ".cursor-dialect-state")
+	if err := os.MkdirAll(filepath.Join(store, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "auth"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	credential := filepath.Join(dir, "auth", "codex.json")
+	if err := os.WriteFile(credential, []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "nested", "run_events.ndjson"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+
+	original := readDirAt
+	swapped := false
+	readDirAt = func(scanned *os.Root, rel string) ([]os.DirEntry, error) {
+		entries, readErr := original(scanned, rel)
+		// The scan of the store itself, whether it is reached as the recursion's
+		// own root or by pathname from the dialect root.
+		if !swapped && (rel == "." || strings.HasSuffix(rel, ".cursor-dialect-state")) {
+			swapped = true
+			if rmErr := os.RemoveAll(filepath.Join(store, "nested")); rmErr != nil {
+				t.Fatal(rmErr)
+			}
+			if linkErr := os.Symlink("../../auth", filepath.Join(store, "nested")); linkErr != nil {
+				t.Fatal(linkErr)
+			}
+		}
+		return entries, readErr
+	}
+	t.Cleanup(func() { readDirAt = original })
+
+	err = instance.RemoveTree(filepath.Join("cursor-workspace", ".cursor-dialect-state"))
+
+	if _, statErr := os.Stat(credential); statErr != nil {
+		t.Fatalf("the removal was redirected into a sibling directory: %v", statErr)
+	}
+	if err == nil {
+		t.Fatal("RemoveTree should report the escaping entry rather than continue silently")
+	}
+}
 
 func TestOpenInstanceFSRejectsSymlinkedInstancesAnchor(t *testing.T) {
 	home := t.TempDir()

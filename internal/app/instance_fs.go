@@ -233,11 +233,12 @@ func (instance *instanceFS) RemoveIfExists(rel string) error {
 	return err
 }
 
-// RemoveTree deletes rel and everything beneath it. The recursion resolves
-// every entry through the pinned per-dialect root, so a symlink planted inside
-// the tree cannot redirect it outside the dialect, and a symlinked instance is
-// refused outright rather than followed. An absent tree is not an error: callers
-// clear state that may never have been written.
+// RemoveTree deletes rel and everything beneath it. The recursion runs against a
+// root opened on the tree itself, so nothing under it can redirect the removal
+// outside the tree — not a link planted in advance, and not one swapped in while
+// the removal runs. A symlinked instance is refused outright rather than
+// followed. An absent tree is not an error: callers clear state that may never
+// have been written.
 func (instance *instanceFS) RemoveTree(rel string) error {
 	path, err := instance.path(rel)
 	if err != nil {
@@ -271,7 +272,22 @@ func (instance *instanceFS) RemoveTree(rel string) error {
 		// itself and leaves whatever it pointed at alone.
 		return root.Remove(path)
 	}
-	return removeAllUnder(root, path)
+	// Descend through a descriptor for the tree rather than by pathname. The
+	// Lstat above only describes what was there a moment ago, and removeAllUnder
+	// reopens each directory by name — so against the dialect root, an entry
+	// swapped for a link mid-removal would still be resolved, and a link to a
+	// sibling such as auth/ stays inside that root. Rooting on the tree is what
+	// removes the possibility rather than narrowing it: any target outside the
+	// tree now leaves this root, and os.Root refuses it.
+	tree, err := openRootChild(root, path, filepath.Join(instance.instancesDir, instance.name, path))
+	if err != nil {
+		return err
+	}
+	defer tree.Close()
+	if err = removeAllUnder(tree, "."); err != nil {
+		return err
+	}
+	return root.Remove(path)
 }
 
 // RemoveAll deletes the whole dialect directory.
