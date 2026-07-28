@@ -90,6 +90,47 @@ func TestResetCursorAgentStoreRejectsSymlinkedInstance(t *testing.T) {
 	}
 }
 
+// The recursion unlinks a symlink it discovers inside the tree rather than
+// following it, but the tree's own root arrives as a name — and a name resolves
+// through a link whose target stays inside the dialect. A store directory
+// replaced by a link to a sibling must therefore leave that sibling's contents
+// alone; deleting them would erase credentials or history on the next launch.
+func TestResetCursorAgentStoreRefusesSymlinkedStoreRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	dialect := filepath.Join(home, "instances", "cc-test")
+	if err := os.MkdirAll(filepath.Join(dialect, "cursor-workspace"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dialect, "auth"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	credential := filepath.Join(dialect, "auth", "codex.json")
+	if err := os.WriteFile(credential, []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dialect, "cursor-workspace", ".cursor-dialect-state")
+	if err := os.Symlink("../auth", link); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := openInstanceFS("cc-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+
+	if err = resetCursorAgentStore(instance); err != nil {
+		t.Fatalf("reset a symlinked store root: %v", err)
+	}
+
+	if _, statErr := os.Stat(credential); statErr != nil {
+		t.Fatalf("reset deleted through the symlinked store root: %v", statErr)
+	}
+	if _, statErr := os.Lstat(link); !os.IsNotExist(statErr) {
+		t.Fatalf("the store symlink itself survived the reset: %v", statErr)
+	}
+}
+
 // Node sizes its default old-space limit from the machine's memory, so the
 // ceiling a bridge dies at otherwise depends on the host it runs on. Pinning it
 // makes a large-but-legitimate parse behave the same everywhere.
@@ -138,6 +179,38 @@ func TestEmbeddedCursorBridgeSurvivesUncaughtFaults(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
 		}
+	}
+}
+
+// Cancelling an abandoned request only works once the run exists. Agent.create
+// and agent.send are each an await during which nothing can be cancelled, so
+// without a checked abort flag a request failed by a fault handler would go on
+// to start a generation that is billed and whose response is discarded.
+func TestEmbeddedCursorBridgeStopsAbandonedRequestsBeforeBilling(t *testing.T) {
+	text := string(cursorBridgeSource)
+	for _, expected := range []string{
+		`let aborted = false`,
+		`aborted = true`,
+		`if (aborted) return;`,
+		`if (aborted) {`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
+		}
+	}
+	create := strings.Index(text, "agent = await Agent.create(")
+	send := strings.Index(text, "activeRun = await agent.send(")
+	stream := strings.Index(text, "for await (const event of activeRun.stream())")
+	if create < 0 || send < 0 || stream < 0 {
+		t.Fatal("embedded Cursor bridge no longer has the expected run sequence")
+	}
+	// One abort check between agent creation and the send that starts billing,
+	// and one between that send and the stream it feeds.
+	if !strings.Contains(text[create:send], "if (aborted) return;") {
+		t.Fatal("embedded Cursor bridge starts a run without rechecking the abort flag after Agent.create")
+	}
+	if !strings.Contains(text[send:stream], "if (aborted) {") {
+		t.Fatal("embedded Cursor bridge streams a run without rechecking the abort flag after agent.send")
 	}
 }
 
