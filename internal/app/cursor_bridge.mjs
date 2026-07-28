@@ -163,10 +163,15 @@ async function chatCompletion(request, response, body) {
 
   let text = "";
   let usage;
-  let disconnected = false;
+  // Set once this request can no longer be answered — the client went away, or a
+  // fault handler failed it. Checked after every SDK await that precedes a run:
+  // cancelling requires activeRun to exist, so until then this flag is the only
+  // thing keeping an abandoned request from going on to start a generation that
+  // is billed and never read.
+  let aborted = false;
   response.once("close", () => {
     if (!response.writableEnded) {
-      disconnected = true;
+      aborted = true;
       activeRun?.cancel().catch(() => {});
     }
   });
@@ -183,6 +188,7 @@ async function chatCompletion(request, response, body) {
     // faults a single bridge process sees and cleared by the next launch.
     abandon: () => {
       inFlight.delete(pending);
+      aborted = true;
       activeRun?.cancel().catch(() => {});
       failPending(response);
     },
@@ -211,11 +217,22 @@ async function chatCompletion(request, response, body) {
       },
     });
 
+    // Creating the agent is itself an await, so the request may have been
+    // abandoned in the meantime. Starting the run now would bill a generation
+    // whose response has already been sent.
+    if (aborted) return;
+
     activeRun = await agent.send(prompt, {
       model: modelSelection,
       mode: "agent",
       local: { customTools },
     });
+    // Same window again: nothing could cancel this run while it was starting,
+    // because until the assignment above there was no run to cancel.
+    if (aborted) {
+      await activeRun.cancel().catch(() => {});
+      return;
+    }
 
     for await (const event of activeRun.stream()) {
       if (event.type === "assistant") {
@@ -255,10 +272,10 @@ async function chatCompletion(request, response, body) {
     discardRunState(runStateDir);
   }
 
-  // writableEnded, not just disconnected: a fault handler may have already
-  // failed this response while the run was in flight, and the close event it
-  // triggers arrives too late to set disconnected.
-  if (disconnected || response.writableEnded) return;
+  // writableEnded as well as aborted: a fault handler may have already failed
+  // this response, and the close event that follows arrives too late to be the
+  // thing that tells us.
+  if (aborted || response.writableEnded) return;
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
   const normalizedUsage = openAIUsage(usage, prompt, text, capturedToolCall);

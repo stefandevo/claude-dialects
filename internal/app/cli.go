@@ -1052,7 +1052,8 @@ func doctor(args []string, version string) error {
 		// error is only in the bridge's own log.
 		// The PID test comes first: it is a file read and a signal probe, so a
 		// dialect with no stale record never pays for the health request.
-		if managedBridgeCrashed(name, dialect) && !managedBridgeHealthy(dialect) {
+		bridgeCrashed := managedBridgeCrashed(name, dialect) && !managedBridgeHealthy(dialect)
+		if bridgeCrashed {
 			fmt.Printf("✗ %s %s bridge crashed; the fatal error is in `cc-dialect proxy %s logs` (run: cc-dialect proxy %s restart)\n",
 				name, bridgeDisplayName(dialect.Bridge), name, name)
 			// Repaired automatically only while the proxy is still serving — that
@@ -1072,6 +1073,11 @@ func doctor(args []string, version string) error {
 			} else {
 				fmt.Printf("✓ %s (preset %s) proxy running on 127.0.0.1:%d\n", name, displayPreset(dialect), dialect.Port)
 			}
+		} else if bridgeCrashed {
+			// The summary must not call this stopped: a stale record still claims a
+			// process, and the diagnostic above just said the bridge crashed.
+			fmt.Printf("○ %s (preset %s) degraded (proxy port %d, %s bridge crashed on port %d)\n",
+				name, displayPreset(dialect), dialect.Port, bridgeDisplayName(dialect.Bridge), dialect.BridgePort)
 		} else {
 			if dialect.Bridge != "" {
 				fmt.Printf("○ %s (preset %s) stopped (reserved proxy port %d, bridge port %d)\n",

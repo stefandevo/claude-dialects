@@ -253,6 +253,24 @@ func (instance *instanceFS) RemoveTree(rel string) error {
 		}
 		return err
 	}
+	// Classify the tree's own root before descending. removeAllUnder decides what
+	// each entry it *discovers* is from the directory-entry type, so a symlink
+	// inside the tree is unlinked rather than followed — but the root arrives as
+	// a name, and a name resolves through a link whose target stays inside the
+	// dialect. Without this, a store directory replaced by a link to a sibling
+	// such as auth/ would have that sibling's contents deleted instead.
+	info, err := root.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		// Remove does not follow the final component, so this unlinks the link
+		// itself and leaves whatever it pointed at alone.
+		return root.Remove(path)
+	}
 	return removeAllUnder(root, path)
 }
 
