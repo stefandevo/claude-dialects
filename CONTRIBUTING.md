@@ -57,10 +57,15 @@ npm versions to a 5-day minimum release age:
 The script resolves against the registry as it stood 5 days ago, so a version
 published inside that window is refused. Versions already in
 `package-lock.json` are untouched. Set `MIN_RELEASE_AGE_DAYS=0` to bypass the
-cooldown for an urgent security fix. `internal/app/dashboard/bunfig.toml`
-carries the equivalent `minimumReleaseAge` for the case where bun runs here
-instead. CI installs with `npm ci` from the committed lockfile, so both gates
-apply at bump time only and never turn CI red.
+cooldown for an urgent security fix.
+
+The same 5 days is enforced on the other two paths that can reach the
+lockfile: `cooldown.default-days` in `.github/dependabot.yml` for Dependabot's
+weekly bumps, and `minimumReleaseAge` in `internal/app/dashboard/bunfig.toml`
+for the case where bun runs in that directory instead. Dependabot exempts
+security updates from cooldown, so those are never held back. CI installs with
+`npm ci` from the committed lockfile, so every gate applies at bump time only
+and none can turn CI red.
 
 Run the frontend checks in the same order as CI:
 
