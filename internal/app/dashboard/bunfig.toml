@@ -1,0 +1,19 @@
+# Minimum release age for npm dependency bumps, bun side.
+#
+# This dashboard is an npm project: package-lock.json is the lockfile and CI
+# installs with `npm ci`. Bumps go through ./scripts/npm-bump.sh, which applies
+# the same 5-day cooldown via npm's --before.
+#
+# This file is a backstop for the case where bun runs here anyway — agents
+# following a generic `bun add` / `bun install` template, or a contributor
+# reaching for bun out of habit. It blocks first-time resolution of versions
+# published inside the window, for both range and exact specs.
+#
+# It does not fire when the tarball is already in the global bun cache, or when
+# an existing lockfile is installed frozen. Neither weakens the npm path.
+#
+# No minimumReleaseAgeExcludes: nothing here tracks upstream releases closely
+# enough to need one.
+
+[install]
+minimumReleaseAge = 432000 # 5 days, in seconds
