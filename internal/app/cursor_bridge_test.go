@@ -358,6 +358,38 @@ func TestEmbeddedCursorBridgeReusesAgentsAcrossToolCalls(t *testing.T) {
 	if strings.Contains(findBlock, "enforceTurnSessionCapacity") {
 		t.Fatal("embedded Cursor bridge evicts by capacity during continuation lookup")
 	}
+	// When every cached session is inUse, refuse to grow the map past the limit.
+	if !strings.Contains(text, `if (!registerTurnSession(session)) {`) {
+		t.Fatal("embedded Cursor bridge does not handle turn-session cache overflow")
+	}
+	registerBlock := text[registerTurn:]
+	registerEnd := strings.Index(registerBlock, "\n}\n\n// trackRequest")
+	if registerEnd < 0 {
+		t.Fatal("embedded Cursor bridge is missing registerTurnSession body")
+	}
+	if !strings.Contains(registerBlock[:registerEnd], "return false") {
+		t.Fatal("embedded Cursor bridge registerTurnSession does not refuse insertion at capacity")
+	}
+}
+
+// Streaming failures after SSE headers must not look like successful completions.
+func TestEmbeddedCursorBridgeSignalsStreamingFailures(t *testing.T) {
+	text := string(cursorBridgeSource)
+	failStart := strings.Index(text, "function failStreamingResponse(")
+	if failStart < 0 {
+		t.Fatal("embedded Cursor bridge is missing failStreamingResponse")
+	}
+	failEnd := strings.Index(text[failStart:], "\n}\n\nfunction forwardedToolFromDeltaUpdate")
+	if failEnd < 0 {
+		t.Fatal("embedded Cursor bridge failStreamingResponse has unexpected shape")
+	}
+	failBlock := text[failStart : failStart+failEnd]
+	if !strings.Contains(failBlock, "error: {") {
+		t.Fatal("embedded Cursor bridge does not emit protocol-level SSE errors")
+	}
+	if strings.Contains(failBlock, `finish_reason: "stop"`) || strings.Contains(failBlock, "data: [DONE]") {
+		t.Fatal("embedded Cursor bridge encodes streaming failures as successful completions")
+	}
 }
 
 func TestEmbeddedCursorBridgeTracksRequestsBeforeTheFirstAwait(t *testing.T) {
