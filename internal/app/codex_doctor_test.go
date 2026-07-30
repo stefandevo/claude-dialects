@@ -263,6 +263,58 @@ func TestDoctorDoesNotCountOriginalFastFailureAsCooldownRetry(t *testing.T) {
 	}
 }
 
+func TestDoctorDoesNotUseMixedProviderRetryAsCooldownEvidence(t *testing.T) {
+	home, logsDir := createCodexDoctorFixture(t, DialectInput{Name: "cc-mixed", Preset: "mixed-frontier"})
+	now := time.Now()
+	errorLog := fmt.Sprintf(
+		"Upstream Transport: http\nTimestamp: %s\n=== REQUEST BODY ===\n{\"model\":\"gpt-5.6-sol\"}\n\n=== API ERROR RESPONSE ===\nHTTP Status: 502\n",
+		now.Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(filepath.Join(logsDir, "error-v1-messages-current-abcdef12.log"), []byte(errorLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proxyLog := fmt.Sprintf(
+		"[%s] [error] | 1234abcd | 503 | 1ms | 127.0.0.1 | POST \"/v1/messages\"\n",
+		now.Format("2006-01-02 15:04:05"),
+	)
+	if err := os.WriteFile(filepath.Join(home, "instances", "cc-mixed", "proxy.log"), []byte(proxyLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	if !strings.Contains(report, "upstream returned 502") {
+		t.Fatalf("doctor missed the Codex upstream failure:\n%s", report)
+	}
+	if strings.Contains(report, "Retries completing in under 10ms") {
+		t.Fatalf("doctor treated an uncorrelated mixed-provider retry as Codex cooldown evidence:\n%s", report)
+	}
+}
+
+func TestDoctorRejectsRetryWithoutTimestamp(t *testing.T) {
+	home, logsDir := createCodexDoctorFixture(t, DialectInput{Name: "cc-codex", Preset: "codex-sol"})
+	now := time.Now()
+	errorLog := fmt.Sprintf(
+		"Upstream Transport: http\nTimestamp: %s\n=== REQUEST BODY ===\n{\"model\":\"gpt-5.6-sol\"}\n\n=== API ERROR RESPONSE ===\nHTTP Status: 502\n",
+		now.Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(filepath.Join(logsDir, "error-v1-messages-current-abcdef12.log"), []byte(errorLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proxyLog := strings.Repeat("x", int(codexLogReadLimit)+256) +
+		" | 1234abcd | 503 | 1ms | 127.0.0.1 | POST \"/v1/messages\"\n"
+	if err := os.WriteFile(filepath.Join(home, "instances", "cc-codex", "proxy.log"), []byte(proxyLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	if !strings.Contains(report, "upstream returned 502") {
+		t.Fatalf("doctor missed the Codex upstream failure:\n%s", report)
+	}
+	if strings.Contains(report, "Retries completing in under 10ms") {
+		t.Fatalf("doctor accepted a truncated retry without a timestamp:\n%s", report)
+	}
+}
+
 func createCodexDoctorFixture(t *testing.T, input DialectInput) (home, logsDir string) {
 	t.Helper()
 	home = t.TempDir()

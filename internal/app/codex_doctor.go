@@ -40,11 +40,14 @@ func codexUpstreamDiagnostics(name string, dialect Dialect) []string {
 		return nil
 	}
 	now := time.Now()
-	failure, ok := recentCodexUpstreamFailure(name, len(providers) == 1, now)
+	codexOnly := len(providers) == 1
+	failure, ok := recentCodexUpstreamFailure(name, codexOnly, now)
 	if !ok {
 		return nil
 	}
-	failure.fastRetries = hasRecentFastCodexRetry(name, failure.requestID, failure.occurredAt, now)
+	if codexOnly {
+		failure.fastRetries = hasRecentFastCodexRetry(name, failure.requestID, failure.occurredAt, now)
+	}
 
 	upstream := "Codex"
 	if failure.model != "" {
@@ -239,18 +242,21 @@ func hasRecentFastCodexRetry(name, originalRequestID string, since, now time.Tim
 		if len(match) != 4 || strings.EqualFold(match[1], originalRequestID) {
 			continue
 		}
-		if timestampMatch := codexProxyTimePattern.FindStringSubmatch(line); len(timestampMatch) == 2 {
-			occurredAt, timestampErr := time.ParseInLocation("2006-01-02 15:04:05", timestampMatch[1], now.Location())
-			if timestampErr == nil {
-				// Access-log timestamps have second precision, while request-log
-				// timestamps retain nanoseconds. Allow the same wall-clock second
-				// rather than rejecting a retry that followed moments later.
-				if occurredAt.Before(since.Add(-time.Second)) ||
-					occurredAt.After(now.Add(time.Minute)) ||
-					now.Sub(occurredAt) > codexDiagnosticMaxAge {
-					continue
-				}
-			}
+		timestampMatch := codexProxyTimePattern.FindStringSubmatch(line)
+		if len(timestampMatch) != 2 {
+			continue
+		}
+		occurredAt, timestampErr := time.ParseInLocation("2006-01-02 15:04:05", timestampMatch[1], now.Location())
+		if timestampErr != nil {
+			continue
+		}
+		// Access-log timestamps have second precision, while request-log
+		// timestamps retain nanoseconds. Allow the same wall-clock second
+		// rather than rejecting a retry that followed moments later.
+		if occurredAt.Before(since.Add(-time.Second)) ||
+			occurredAt.After(now.Add(time.Minute)) ||
+			now.Sub(occurredAt) > codexDiagnosticMaxAge {
+			continue
 		}
 		durationText := strings.ReplaceAll(match[3], "us", "µs")
 		duration, durationErr := time.ParseDuration(durationText)
