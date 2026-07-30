@@ -22,27 +22,29 @@ const (
 var (
 	codexUpstreamStatusPattern = regexp.MustCompile(`(?m)^HTTP Status:\s*(502|503)\s*$`)
 	codexTimestampPattern      = regexp.MustCompile(`(?m)^Timestamp:\s*(\S+)\s*$`)
-	codexProxyStatusPattern    = regexp.MustCompile(`(?:^|\|)\s*(502|503)\s*\|\s*([0-9.]+(?:ns|µs|us|ms|s|m|h))\s*\|`)
+	codexProxyStatusPattern    = regexp.MustCompile(`\|\s*([^|\s]+)\s*\|\s*(502|503)\s*\|\s*([0-9.]+(?:ns|µs|us|ms|s|m|h))\s*\|`)
 	codexProxyTimePattern      = regexp.MustCompile(`^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]`)
 )
 
 type codexUpstreamFailure struct {
 	status      int
 	model       string
+	requestID   string
 	occurredAt  time.Time
 	fastRetries bool
 }
 
 func codexUpstreamDiagnostics(name string, dialect Dialect) []string {
-	if !slices.Contains(expectedAuthProviders(dialect), "codex") || !hasProviderCredentials(name, "codex") {
+	providers := expectedAuthProviders(dialect)
+	if !slices.Contains(providers, "codex") || !hasProviderCredentials(name, "codex") {
 		return nil
 	}
 	now := time.Now()
-	failure, ok := recentCodexUpstreamFailure(name, now)
+	failure, ok := recentCodexUpstreamFailure(name, len(providers) == 1, now)
 	if !ok {
 		return nil
 	}
-	failure.fastRetries = hasRecentFastCodexRetry(name, failure.occurredAt, now)
+	failure.fastRetries = hasRecentFastCodexRetry(name, failure.requestID, failure.occurredAt, now)
 
 	upstream := "Codex"
 	if failure.model != "" {
@@ -74,7 +76,7 @@ func codexUpstreamDiagnostics(name string, dialect Dialect) []string {
 	return lines
 }
 
-func recentCodexUpstreamFailure(name string, now time.Time) (codexUpstreamFailure, bool) {
+func recentCodexUpstreamFailure(name string, codexOnly bool, now time.Time) (codexUpstreamFailure, bool) {
 	instance, err := openInstanceFS(name)
 	if err != nil {
 		return codexUpstreamFailure{}, false
@@ -108,6 +110,15 @@ func recentCodexUpstreamFailure(name string, now time.Time) (codexUpstreamFailur
 		if parseErr != nil {
 			continue
 		}
+		model := codexRequestModel(content)
+		modelProvider := providerForModel(model)
+		if model == "" {
+			if !codexOnly {
+				continue
+			}
+		} else if modelProvider != "codex" && (!codexOnly || modelProvider != "") {
+			continue
+		}
 		occurredAt := info.ModTime()
 		if timestampMatch := codexTimestampPattern.FindSubmatch(content); len(timestampMatch) == 2 {
 			if parsed, timestampErr := time.Parse(time.RFC3339Nano, string(timestampMatch[1])); timestampErr == nil {
@@ -120,12 +131,22 @@ func recentCodexUpstreamFailure(name string, now time.Time) (codexUpstreamFailur
 		if latest.occurredAt.IsZero() || occurredAt.After(latest.occurredAt) {
 			latest = codexUpstreamFailure{
 				status:     status,
-				model:      codexRequestModel(content),
+				model:      model,
+				requestID:  codexErrorRequestID(entry.Name()),
 				occurredAt: occurredAt,
 			}
 		}
 	}
 	return latest, !latest.occurredAt.IsZero()
+}
+
+func codexErrorRequestID(filename string) string {
+	base := strings.TrimSuffix(filename, ".log")
+	index := strings.LastIndex(base, "-")
+	if index < 0 || index == len(base)-1 {
+		return ""
+	}
+	return base[index+1:]
 }
 
 func codexRequestModel(content []byte) string {
@@ -193,7 +214,10 @@ func codexAlternativeModel(dialect Dialect, failedModel string) (tier, model str
 	return "", ""
 }
 
-func hasRecentFastCodexRetry(name string, since, now time.Time) bool {
+func hasRecentFastCodexRetry(name, originalRequestID string, since, now time.Time) bool {
+	if originalRequestID == "" {
+		return false
+	}
 	instance, err := openInstanceFS(name)
 	if err != nil {
 		return false
@@ -212,7 +236,7 @@ func hasRecentFastCodexRetry(name string, since, now time.Time) bool {
 
 	for _, line := range strings.Split(string(content), "\n") {
 		match := codexProxyStatusPattern.FindStringSubmatch(line)
-		if len(match) != 3 {
+		if len(match) != 4 || strings.EqualFold(match[1], originalRequestID) {
 			continue
 		}
 		if timestampMatch := codexProxyTimePattern.FindStringSubmatch(line); len(timestampMatch) == 2 {
@@ -228,7 +252,7 @@ func hasRecentFastCodexRetry(name string, since, now time.Time) bool {
 				}
 			}
 		}
-		durationText := strings.ReplaceAll(match[2], "us", "µs")
+		durationText := strings.ReplaceAll(match[3], "us", "µs")
 		duration, durationErr := time.ParseDuration(durationText)
 		if durationErr == nil && duration < codexFastResponse {
 			return true

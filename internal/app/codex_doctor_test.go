@@ -102,7 +102,7 @@ func TestDoctorIgnoresStaleCodexUpstreamErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := time.Now().Add(-2 * time.Hour)
-	errorLog := fmt.Sprintf("Upstream Transport: http\nTimestamp: %s\nStatus: 502\n", stale.Format(time.RFC3339Nano))
+	errorLog := fmt.Sprintf("Upstream Transport: http\nTimestamp: %s\nHTTP Status: 502\n", stale.Format(time.RFC3339Nano))
 	if err := os.WriteFile(
 		filepath.Join(logsDir, "error-v1-messages-2026-07-30T100000-abcdef12.log"),
 		[]byte(errorLog),
@@ -216,6 +216,50 @@ func TestDoctorSuggestsADifferentModelTier(t *testing.T) {
 	}
 	if strings.Contains(report, "Try: /model sonnet") {
 		t.Fatalf("doctor recommended the tier that already failed:\n%s", report)
+	}
+}
+
+func TestDoctorIgnoresAnotherProviderFailureInMixedDialect(t *testing.T) {
+	_, logsDir := createCodexDoctorFixture(t, DialectInput{Name: "cc-mixed", Preset: "mixed-frontier"})
+	now := time.Now()
+	errorLog := fmt.Sprintf(
+		"Upstream Transport: http\nTimestamp: %s\n=== REQUEST BODY ===\n{\"model\":\"kimi-k3\"}\n\n=== API ERROR RESPONSE ===\nHTTP Status: 502\n",
+		now.Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(filepath.Join(logsDir, "error-v1-messages-kimi-abcdef12.log"), []byte(errorLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	if strings.Contains(report, "Codex upstream returned 502") || strings.Contains(report, "kimi-k3 upstream returned 502") {
+		t.Fatalf("doctor attributed another provider's failure to Codex:\n%s", report)
+	}
+}
+
+func TestDoctorDoesNotCountOriginalFastFailureAsCooldownRetry(t *testing.T) {
+	home, logsDir := createCodexDoctorFixture(t, DialectInput{Name: "cc-codex", Preset: "codex-sol"})
+	now := time.Now()
+	errorLog := fmt.Sprintf(
+		"Upstream Transport: http\nTimestamp: %s\n=== REQUEST BODY ===\n{\"model\":\"gpt-5.6-sol\"}\n\n=== API ERROR RESPONSE ===\nHTTP Status: 502\n",
+		now.Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(filepath.Join(logsDir, "error-v1-messages-current-abcdef12.log"), []byte(errorLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proxyLog := fmt.Sprintf(
+		"[%s] [error] | abcdef12 | 502 | 1ms | 127.0.0.1 | POST \"/v1/messages\"\n",
+		now.Format("2006-01-02 15:04:05"),
+	)
+	if err := os.WriteFile(filepath.Join(home, "instances", "cc-codex", "proxy.log"), []byte(proxyLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	if !strings.Contains(report, "upstream returned 502") {
+		t.Fatalf("doctor missed the upstream failure:\n%s", report)
+	}
+	if strings.Contains(report, "Retries completing in under 10ms") {
+		t.Fatalf("doctor counted the original request as a cooldown retry:\n%s", report)
 	}
 }
 
