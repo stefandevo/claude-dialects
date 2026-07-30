@@ -67,6 +67,11 @@ const server = http.createServer(async (request, response) => {
       error: { message: "Not found", type: "invalid_request_error", code: "not_found" },
     });
   } catch (error) {
+    if (response.headersSent) {
+      process.stderr.write(`cursor bridge error after headers sent: ${describeError(error)}\n`);
+      if (!response.writableEnded) response.end();
+      return;
+    }
     if (!response.headersSent) {
       // Only errors this bridge creates for the client (400/413 from readJSON)
       // carry the CLIENT_SAFE marker and may return their message. Everything
@@ -166,6 +171,30 @@ function writeStreamContentDelta(response, { id, created, model, content }) {
   });
 }
 
+function failStreamingResponse(response, error, { id, created, model }) {
+  process.stderr.write(`cursor bridge stream error: ${describeError(error)}\n`);
+  if (response.writableEnded) return;
+  try {
+    writeStreamContentDelta(response, {
+      id,
+      created,
+      model,
+      content: "\n[Cursor bridge error: Internal server error]\n",
+    });
+    writeSSE(response, {
+      id,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    });
+    response.write("data: [DONE]\n\n");
+  } catch {
+    // Best effort — the client still needs the connection closed.
+  }
+  response.end();
+}
+
 function forwardedToolFromDeltaUpdate(update, forwardedTools) {
   if (update.type !== "tool-call-started" && update.type !== "partial-tool-call") return undefined;
   const toolCall = update.toolCall;
@@ -238,7 +267,7 @@ function scheduleSessionIdleTimer(session) {
   }, turnSessionIdleMs).unref();
 }
 
-function evictIdleTurnSessions(now = Date.now()) {
+function evictExpiredIdleSessions(now = Date.now()) {
   for (const [sessionId, session] of activeTurnSessions) {
     if (session.inUse) continue;
     if (now - session.lastUsedAt > turnSessionIdleMs) {
@@ -246,6 +275,9 @@ function evictIdleTurnSessions(now = Date.now()) {
       activeTurnSessions.delete(sessionId);
     }
   }
+}
+
+function enforceTurnSessionCapacity() {
   while (activeTurnSessions.size >= turnSessionMaxEntries) {
     let oldestId;
     let oldestUsedAt = Infinity;
@@ -281,7 +313,7 @@ function continuationMatchesPendingTool(extension, pendingToolCall) {
 }
 
 function findContinuationSession(messages, model, toolNames) {
-  evictIdleTurnSessions();
+  evictExpiredIdleSessions();
   for (const session of activeTurnSessions.values()) {
     if (session.inUse || session.model !== model) continue;
     if (!session.pendingToolCall) continue;
@@ -297,7 +329,8 @@ function findContinuationSession(messages, model, toolNames) {
 }
 
 function registerTurnSession(entry) {
-  evictIdleTurnSessions();
+  evictExpiredIdleSessions();
+  enforceTurnSessionCapacity();
   activeTurnSessions.set(entry.sessionId, entry);
   scheduleSessionIdleTimer(entry);
 }
@@ -370,7 +403,10 @@ async function chatCompletion(request, response, body, pending) {
     clearSessionIdleTimer(turnSession);
     turnSession.inUse = true;
     turnSession.lastUsedAt = Date.now();
-    prompt = buildContinuationPrompt(continuation.extension, forwardedTools);
+    prompt = buildContinuationPrompt(
+      (body.messages || []).slice(turnSession.messageCount),
+      forwardedTools,
+    );
     logBridgeTiming(`turn continue messages=${normalizedMessages.length} cached=${turnSession.messageCount}`);
   } else {
     prompt = buildPrompt(body.messages, forwardedTools);
@@ -623,6 +659,12 @@ async function chatCompletion(request, response, body, pending) {
       if (!text && typeof result.result === "string") text = result.result;
       usage ||= result.usage;
     }
+  } catch (error) {
+    if (isStreaming && response.headersSent && !response.writableEnded) {
+      failStreamingResponse(response, error, streamMeta());
+      return;
+    }
+    throw error;
   } finally {
     stopHeartbeat();
     if (capturedToolCall && !pending.aborted && agent) {
@@ -840,11 +882,24 @@ function harnessInstructions(tools) {
   ].join("\n");
 }
 
+function toolCallName(call) {
+  return call?.function?.name || call?.name || "unknown";
+}
+
+function toolCallArguments(call) {
+  if (call?.function?.arguments !== undefined) return call.function.arguments;
+  if (call?.arguments !== undefined) {
+    return typeof call.arguments === "string" ? call.arguments : JSON.stringify(call.arguments);
+  }
+  return "{}";
+}
+
 function buildTranscript(messages, tools) {
   const toolNames = new Map();
   for (const message of messages || []) {
     for (const call of message?.tool_calls || []) {
-      if (call?.id && call?.function?.name) toolNames.set(call.id, call.function.name);
+      const name = toolCallName(call);
+      if (call?.id && name !== "unknown") toolNames.set(call.id, name);
     }
   }
   const transcript = [];
@@ -854,7 +909,7 @@ function buildTranscript(messages, tools) {
     if (content && message?.role !== "tool") transcript.push(`${role}:\n${content}`);
     for (const call of message?.tool_calls || []) {
       transcript.push(
-        `ASSISTANT TOOL CALL ${call?.function?.name || "unknown"}:\n${call?.function?.arguments || "{}"}`,
+        `ASSISTANT TOOL CALL ${toolCallName(call)}:\n${toolCallArguments(call)}`,
       );
     }
     if (message?.role === "tool") {

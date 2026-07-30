@@ -326,6 +326,11 @@ func TestEmbeddedCursorBridgeReusesAgentsAcrossToolCalls(t *testing.T) {
 		`function buildContinuationPrompt(`,
 		`function continuationMatchesPendingTool(`,
 		`function scheduleSessionIdleTimer(`,
+		`function evictExpiredIdleSessions(`,
+		`function enforceTurnSessionCapacity(`,
+		`function failStreamingResponse(`,
+		`function toolCallName(`,
+		`(body.messages || []).slice(turnSession.messageCount)`,
 		`pendingToolCall:`,
 		`sessionId: crypto.randomUUID()`,
 		`keepTurnAlive()`,
@@ -342,6 +347,16 @@ func TestEmbeddedCursorBridgeReusesAgentsAcrossToolCalls(t *testing.T) {
 	send := strings.Index(text, "activeRun = await agent.send(")
 	if create < 0 || send < 0 || create > send {
 		t.Fatal("embedded Cursor bridge should create agents only when no turn session is reused")
+	}
+	// Capacity enforcement runs only when registering a new session, not during lookup.
+	findContinuation := strings.Index(text, "function findContinuationSession(")
+	registerTurn := strings.Index(text, "function registerTurnSession(")
+	if findContinuation < 0 || registerTurn < 0 {
+		t.Fatal("embedded Cursor bridge is missing turn-session helpers")
+	}
+	findBlock := text[findContinuation:registerTurn]
+	if strings.Contains(findBlock, "enforceTurnSessionCapacity") {
+		t.Fatal("embedded Cursor bridge evicts by capacity during continuation lookup")
 	}
 }
 
