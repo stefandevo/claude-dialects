@@ -171,24 +171,17 @@ function writeStreamContentDelta(response, { id, created, model, content }) {
   });
 }
 
-function failStreamingResponse(response, error, { id, created, model }) {
+function failStreamingResponse(response, error) {
   process.stderr.write(`cursor bridge stream error: ${describeError(error)}\n`);
   if (response.writableEnded) return;
   try {
-    writeStreamContentDelta(response, {
-      id,
-      created,
-      model,
-      content: "\n[Cursor bridge error: Internal server error]\n",
-    });
-    writeSSE(response, {
-      id,
-      object: "chat.completion.chunk",
-      created,
-      model,
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-    });
-    response.write("data: [DONE]\n\n");
+    response.write(`data: ${JSON.stringify({
+      error: {
+        message: error?.message || "Internal server error",
+        type: "api_error",
+        code: error?.code || "cursor_bridge_error",
+      },
+    })}\n\n`);
   } catch {
     // Best effort — the client still needs the connection closed.
   }
@@ -331,8 +324,12 @@ function findContinuationSession(messages, model, toolNames) {
 function registerTurnSession(entry) {
   evictExpiredIdleSessions();
   enforceTurnSessionCapacity();
+  if (activeTurnSessions.size >= turnSessionMaxEntries) {
+    return false;
+  }
   activeTurnSessions.set(entry.sessionId, entry);
   scheduleSessionIdleTimer(entry);
+  return true;
 }
 
 // trackRequest registers a request the moment it arrives and reports, through
@@ -548,7 +545,13 @@ async function chatCompletion(request, response, body, pending) {
       turnSession.store = undefined;
       turnSession.runStateDir = undefined;
     }
-    registerTurnSession(session);
+    if (!registerTurnSession(session)) {
+      closeTurnSession(session);
+      turnSession = undefined;
+      agent = undefined;
+      agentClosed = true;
+      return;
+    }
     turnSession = session;
     agentClosed = false;
   };
@@ -661,7 +664,7 @@ async function chatCompletion(request, response, body, pending) {
     }
   } catch (error) {
     if (isStreaming && response.headersSent && !response.writableEnded) {
-      failStreamingResponse(response, error, streamMeta());
+      failStreamingResponse(response, error);
       return;
     }
     throw error;
