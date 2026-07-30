@@ -395,7 +395,7 @@ copilot-runtime/
             <span>Show version</span>
           </div>
         </div>
-        <p>For an authenticated Codex dialect, <code>doctor</code> inspects recent <code>auth/logs/error-v1-messages-*.log</code> and <code>proxy.log</code> entries. It distinguishes a real upstream HTTP 502 or 503 from a fast retry during CLIProxyAPI's short credential cooldown, so <code>auth_unavailable</code> is not misreported as missing OAuth. The diagnostic points to a temporary Terra model switch, a manual proxy restart, and the full proxy logs; <code>--fix</code> remains limited to deterministic repairs and does not attempt to repair an overloaded upstream.</p>
+        <p>For an authenticated Codex dialect, <code>doctor</code> inspects recent <code>auth/logs/error-v1-messages-*.log</code> and <code>proxy.log</code> entries. It distinguishes a real upstream HTTP 502 or 503 from a fast retry during CLIProxyAPI's short credential cooldown, so <code>auth_unavailable</code> is not misreported as missing OAuth. When the failing request model is available, the diagnostic points to a different configured model tier, along with a manual proxy restart and the full proxy logs; <code>--fix</code> remains limited to deterministic repairs and does not attempt to repair an overloaded upstream.</p>
         <p>To fully uninstall after removing all dialects:</p>
         <div class="code-block">
           <pre><code>rm ~/.local/bin/cc-dialect

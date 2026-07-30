@@ -179,9 +179,10 @@ OAuth credential is missing.
 Run `cc-dialect doctor`. For an authenticated Codex dialect, it inspects recent
 `auth/logs/error-v1-messages-*.log` and `proxy.log` entries and reports the
 upstream HTTP failure separately from a fast cooldown retry. The diagnostic
-suggests switching temporarily with `/model sonnet` (Terra), restarting the
-embedded proxy with `cc-dialect proxy cc-codex restart`, and opening the full
-logs with `cc-dialect proxy cc-codex logs`.
+names the failing request model when the log contains it and suggests a
+different configured `/model` tier (for example, Sonnet/Terra when Sol failed),
+restarting the embedded proxy with `cc-dialect proxy cc-codex restart`, and
+opening the full logs with `cc-dialect proxy cc-codex logs`.
 
 The native Codex CLI uses a WebSocket upstream, while a Codex dialect sends
 Claude Code's requests through CLIProxyAPI's HTTP upstream. A model such as Sol
