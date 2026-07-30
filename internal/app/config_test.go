@@ -419,6 +419,7 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 		"cursor-composer-fast": "composer-2.5-fast",
 		"cursor-auto":          "auto",
 		"cursor-grok":          "grok-4.5",
+		"cursor-mix":           "composer-2.5",
 	}
 	for name, model := range tests {
 		preset := presets[name]
@@ -444,6 +445,51 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 	}
 	if got := providerForDialect(cursorGrok); got != "cursor" {
 		t.Fatalf("Cursor Grok provider = %q, want cursor", got)
+	}
+}
+
+func TestCursorMixPresetCombinesComposerGrokAndKimi(t *testing.T) {
+	mix := presets["cursor-mix"]
+	if mix.Model != "composer-2.5" || mix.SubagentModel != "composer-2.5" {
+		t.Fatalf("cursor-mix does not use Composer 2.5 for main and subagent: %#v", mix)
+	}
+	if mix.OpusModel != "composer-2.5" || mix.SonnetModel != "grok-4.5" || mix.HaikuModel != "kimi-k3" {
+		t.Fatalf("cursor-mix tier mapping = opus %q / sonnet %q / haiku %q, want composer-2.5 / grok-4.5 / kimi-k3: %#v",
+			mix.OpusModel, mix.SonnetModel, mix.HaikuModel, mix)
+	}
+	if mix.Bridge != "cursor" || mix.AuthTokenEnv != "CURSOR_API_KEY" {
+		t.Fatalf("cursor-mix does not use the Cursor API bridge: %#v", mix)
+	}
+	// The bridge carries its own credentials, so the mixed models must not split
+	// the dialect across OAuth providers.
+	if got := expectedAuthProviders(mix); len(got) != 0 {
+		t.Fatalf("cursor-mix expected auth providers = %v, want empty (Cursor bridge authenticates)", got)
+	}
+	if got := providerForDialect(mix); got != "cursor" {
+		t.Fatalf("cursor-mix provider = %q, want cursor", got)
+	}
+	// cursor-mix shares its primary model with cursor-composer, so detection has
+	// to rest on the distinct tier mapping rather than the primary model alone.
+	if got := presetForDialect(mix); got != "cursor-mix" {
+		t.Fatalf("cursor-mix stored detection = %q, want cursor-mix", got)
+	}
+	unlabeled := Dialect{
+		Model: mix.Model, SubagentModel: mix.SubagentModel,
+		OpusModel: mix.OpusModel, SonnetModel: mix.SonnetModel, HaikuModel: mix.HaikuModel,
+		Bridge: mix.Bridge, AuthTokenEnv: mix.AuthTokenEnv,
+	}
+	if got := presetForDialect(unlabeled); got != "cursor-mix" {
+		t.Fatalf("cursor-mix tier-based detection = %q, want cursor-mix", got)
+	}
+	// A Composer 2.5 primary with cursor-composer's Fast/Standard tiers must keep
+	// resolving to cursor-composer, not collapse onto cursor-mix.
+	composer := presets["cursor-composer"]
+	if got := presetForDialect(Dialect{
+		Model: composer.Model, OpusModel: composer.OpusModel,
+		SonnetModel: composer.SonnetModel, HaikuModel: composer.HaikuModel,
+		Bridge: composer.Bridge,
+	}); got != "cursor-composer" {
+		t.Fatalf("cursor-composer detection collapsed onto %q; cursor-mix must not shadow it", got)
 	}
 }
 
