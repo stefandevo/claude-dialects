@@ -39,7 +39,7 @@ func codexUpstreamDiagnostics(name string, dialect Dialect) []string {
 	if !ok {
 		return nil
 	}
-	failure.fastRetries = hasRecentFastCodexRetry(name, now)
+	failure.fastRetries = hasRecentFastCodexRetry(name, failure.occurredAt, now)
 
 	lines := []string{
 		fmt.Sprintf("⚠ %s: %s upstream returned %d over HTTP. OAuth credentials are present.", name, dialect.Model, failure.status),
@@ -122,7 +122,7 @@ func recentCodexUpstreamFailure(name string, now time.Time) (codexUpstreamFailur
 	return latest, !latest.occurredAt.IsZero()
 }
 
-func hasRecentFastCodexRetry(name string, now time.Time) bool {
+func hasRecentFastCodexRetry(name string, since, now time.Time) bool {
 	instance, err := openInstanceFS(name)
 	if err != nil {
 		return false
@@ -146,8 +146,15 @@ func hasRecentFastCodexRetry(name string, now time.Time) bool {
 		}
 		if timestampMatch := codexProxyTimePattern.FindStringSubmatch(line); len(timestampMatch) == 2 {
 			occurredAt, timestampErr := time.ParseInLocation("2006-01-02 15:04:05", timestampMatch[1], now.Location())
-			if timestampErr == nil && (occurredAt.After(now.Add(time.Minute)) || now.Sub(occurredAt) > codexDiagnosticMaxAge) {
-				continue
+			if timestampErr == nil {
+				// Access-log timestamps have second precision, while request-log
+				// timestamps retain nanoseconds. Allow the same wall-clock second
+				// rather than rejecting a retry that followed moments later.
+				if occurredAt.Before(since.Add(-time.Second)) ||
+					occurredAt.After(now.Add(time.Minute)) ||
+					now.Sub(occurredAt) > codexDiagnosticMaxAge {
+					continue
+				}
 			}
 		}
 		durationText := strings.ReplaceAll(match[2], "us", "µs")
