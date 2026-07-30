@@ -362,6 +362,15 @@ and every bridge launch starts from an empty directory — so the store cannot
 grow across a session until parsing it exhausts the bridge's memory. Nothing is
 carried between requests: Claude Code sends the whole transcript each time.
 
+Streaming chat completions write SSE headers and the initial role chunk before
+the Cursor run starts, then forward `text-delta` output from the SDK's `onDelta`
+callback as incremental `delta.content` chunks. Summary and thinking progress
+lines are streamed for visibility but are not merged into the billed assistant
+text. A periodic SSE comment heartbeat keeps long runs from going idle on the
+proxy path, and per-request timing (run start, first delta, first tool call, run
+end) is logged to `cursor-bridge.log`. Non-streaming requests stay buffered
+until the run settles.
+
 The bridge also survives faults raised outside a request, such as a broken pipe
 inside the SDK. It logs them to `cursor-bridge.log`, fails the requests that
 were in flight, and keeps serving instead of terminating. If the bridge does die

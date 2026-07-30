@@ -114,6 +114,66 @@ const inFlight = new Set();
 // never reached — so without this a bridge that keeps serving accumulates one
 // live agent and one store directory for every request a fault abandons.
 const abandonedRunGraceMs = 30_000;
+const streamHeartbeatMs = 15_000;
+
+function logBridgeTiming(message) {
+  process.stderr.write(`cursor bridge timing: ${message}\n`);
+}
+
+function startSSEHeartbeat(response) {
+  const timer = setInterval(() => {
+    if (!response.writableEnded) response.write(": keepalive\n\n");
+  }, streamHeartbeatMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+function beginStreamingResponse(response, { id, created, model }) {
+  response.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  writeSSE(response, {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+  });
+}
+
+function writeStreamContentDelta(response, { id, created, model, content }) {
+  if (!content) return;
+  writeSSE(response, {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [{ index: 0, delta: { content }, finish_reason: null }],
+  });
+}
+
+function forwardedToolFromDeltaUpdate(update, forwardedTools) {
+  if (update.type !== "tool-call-started" && update.type !== "partial-tool-call") return undefined;
+  const toolCall = update.toolCall;
+  if (!toolCall || toolCall.type !== "mcp") return undefined;
+  const name = toolCall.args?.toolName;
+  if (typeof name !== "string") return undefined;
+  return findForwardedTool(forwardedTools, name);
+}
+
+function noteFirstDelta(timing, runStart) {
+  if (timing.firstDelta) return;
+  timing.firstDelta = Date.now();
+  logBridgeTiming(`first delta ${timing.firstDelta - runStart}ms after run start`);
+}
+
+function noteFirstToolCall(timing, runStart) {
+  if (timing.firstToolCall) return;
+  timing.firstToolCall = Date.now();
+  logBridgeTiming(`first tool call ${timing.firstToolCall - runStart}ms after run start`);
+}
 
 // trackRequest registers a request the moment it arrives and reports, through
 // `aborted`, whether it can still be answered. Handlers check that flag after
@@ -218,6 +278,61 @@ async function chatCompletion(request, response, body, pending) {
   let usage;
   let agent;
   let agentClosed = false;
+  const isStreaming = Boolean(body.stream);
+  const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
+  const created = Math.floor(Date.now() / 1000);
+  let stopHeartbeat = () => {};
+  const timing = { runStart: 0, firstDelta: 0, firstToolCall: 0 };
+  const streamMeta = () => ({ id, created, model });
+  const streamContent = (content) => {
+    if (!isStreaming || pending.aborted || response.writableEnded) return;
+    writeStreamContentDelta(response, { ...streamMeta(), content });
+  };
+  const handleDelta = (update) => {
+    if (pending.aborted || response.writableEnded) return;
+    switch (update.type) {
+      case "text-delta":
+        if (typeof update.text === "string" && update.text) {
+          noteFirstDelta(timing, timing.runStart);
+          text += update.text;
+          streamContent(update.text);
+        }
+        break;
+      case "thinking-delta":
+        // Visible progress only — do not merge reasoning into billed assistant text.
+        if (typeof update.text === "string" && update.text) {
+          noteFirstDelta(timing, timing.runStart);
+          streamContent(update.text);
+        }
+        break;
+      case "summary-started":
+        noteFirstDelta(timing, timing.runStart);
+        streamContent("…");
+        break;
+      case "summary":
+        if (typeof update.summary === "string" && update.summary) {
+          noteFirstDelta(timing, timing.runStart);
+          streamContent(`${update.summary}\n`);
+        }
+        break;
+      case "tool-call-started":
+      case "partial-tool-call": {
+        const tool = forwardedToolFromDeltaUpdate(update, forwardedTools);
+        if (!tool) break;
+        noteFirstToolCall(timing, timing.runStart);
+        capture(
+          tool.name,
+          update.toolCall?.args?.args && typeof update.toolCall.args.args === "object"
+            ? update.toolCall.args.args
+            : {},
+          update.callId,
+        );
+        break;
+      }
+      default:
+        break;
+    }
+  };
   // Runs from the request's own finally on every ordinary path, and from a timer
   // when the request was abandoned and its run never settled — in which case
   // that finally is never reached at all. Both can run, in either order, so each
@@ -242,6 +357,7 @@ async function chatCompletion(request, response, body, pending) {
   // never settle, so release it anyway rather than leaving a live agent and its
   // store behind for the rest of the bridge's life.
   pending.onAbort = () => {
+    stopHeartbeat();
     activeRun?.cancel().catch(() => {});
     // unref so a pending release never holds the process open at shutdown.
     setTimeout(releaseRun, abandonedRunGraceMs).unref();
@@ -274,10 +390,19 @@ async function chatCompletion(request, response, body, pending) {
     // whose response has already been sent.
     if (pending.aborted) return;
 
+    if (isStreaming && !response.writableEnded) {
+      beginStreamingResponse(response, streamMeta());
+      stopHeartbeat = startSSEHeartbeat(response);
+    }
+
+    timing.runStart = Date.now();
+    logBridgeTiming(`run start model=${model}`);
+
     activeRun = await agent.send(prompt, {
       model: modelSelection,
       mode: "agent",
       local: { customTools },
+      onDelta: isStreaming ? ({ update }) => handleDelta(update) : undefined,
     });
     // Same window again: nothing could cancel this run while it was starting,
     // because until the assignment above there was no run to cancel.
@@ -290,15 +415,21 @@ async function chatCompletion(request, response, body, pending) {
       if (event.type === "assistant") {
         for (const block of event.message?.content || []) {
           if (block?.type === "text" && typeof block.text === "string") {
-            text += block.text;
+            if (!isStreaming) text += block.text;
           } else if (block?.type === "tool_use") {
             const tool = findForwardedTool(forwardedTools, block.name);
-            if (tool) capture(tool.name, block.input, block.id);
+            if (tool) {
+              noteFirstToolCall(timing, timing.runStart);
+              capture(tool.name, block.input, block.id);
+            }
           }
         }
       } else if (event.type === "tool_call" && event.status === "running") {
         const tool = findForwardedTool(forwardedTools, event.name);
-        if (tool) capture(tool.name, event.args, event.call_id);
+        if (tool) {
+          noteFirstToolCall(timing, timing.runStart);
+          capture(tool.name, event.args, event.call_id);
+        }
       } else if (event.type === "usage") {
         usage = event.usage;
       }
@@ -319,6 +450,7 @@ async function chatCompletion(request, response, body, pending) {
       usage ||= result.usage;
     }
   } finally {
+    stopHeartbeat();
     releaseRun();
   }
 
@@ -326,31 +458,13 @@ async function chatCompletion(request, response, body, pending) {
   // this response, and the close event that follows arrives too late to be the
   // thing that tells us.
   if (pending.aborted || response.writableEnded) return;
-  const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
-  const created = Math.floor(Date.now() / 1000);
+  const runEnd = Date.now();
+  const timingParts = [`run end ${runEnd - timing.runStart}ms`];
+  if (timing.firstDelta) timingParts.push(`first-delta=${timing.firstDelta - timing.runStart}ms`);
+  if (timing.firstToolCall) timingParts.push(`first-tool=${timing.firstToolCall - timing.runStart}ms`);
+  logBridgeTiming(timingParts.join(" "));
   const normalizedUsage = openAIUsage(usage, prompt, text, capturedToolCall);
-  if (body.stream) {
-    response.writeHead(200, {
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache",
-      connection: "keep-alive",
-    });
-    writeSSE(response, {
-      id,
-      object: "chat.completion.chunk",
-      created,
-      model,
-      choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
-    });
-    if (text) {
-      writeSSE(response, {
-        id,
-        object: "chat.completion.chunk",
-        created,
-        model,
-        choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
-      });
-    }
+  if (isStreaming) {
     if (capturedToolCall) {
       writeSSE(response, {
         id,
