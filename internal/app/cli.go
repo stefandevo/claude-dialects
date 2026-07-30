@@ -1005,6 +1005,9 @@ func doctor(args []string, version string) error {
 		for _, provider := range missingAuthProviders(name, dialect) {
 			fmt.Printf("✗ %s is not authenticated for %s (run: cc-dialect auth %s %s)\n", name, provider, name, provider)
 		}
+		for _, diagnostic := range codexUpstreamDiagnostics(name, dialect) {
+			fmt.Println(diagnostic)
+		}
 		for _, problem := range contextWindowDiagnostics(name, dialect) {
 			fmt.Println(problem)
 		}
