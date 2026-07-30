@@ -154,7 +154,7 @@ func TestCursorBridgeNodeArgsPinTheHeapLimit(t *testing.T) {
 func TestEmbeddedCursorBridgeScopesAgentStorePerRun(t *testing.T) {
 	text := string(cursorBridgeSource)
 	for _, expected := range []string{
-		`const runStateDir = path.join(workspace, ".cursor-dialect-state", ` + "`run-${crypto.randomUUID()}`" + `)`,
+		`runStateDir = path.join(workspace, ".cursor-dialect-state", ` + "`run-${crypto.randomUUID()}`" + `)`,
 		`new JsonlLocalAgentStore(runStateDir)`,
 		`discardRunState(runStateDir)`,
 	} {
@@ -236,7 +236,9 @@ func TestEmbeddedCursorBridgeReleasesRunsThatNeverSettle(t *testing.T) {
 		`setTimeout(releaseRun, abandonedRunGraceMs).unref()`,
 		`if (agent && !agentClosed) {`,
 		`agentClosed = true;`,
-		"} finally {\n    stopHeartbeat();\n    releaseRun();\n  }",
+		"} finally {\n    stopHeartbeat();",
+		`keepTurnAlive()`,
+		`closeTurnSession(turnSession)`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
@@ -299,6 +301,32 @@ func TestEmbeddedCursorBridgeStreamsIncrementally(t *testing.T) {
 	// Non-streaming responses stay buffered until the run settles.
 	if !strings.Contains(text, "const isStreaming = Boolean(body.stream)") {
 		t.Fatal("embedded Cursor bridge does not derive isStreaming from body.stream")
+	}
+}
+
+// One Claude Code turn may require several HTTP requests (one per tool call).
+// The bridge keeps the Cursor agent alive across those steps when the incoming
+// transcript extends the cached prefix by assistant(tool_calls) + tool result.
+func TestEmbeddedCursorBridgeReusesAgentsAcrossToolCalls(t *testing.T) {
+	text := string(cursorBridgeSource)
+	for _, expected := range []string{
+		`const activeTurnSessions = new Map()`,
+		`function findContinuationSession(`,
+		`function registerTurnSession(`,
+		`function buildContinuationPrompt(`,
+		`keepTurnAlive()`,
+		`turn continue messages=`,
+		`isToolStepContinuation`,
+		`const turnSessionIdleMs =`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
+		}
+	}
+	create := strings.Index(text, "if (!agent) {")
+	send := strings.Index(text, "activeRun = await agent.send(")
+	if create < 0 || send < 0 || create > send {
+		t.Fatal("embedded Cursor bridge should create agents only when no turn session is reused")
 	}
 }
 

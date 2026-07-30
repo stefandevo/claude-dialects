@@ -101,7 +101,11 @@ server.listen(port, host, () => {
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => server.close(() => process.exit(0)));
+  process.on(signal, () => {
+    for (const session of activeTurnSessions.values()) closeTurnSession(session);
+    activeTurnSessions.clear();
+    server.close(() => process.exit(0));
+  });
 }
 
 // Requests currently being served, so a fault raised outside any of their await
@@ -115,6 +119,14 @@ const inFlight = new Set();
 // live agent and one store directory for every request a fault abandons.
 const abandonedRunGraceMs = 30_000;
 const streamHeartbeatMs = 15_000;
+const turnSessionIdleMs = 5 * 60 * 1000;
+const turnSessionMaxEntries = 8;
+
+// Agents kept alive across tool-call steps within one Claude Code turn. Each
+// entry is keyed by a hash of the request's message prefix; a continuation
+// request must replay that prefix exactly and append assistant(tool_calls) plus
+// a tool result. Idle entries are evicted so stores cannot grow without bound.
+const activeTurnSessions = new Map();
 
 function logBridgeTiming(message) {
   process.stderr.write(`cursor bridge timing: ${message}\n`);
@@ -173,6 +185,89 @@ function noteFirstToolCall(timing, runStart) {
   if (timing.firstToolCall) return;
   timing.firstToolCall = Date.now();
   logBridgeTiming(`first tool call ${timing.firstToolCall - runStart}ms after run start`);
+}
+
+function normalizeMessagesForSession(messages) {
+  return (messages || []).map((message) => ({
+    role: message?.role || "user",
+    content: contentText(message?.content),
+    tool_calls: (message?.tool_calls || []).map((call) => ({
+      id: call?.id || "",
+      name: call?.function?.name || "",
+      arguments: call?.function?.arguments || "{}",
+    })),
+    tool_call_id: message?.tool_call_id || "",
+    name: message?.name || "",
+  }));
+}
+
+function turnSessionKey(messages, model, toolNames) {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    model,
+    toolNames,
+    messages,
+  })).digest("hex");
+}
+
+function isToolStepContinuation(extension) {
+  if (extension.length !== 2) return false;
+  const [assistant, tool] = extension;
+  return assistant.role === "assistant"
+    && Array.isArray(assistant.tool_calls)
+    && assistant.tool_calls.length > 0
+    && tool.role === "tool";
+}
+
+function evictIdleTurnSessions(now = Date.now()) {
+  for (const [key, session] of activeTurnSessions) {
+    if (session.inUse) continue;
+    if (now - session.lastUsedAt > turnSessionIdleMs) {
+      closeTurnSession(session);
+      activeTurnSessions.delete(key);
+    }
+  }
+  while (activeTurnSessions.size > turnSessionMaxEntries) {
+    let oldestKey;
+    let oldestUsedAt = Infinity;
+    for (const [key, session] of activeTurnSessions) {
+      if (session.inUse) continue;
+      if (session.lastUsedAt < oldestUsedAt) {
+        oldestUsedAt = session.lastUsedAt;
+        oldestKey = key;
+      }
+    }
+    if (!oldestKey) break;
+    closeTurnSession(activeTurnSessions.get(oldestKey));
+    activeTurnSessions.delete(oldestKey);
+  }
+}
+
+function closeTurnSession(session) {
+  if (!session || session.agentClosed) return;
+  session.agentClosed = true;
+  session.agent?.close();
+  discardRunState(session.runStateDir);
+}
+
+function findContinuationSession(messages, model, toolNames) {
+  evictIdleTurnSessions();
+  for (const session of activeTurnSessions.values()) {
+    if (session.inUse || session.model !== model) continue;
+    if (messages.length <= session.messageCount) continue;
+    const prefix = messages.slice(0, session.messageCount);
+    if (turnSessionKey(prefix, model, toolNames) !== session.prefixHash) continue;
+    const extension = messages.slice(session.messageCount);
+    if (!isToolStepContinuation(extension)) continue;
+    return { session, extension };
+  }
+  return undefined;
+}
+
+function registerTurnSession(entry) {
+  evictIdleTurnSessions();
+  const existing = activeTurnSessions.get(entry.id);
+  if (existing && existing !== entry) closeTurnSession(existing);
+  activeTurnSessions.set(entry.id, entry);
 }
 
 // trackRequest registers a request the moment it arrives and reports, through
@@ -234,20 +329,30 @@ async function chatCompletion(request, response, body, pending) {
   if (pending.aborted) return;
   const toolDefinitions = normalizeTools(body.tools);
   const forwardedTools = aliasTools(toolDefinitions);
-  const prompt = buildPrompt(body.messages, forwardedTools);
+  const normalizedMessages = normalizeMessagesForSession(body.messages);
+  const toolNames = forwardedTools.map((tool) => tool.name).sort();
+  const continuation = findContinuationSession(normalizedMessages, model, toolNames);
+  let turnSession = continuation?.session;
+  let prompt;
+  if (turnSession) {
+    turnSession.inUse = true;
+    turnSession.lastUsedAt = Date.now();
+    prompt = buildContinuationPrompt(continuation.extension, forwardedTools);
+    logBridgeTiming(`turn continue messages=${normalizedMessages.length} cached=${turnSession.messageCount}`);
+  } else {
+    prompt = buildPrompt(body.messages, forwardedTools);
+  }
   const customTools = {};
-  // One agent store per request, not one per dialect. The SDK appends every
-  // checkpoint and run event to the store it is given and reads the file back
-  // whole, so a directory shared by every request a dialect has ever served
-  // grows without bound until parsing it exhausts the heap and kills the bridge
-  // mid-session. Nothing here spans requests — the agent is created per request
-  // and the whole transcript arrives in the request body — so the run's state
-  // has no reader once the run ends and is discarded with it. Per-run
-  // directories are also disjoint, so concurrent runs never touch each other's
-  // files.
-  const runStateDir = path.join(workspace, ".cursor-dialect-state", `run-${crypto.randomUUID()}`);
-  fs.mkdirSync(runStateDir, { recursive: true, mode: 0o700 });
-  const store = new JsonlLocalAgentStore(runStateDir);
+  // One agent store per Claude Code turn, not one per HTTP request. Within a
+  // turn the same agent and store are reused across tool-call steps; each new
+  // turn gets a fresh run-{uuid} directory so concurrent turns stay disjoint
+  // and nothing accumulates without bound.
+  let runStateDir = turnSession?.runStateDir;
+  if (!runStateDir) {
+    runStateDir = path.join(workspace, ".cursor-dialect-state", `run-${crypto.randomUUID()}`);
+    fs.mkdirSync(runStateDir, { recursive: true, mode: 0o700 });
+  }
+  const store = turnSession?.store || new JsonlLocalAgentStore(runStateDir);
   let capturedToolCall;
   let activeRun;
 
@@ -276,8 +381,8 @@ async function chatCompletion(request, response, body, pending) {
 
   let text = "";
   let usage;
-  let agent;
-  let agentClosed = false;
+  let agent = turnSession?.agent;
+  let agentClosed = turnSession?.agentClosed || false;
   const isStreaming = Boolean(body.stream);
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
@@ -352,6 +457,33 @@ async function chatCompletion(request, response, body, pending) {
     }
     discardRunState(runStateDir);
   };
+  const keepTurnAlive = () => {
+    const prefixMessages = normalizedMessages.slice(0, normalizedMessages.length);
+    const session = {
+      id: turnSessionKey(prefixMessages, model, toolNames),
+      prefixHash: turnSessionKey(prefixMessages, model, toolNames),
+      messageCount: prefixMessages.length,
+      model,
+      modelSelection,
+      toolNames,
+      forwardedTools,
+      agent,
+      store,
+      runStateDir,
+      lastUsedAt: Date.now(),
+      inUse: false,
+      agentClosed: false,
+    };
+    if (turnSession) {
+      activeTurnSessions.delete(turnSession.id);
+      turnSession.agent = undefined;
+      turnSession.store = undefined;
+      turnSession.runStateDir = undefined;
+    }
+    registerTurnSession(session);
+    turnSession = session;
+    agentClosed = false;
+  };
   // The run is the cancellable work this request owns. Cancelling normally lets
   // it settle so the finally releases it; when the transport is what died it may
   // never settle, so release it anyway rather than leaving a live agent and its
@@ -359,31 +491,41 @@ async function chatCompletion(request, response, body, pending) {
   pending.onAbort = () => {
     stopHeartbeat();
     activeRun?.cancel().catch(() => {});
-    // unref so a pending release never holds the process open at shutdown.
-    setTimeout(releaseRun, abandonedRunGraceMs).unref();
+    if (turnSession) {
+      closeTurnSession(turnSession);
+      activeTurnSessions.delete(turnSession.id);
+      turnSession = undefined;
+      agent = undefined;
+      agentClosed = true;
+    } else {
+      // unref so a pending release never holds the process open at shutdown.
+      setTimeout(releaseRun, abandonedRunGraceMs).unref();
+    }
   };
 
   try {
-    agent = await Agent.create({
-      apiKey: cursorAPIKey,
-      model: modelSelection,
-      name: "Claude Dialects Cursor bridge",
-      mode: "agent",
-      local: {
-        cwd: workspace,
-        settingSources: [],
-        // Cursor exposes SDK custom tools through its synthetic
-        // custom-user-tools MCP server. A sandboxed headless local run cannot
-        // request the interactive approval those calls require, so it blocks
-        // every tool before our callback can return it to Claude Code. Claude
-        // Code remains the permission and execution boundary; this bridge only
-        // captures the requested tool call.
-        sandboxOptions: { enabled: false },
-        autoReview: false,
-        store,
-        customTools,
-      },
-    });
+    if (!agent) {
+      agent = await Agent.create({
+        apiKey: cursorAPIKey,
+        model: modelSelection,
+        name: "Claude Dialects Cursor bridge",
+        mode: "agent",
+        local: {
+          cwd: workspace,
+          settingSources: [],
+          // Cursor exposes SDK custom tools through its synthetic
+          // custom-user-tools MCP server. A sandboxed headless local run cannot
+          // request the interactive approval those calls require, so it blocks
+          // every tool before our callback can return it to Claude Code. Claude
+          // Code remains the permission and execution boundary; this bridge only
+          // captures the requested tool call.
+          sandboxOptions: { enabled: false },
+          autoReview: false,
+          store,
+          customTools,
+        },
+      });
+    }
 
     // Creating the agent is itself an await, so the request may have been
     // abandoned in the meantime. Starting the run now would bill a generation
@@ -451,7 +593,17 @@ async function chatCompletion(request, response, body, pending) {
     }
   } finally {
     stopHeartbeat();
-    releaseRun();
+    if (capturedToolCall && !pending.aborted && agent) {
+      keepTurnAlive();
+    } else {
+      if (turnSession) {
+        closeTurnSession(turnSession);
+        activeTurnSessions.delete(turnSession.id);
+      } else {
+        releaseRun();
+      }
+    }
+    if (turnSession) turnSession.inUse = false;
   }
 
   // writableEnded as well as aborted: a fault handler may have already failed
@@ -630,6 +782,29 @@ function normalizeEffort(value) {
 }
 
 function buildPrompt(messages, tools) {
+  return [
+    harnessInstructions(tools),
+    "",
+    buildTranscript(messages, tools),
+  ].join("\n");
+}
+
+function buildContinuationPrompt(extension, tools) {
+  return buildTranscript(extension, tools);
+}
+
+function harnessInstructions(tools) {
+  const names = tools.map((tool) => `${tool.alias} → ${tool.name}`).join(", ");
+  return [
+    "You are the model running inside the Claude Code harness.",
+    "Claude Code owns all filesystem, terminal, web, MCP, and other tool execution.",
+    "Use only the custom tools whose names begin with cc_tool_. Never call Cursor's built-in shell, read, write, edit, search, browser, or other workspace tools.",
+    names ? `Custom tool aliases mapped to Claude Code tools: ${names}` : "No Claude Code tools are available for this request.",
+    "Call the exact cc_tool_ alias with the arguments required by its custom-tool schema, then stop so Claude Code can execute it.",
+  ].join("\n");
+}
+
+function buildTranscript(messages, tools) {
   const toolNames = new Map();
   for (const message of messages || []) {
     for (const call of message?.tool_calls || []) {
@@ -651,16 +826,7 @@ function buildPrompt(messages, tools) {
       transcript.push(`CLAUDE CODE TOOL RESULT ${name}:\n${content}`);
     }
   }
-  const names = tools.map((tool) => `${tool.alias} → ${tool.name}`).join(", ");
-  return [
-    "You are the model running inside the Claude Code harness.",
-    "Claude Code owns all filesystem, terminal, web, MCP, and other tool execution.",
-    "Use only the custom tools whose names begin with cc_tool_. Never call Cursor's built-in shell, read, write, edit, search, browser, or other workspace tools.",
-    names ? `Custom tool aliases mapped to Claude Code tools: ${names}` : "No Claude Code tools are available for this request.",
-    "Call the exact cc_tool_ alias with the arguments required by its custom-tool schema, then stop so Claude Code can execute it.",
-    "",
-    transcript.join("\n\n"),
-  ].join("\n");
+  return transcript.join("\n\n");
 }
 
 function normalizeTools(rawTools) {

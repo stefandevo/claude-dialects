@@ -16,20 +16,21 @@ import (
 )
 
 const (
-	cursorSDKVersion   = "1.0.23"
+	cursorSDKVersion   = "1.0.26"
 	cursorMinNodeMajor = 22
 	cursorMinNodeMinor = 13
 	// cursorAgentStoreDir is the SDK's local agent store, written by the bridge
-	// inside the workspace it is handed. The bridge scopes one store per request
-	// and discards it with the request; this is the parent every launch starts
-	// from empty, which is also what repairs an instance whose store grew under
-	// an older build.
+	// inside the workspace it is handed. The bridge scopes one store per Claude
+	// Code turn (reused across tool-call steps) and discards it when the turn
+	// ends or goes idle; this is the parent every launch starts from empty,
+	// which is also what repairs an instance whose store grew under an older
+	// build.
 	cursorAgentStoreDir = "cursor-workspace/.cursor-dialect-state"
 	// cursorBridgeHeapMB pins the bridge's V8 old-space ceiling. Node derives its
 	// default from the machine's memory, so the size a bridge dies at otherwise
 	// depends on the host — a smaller machine crashes on a parse a larger one
 	// completes. This is a mitigation for a single oversized payload, not the
-	// bound on growth: that is the per-request store.
+		// bound on growth: that is the per-turn store.
 	cursorBridgeHeapMB = 4096
 )
 

@@ -356,11 +356,16 @@ With the `cursor-composer` preset, `/model opus` selects Fast while `/model
 sonnet` or `/model haiku` selects Standard.
 
 The SDK writes checkpoints and run events to a local agent store and reads it
-back in full. The bridge therefore gives each request its own store inside
-`cursor-workspace/.cursor-dialect-state/` and deletes it when the request ends,
-and every bridge launch starts from an empty directory — so the store cannot
-grow across a session until parsing it exhausts the bridge's memory. Nothing is
-carried between requests: Claude Code sends the whole transcript each time.
+back in full. The bridge scopes one store directory to each Claude Code turn
+(`cursor-workspace/.cursor-dialect-state/run-{uuid}/`), reuses the same Cursor
+agent across tool-call steps within that turn, and deletes the store when the
+turn finishes or goes idle. Every bridge launch starts from an empty parent
+directory, so stores cannot grow without bound across unrelated turns.
+
+Claude Code still sends the full transcript on every HTTP request; the bridge
+matches a continuation by hashing the message prefix and only forwards the new
+tool-result step to the live agent, so multi-tool turns avoid replaying the
+whole prompt each step.
 
 Streaming chat completions write SSE headers and the initial role chunk before
 the Cursor run starts, then forward `text-delta` output from the SDK's `onDelta`
