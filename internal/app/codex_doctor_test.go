@@ -113,3 +113,45 @@ func TestDoctorIgnoresStaleCodexUpstreamErrors(t *testing.T) {
 		t.Fatalf("doctor reported a stale upstream failure:\n%s", report)
 	}
 }
+
+func TestDoctorDoesNotPairAnOlderFastFailureWithANewerUpstreamError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if _, err := newAppService().CreateDialect(DialectInput{Name: "cc-codex", Preset: "codex-sol"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	authDir := filepath.Join(home, "instances", "cc-codex", "auth")
+	logsDir := filepath.Join(authDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	errorLog := fmt.Sprintf(
+		"Upstream Transport: http\nTimestamp: %s\nHTTP Status: 502\n",
+		now.Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(filepath.Join(logsDir, "error-v1-messages-current.log"), []byte(errorLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	older := now.Add(-10 * time.Minute)
+	proxyLog := fmt.Sprintf(
+		"[%s] [error] | abcdef12 | 503 | 1ms | 127.0.0.1 | POST \"/v1/messages\"\n",
+		older.Format("2006-01-02 15:04:05"),
+	)
+	if err := os.WriteFile(filepath.Join(home, "instances", "cc-codex", "proxy.log"), []byte(proxyLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	if !strings.Contains(report, "upstream returned 502") {
+		t.Fatalf("doctor missed the recent upstream failure:\n%s", report)
+	}
+	if strings.Contains(report, "Retries completing in under 10ms") {
+		t.Fatalf("doctor paired an older fast failure with the newer upstream error:\n%s", report)
+	}
+}
