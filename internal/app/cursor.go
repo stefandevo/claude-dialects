@@ -30,7 +30,7 @@ const (
 	// default from the machine's memory, so the size a bridge dies at otherwise
 	// depends on the host — a smaller machine crashes on a parse a larger one
 	// completes. This is a mitigation for a single oversized payload, not the
-		// bound on growth: that is the per-turn store.
+	// bound on growth: that is the per-turn store.
 	cursorBridgeHeapMB = 4096
 )
 
