@@ -302,11 +302,21 @@ func TestEmbeddedCursorBridgeStreamsIncrementally(t *testing.T) {
 	if !strings.Contains(text, "const isStreaming = Boolean(body.stream)") {
 		t.Fatal("embedded Cursor bridge does not derive isStreaming from body.stream")
 	}
+	// Partial tool-call deltas are timing-only; capture happens on complete stream events.
+	toolDelta := strings.Index(text, `case "tool-call-started":`)
+	toolDeltaEnd := strings.Index(text[toolDelta:], "default:")
+	if toolDelta < 0 || toolDeltaEnd < 0 {
+		t.Fatal("embedded Cursor bridge is missing tool-call delta handling")
+	}
+	if strings.Contains(text[toolDelta:toolDelta+toolDeltaEnd], "capture(") {
+		t.Fatal("embedded Cursor bridge captures tool calls from partial streaming deltas")
+	}
 }
 
 // One Claude Code turn may require several HTTP requests (one per tool call).
 // The bridge keeps the Cursor agent alive across those steps when the incoming
-// transcript extends the cached prefix by assistant(tool_calls) + tool result.
+// transcript extends the cached prefix by assistant(tool_calls) + tool result
+// and the tool call id/name matches the parked pendingToolCall.
 func TestEmbeddedCursorBridgeReusesAgentsAcrossToolCalls(t *testing.T) {
 	text := string(cursorBridgeSource)
 	for _, expected := range []string{
@@ -314,10 +324,15 @@ func TestEmbeddedCursorBridgeReusesAgentsAcrossToolCalls(t *testing.T) {
 		`function findContinuationSession(`,
 		`function registerTurnSession(`,
 		`function buildContinuationPrompt(`,
+		`function continuationMatchesPendingTool(`,
+		`function scheduleSessionIdleTimer(`,
+		`pendingToolCall:`,
+		`sessionId: crypto.randomUUID()`,
 		`keepTurnAlive()`,
 		`turn continue messages=`,
 		`isToolStepContinuation`,
 		`const turnSessionIdleMs =`,
+		`activeTurnSessions.size >= turnSessionMaxEntries`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
