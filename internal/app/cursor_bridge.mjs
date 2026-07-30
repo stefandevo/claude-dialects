@@ -123,9 +123,9 @@ const turnSessionIdleMs = 5 * 60 * 1000;
 const turnSessionMaxEntries = 8;
 
 // Agents kept alive across tool-call steps within one Claude Code turn. Each
-// entry is keyed by a hash of the request's message prefix; a continuation
-// request must replay that prefix exactly and append assistant(tool_calls) plus
-// a tool result. Idle entries are evicted so stores cannot grow without bound.
+// entry has a unique sessionId; lookup matches on prefix hash plus the parked
+// pendingToolCall so concurrent turns with the same prefix cannot cross-wire.
+// Idle entries are evicted on a per-session timer and on later traffic.
 const activeTurnSessions = new Map();
 
 function logBridgeTiming(message) {
@@ -218,46 +218,79 @@ function isToolStepContinuation(extension) {
     && tool.role === "tool";
 }
 
+function clearSessionIdleTimer(session) {
+  if (!session?.idleTimer) return;
+  clearTimeout(session.idleTimer);
+  session.idleTimer = undefined;
+}
+
+function scheduleSessionIdleTimer(session) {
+  clearSessionIdleTimer(session);
+  session.idleTimer = setTimeout(() => {
+    session.idleTimer = undefined;
+    if (session.inUse) return;
+    if (Date.now() - session.lastUsedAt < turnSessionIdleMs) {
+      scheduleSessionIdleTimer(session);
+      return;
+    }
+    closeTurnSession(session);
+    activeTurnSessions.delete(session.sessionId);
+  }, turnSessionIdleMs).unref();
+}
+
 function evictIdleTurnSessions(now = Date.now()) {
-  for (const [key, session] of activeTurnSessions) {
+  for (const [sessionId, session] of activeTurnSessions) {
     if (session.inUse) continue;
     if (now - session.lastUsedAt > turnSessionIdleMs) {
       closeTurnSession(session);
-      activeTurnSessions.delete(key);
+      activeTurnSessions.delete(sessionId);
     }
   }
-  while (activeTurnSessions.size > turnSessionMaxEntries) {
-    let oldestKey;
+  while (activeTurnSessions.size >= turnSessionMaxEntries) {
+    let oldestId;
     let oldestUsedAt = Infinity;
-    for (const [key, session] of activeTurnSessions) {
+    for (const [sessionId, session] of activeTurnSessions) {
       if (session.inUse) continue;
       if (session.lastUsedAt < oldestUsedAt) {
         oldestUsedAt = session.lastUsedAt;
-        oldestKey = key;
+        oldestId = sessionId;
       }
     }
-    if (!oldestKey) break;
-    closeTurnSession(activeTurnSessions.get(oldestKey));
-    activeTurnSessions.delete(oldestKey);
+    if (!oldestId) break;
+    closeTurnSession(activeTurnSessions.get(oldestId));
+    activeTurnSessions.delete(oldestId);
   }
 }
 
 function closeTurnSession(session) {
   if (!session || session.agentClosed) return;
+  clearSessionIdleTimer(session);
   session.agentClosed = true;
   session.agent?.close();
   discardRunState(session.runStateDir);
+}
+
+function continuationMatchesPendingTool(extension, pendingToolCall) {
+  if (!pendingToolCall) return false;
+  const [assistant, tool] = extension;
+  const call = assistant.tool_calls?.[0];
+  if (!call) return false;
+  if ((call.id || "") !== pendingToolCall.id) return false;
+  if ((call?.function?.name || call?.name || "") !== pendingToolCall.name) return false;
+  return (tool.tool_call_id || "") === pendingToolCall.id;
 }
 
 function findContinuationSession(messages, model, toolNames) {
   evictIdleTurnSessions();
   for (const session of activeTurnSessions.values()) {
     if (session.inUse || session.model !== model) continue;
+    if (!session.pendingToolCall) continue;
     if (messages.length <= session.messageCount) continue;
     const prefix = messages.slice(0, session.messageCount);
     if (turnSessionKey(prefix, model, toolNames) !== session.prefixHash) continue;
     const extension = messages.slice(session.messageCount);
     if (!isToolStepContinuation(extension)) continue;
+    if (!continuationMatchesPendingTool(extension, session.pendingToolCall)) continue;
     return { session, extension };
   }
   return undefined;
@@ -265,9 +298,8 @@ function findContinuationSession(messages, model, toolNames) {
 
 function registerTurnSession(entry) {
   evictIdleTurnSessions();
-  const existing = activeTurnSessions.get(entry.id);
-  if (existing && existing !== entry) closeTurnSession(existing);
-  activeTurnSessions.set(entry.id, entry);
+  activeTurnSessions.set(entry.sessionId, entry);
+  scheduleSessionIdleTimer(entry);
 }
 
 // trackRequest registers a request the moment it arrives and reports, through
@@ -335,6 +367,7 @@ async function chatCompletion(request, response, body, pending) {
   let turnSession = continuation?.session;
   let prompt;
   if (turnSession) {
+    clearSessionIdleTimer(turnSession);
     turnSession.inUse = true;
     turnSession.lastUsedAt = Date.now();
     prompt = buildContinuationPrompt(continuation.extension, forwardedTools);
@@ -424,14 +457,8 @@ async function chatCompletion(request, response, body, pending) {
       case "partial-tool-call": {
         const tool = forwardedToolFromDeltaUpdate(update, forwardedTools);
         if (!tool) break;
+        // Timing only — partial deltas carry incomplete args; capture from stream events.
         noteFirstToolCall(timing, timing.runStart);
-        capture(
-          tool.name,
-          update.toolCall?.args?.args && typeof update.toolCall.args.args === "object"
-            ? update.toolCall.args.args
-            : {},
-          update.callId,
-        );
         break;
       }
       default:
@@ -459,14 +486,18 @@ async function chatCompletion(request, response, body, pending) {
   };
   const keepTurnAlive = () => {
     const prefixMessages = normalizedMessages.slice(0, normalizedMessages.length);
+    const prefixHash = turnSessionKey(prefixMessages, model, toolNames);
     const session = {
-      id: turnSessionKey(prefixMessages, model, toolNames),
-      prefixHash: turnSessionKey(prefixMessages, model, toolNames),
+      sessionId: crypto.randomUUID(),
+      prefixHash,
       messageCount: prefixMessages.length,
       model,
       modelSelection,
       toolNames,
       forwardedTools,
+      pendingToolCall: capturedToolCall
+        ? { id: capturedToolCall.id, name: capturedToolCall.name }
+        : undefined,
       agent,
       store,
       runStateDir,
@@ -475,7 +506,8 @@ async function chatCompletion(request, response, body, pending) {
       agentClosed: false,
     };
     if (turnSession) {
-      activeTurnSessions.delete(turnSession.id);
+      clearSessionIdleTimer(turnSession);
+      activeTurnSessions.delete(turnSession.sessionId);
       turnSession.agent = undefined;
       turnSession.store = undefined;
       turnSession.runStateDir = undefined;
@@ -493,7 +525,7 @@ async function chatCompletion(request, response, body, pending) {
     activeRun?.cancel().catch(() => {});
     if (turnSession) {
       closeTurnSession(turnSession);
-      activeTurnSessions.delete(turnSession.id);
+      activeTurnSessions.delete(turnSession.sessionId);
       turnSession = undefined;
       agent = undefined;
       agentClosed = true;
@@ -598,10 +630,14 @@ async function chatCompletion(request, response, body, pending) {
     } else {
       if (turnSession) {
         closeTurnSession(turnSession);
-        activeTurnSessions.delete(turnSession.id);
+        activeTurnSessions.delete(turnSession.sessionId);
       } else {
         releaseRun();
       }
+    }
+    if (turnSession) {
+      turnSession.lastUsedAt = Date.now();
+      scheduleSessionIdleTimer(turnSession);
     }
     if (turnSession) turnSession.inUse = false;
   }
