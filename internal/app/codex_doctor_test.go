@@ -1,0 +1,115 @@
+package app
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestDoctorExplainsRecentCodexUpstreamCooldown(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if _, err := newAppService().CreateDialect(DialectInput{Name: "cc-codex", Preset: "codex-sol"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	authDir := filepath.Join(home, "instances", "cc-codex", "auth")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logsDir := filepath.Join(authDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	errorLog := fmt.Sprintf(`=== REQUEST INFO ===
+URL: /v1/messages
+Method: POST
+Downstream Transport: http
+Upstream Transport: http
+Timestamp: %s
+
+=== API ERROR RESPONSE ===
+HTTP Status: 502
+
+=== RESPONSE ===
+Status: 503
+`, now.Format(time.RFC3339Nano))
+	if err := os.WriteFile(
+		filepath.Join(logsDir, "error-v1-messages-2026-07-30T120000-abcdef12.log"),
+		[]byte(errorLog),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	proxyLog := fmt.Sprintf(
+		"[%s] [error] | abcdef12 | 502 |        1.243s |       127.0.0.1 | POST    \"/v1/messages\"\n"+
+			"[%s] [error] | 1234abcd | 503 |           1ms |       127.0.0.1 | POST    \"/v1/messages\"\n",
+		now.Format("2006-01-02 15:04:05"),
+		now.Format("2006-01-02 15:04:05"),
+	)
+	if err := os.WriteFile(filepath.Join(home, "instances", "cc-codex", "proxy.log"), []byte(proxyLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	for _, want := range []string{
+		"⚠ cc-codex: gpt-5.6-sol upstream returned 502 over HTTP",
+		"OAuth credentials are present",
+		"auth_unavailable",
+		"cooldown",
+		"/model sonnet",
+		"cc-dialect proxy cc-codex restart",
+		"cc-dialect proxy cc-codex logs",
+		"Codex CLI uses WebSocket",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "cc-codex is not authenticated for codex") {
+		t.Fatalf("doctor misreported present OAuth credentials:\n%s", report)
+	}
+}
+
+func TestDoctorIgnoresStaleCodexUpstreamErrors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	if _, err := newAppService().CreateDialect(DialectInput{Name: "cc-codex", Preset: "codex-sol"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	authDir := filepath.Join(home, "instances", "cc-codex", "auth")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(authDir, "codex.json"), []byte(`{"type":"codex"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logsDir := filepath.Join(authDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-2 * time.Hour)
+	errorLog := fmt.Sprintf("Upstream Transport: http\nTimestamp: %s\nStatus: 502\n", stale.Format(time.RFC3339Nano))
+	if err := os.WriteFile(
+		filepath.Join(logsDir, "error-v1-messages-2026-07-30T100000-abcdef12.log"),
+		[]byte(errorLog),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	if strings.Contains(report, "upstream returned 502") {
+		t.Fatalf("doctor reported a stale upstream failure:\n%s", report)
+	}
+}

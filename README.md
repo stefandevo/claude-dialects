@@ -167,6 +167,28 @@ Sol, Terra, and Luna for the `opus`, `sonnet`, and `haiku` menu entries. Both
 routes authenticate through ChatGPT OAuth and the embedded CLIProxyAPI
 instance.
 
+#### Troubleshooting `auth_unavailable`
+
+If `cc-codex` reports `503 auth_unavailable` after ChatGPT OAuth already
+succeeded, do not re-authenticate immediately. An upstream HTTP 502 or 503 can
+put that model's credential into a short CLIProxyAPI cooldown (usually about
+one minute). Retries during the cooldown can fail almost instantly without
+another OpenAI request, so `auth_unavailable` does not necessarily mean the
+OAuth credential is missing.
+
+Run `cc-dialect doctor`. For an authenticated Codex dialect, it inspects recent
+`auth/logs/error-v1-messages-*.log` and `proxy.log` entries and reports the
+upstream HTTP failure separately from a fast cooldown retry. The diagnostic
+suggests switching temporarily with `/model sonnet` (Terra), restarting the
+embedded proxy with `cc-dialect proxy cc-codex restart`, and opening the full
+logs with `cc-dialect proxy cc-codex logs`.
+
+The native Codex CLI uses a WebSocket upstream, while a Codex dialect sends
+Claude Code's requests through CLIProxyAPI's HTTP upstream. A model such as Sol
+can therefore fail over HTTP while it still works in the native Codex CLI.
+Restarting clears the generated proxy's in-memory cooldown, but it cannot make
+an overloaded HTTP endpoint available.
+
 ### Z.ai GLM
 
 GLM uses Z.ai's Anthropic-compatible API and current GLM-5.2 flagship:
@@ -1180,7 +1202,15 @@ cc-dialect remove cc-codex
 cc-dialect --version
 ```
 
-`cc-dialect doctor` detects misconfigurations (shadowed shims, missing API keys, incorrect SDK versions). Add the `--fix` flag (`cc-dialect doctor --fix`) to automatically apply deterministic repairs: it will restart any proxies or Node bridges that are running stale binaries (e.g. after you updated `cc-dialect`), restart a Node bridge that crashed while its proxy is still running, and re-install any Node SDK bridge runtimes that do not match the current required version. Interactive steps like OAuth logins are left for you to complete.
+`cc-dialect doctor` detects misconfigurations (shadowed shims, missing API keys,
+incorrect SDK versions) and distinguishes a recent Codex upstream HTTP failure
+and fast cooldown retry from genuinely missing OAuth. Add the `--fix` flag
+(`cc-dialect doctor --fix`) to automatically apply deterministic repairs: it
+will restart any proxies or Node bridges that are running stale binaries (e.g.
+after you updated `cc-dialect`), restart a Node bridge that crashed while its
+proxy is still running, and re-install any Node SDK bridge runtimes that do not
+match the current required version. Interactive steps like OAuth logins and
+recovering from an overloaded upstream are left for you to complete.
 
 `cc-dialect upgrade` fetches the latest source, rebuilds and atomically
 replaces the installed binary, and finishes with `cc-dialect doctor --fix` so
