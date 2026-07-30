@@ -332,7 +332,7 @@ cc-dialect models cc-cursor</code></pre>
         <div class="callout callout--info">
           <div class="callout__title">ℹ SDK bridge details</div>
           <p>Each Cursor dialect reserves two localhost ports: one for the embedded proxy and one for the SDK bridge. Tools are forwarded with <code>cc_tool_</code> schema aliases to prevent Composer from calling Cursor-native schemas. Claude Code permission prompts remain in control.</p>
-          <p>The SDK's local agent store is scoped to one request and deleted with it, and every bridge launch starts from an empty store, so it cannot grow across a session. The bridge logs faults raised outside a request to <code>cursor-bridge.log</code> and keeps serving. A bridge that dies anyway is reported as <strong>crashed</strong> by <code>cc-dialect proxy &lt;name&gt; status</code> and <code>cc-dialect doctor</code>, which point at <code>cc-dialect proxy &lt;name&gt; logs</code>.</p>
+          <p>The SDK's local agent store is scoped to one request and deleted with it, and every bridge launch starts from an empty store, so it cannot grow across a session. Streaming chat completions emit SSE output incrementally — headers and the role chunk before the run starts, then text deltas as they arrive, with a keepalive heartbeat and per-request timing in <code>cursor-bridge.log</code>. The bridge logs faults raised outside a request to <code>cursor-bridge.log</code> and keeps serving. A bridge that dies anyway is reported as <strong>crashed</strong> by <code>cc-dialect proxy &lt;name&gt; status</code> and <code>cc-dialect doctor</code>, which point at <code>cc-dialect proxy &lt;name&gt; logs</code>.</p>
         </div>
       </article>
 

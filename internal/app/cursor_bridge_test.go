@@ -236,7 +236,7 @@ func TestEmbeddedCursorBridgeReleasesRunsThatNeverSettle(t *testing.T) {
 		`setTimeout(releaseRun, abandonedRunGraceMs).unref()`,
 		`if (agent && !agentClosed) {`,
 		`agentClosed = true;`,
-		"} finally {\n    releaseRun();\n  }",
+		"} finally {\n    stopHeartbeat();\n    releaseRun();\n  }",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Cursor bridge does not contain %q", expected)
@@ -273,6 +273,35 @@ func TestEmbeddedCursorBridgeReleasesRunsThatNeverSettle(t *testing.T) {
 // first await never hears it, so a client that disconnects during the catalog
 // lookup would leave the request believing it still has a reader. Tracking has
 // to be installed before any route awaits anything.
+// Streaming requests must emit SSE headers and the role chunk before agent.send
+// settles, and must subscribe to onDelta for incremental text. Buffering until
+// the run finishes is what made Cursor dialects appear frozen.
+func TestEmbeddedCursorBridgeStreamsIncrementally(t *testing.T) {
+	text := string(cursorBridgeSource)
+	send := strings.Index(text, "activeRun = await agent.send(")
+	streamHead := strings.Index(text, `response.writeHead(200, {`)
+	keepalive := strings.Index(text, ": keepalive")
+	timing := strings.Index(text, "cursor bridge timing:")
+	if send < 0 || streamHead < 0 || keepalive < 0 || timing < 0 {
+		t.Fatal("embedded Cursor bridge is missing incremental streaming hooks")
+	}
+	if streamHead > send {
+		t.Fatal("embedded Cursor bridge writes SSE headers after agent.send instead of before it")
+	}
+	sendEnd := strings.Index(text[send:], "});")
+	if sendEnd < 0 {
+		t.Fatal("embedded Cursor bridge no longer has the expected agent.send call")
+	}
+	sendBlock := text[send : send+sendEnd]
+	if !strings.Contains(sendBlock, "onDelta:") {
+		t.Fatal("embedded Cursor bridge does not pass onDelta to agent.send")
+	}
+	// Non-streaming responses stay buffered until the run settles.
+	if !strings.Contains(text, "const isStreaming = Boolean(body.stream)") {
+		t.Fatal("embedded Cursor bridge does not derive isStreaming from body.stream")
+	}
+}
+
 func TestEmbeddedCursorBridgeTracksRequestsBeforeTheFirstAwait(t *testing.T) {
 	text := string(cursorBridgeSource)
 	handler := strings.Index(text, "http.createServer(")
