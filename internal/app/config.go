@@ -153,6 +153,12 @@ var presets = map[string]Dialect{
 		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
+	"cursor-mix": {
+		Model: "composer-2.5", SubagentModel: "composer-2.5",
+		OpusModel: "composer-2.5", SonnetModel: "grok-4.5", HaikuModel: "kimi-k3",
+		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
+		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
+	},
 	"copilot-auto": {
 		Model: "auto", SubagentModel: "auto",
 		OpusModel: "auto", SonnetModel: "auto", HaikuModel: "auto",
@@ -900,6 +906,14 @@ func presetForDialect(dialect Dialect) string {
 		}
 	}
 	if dialect.Bridge == "cursor" {
+		// cursor-mix selects Composer 2.5 as its primary model — the same ID as
+		// cursor-composer — so the primary model cannot tell the two apart. Its
+		// distinct Opus/Sonnet/Haiku tier mapping is what identifies it.
+		if dialect.OpusModel == "composer-2.5" &&
+			dialect.SonnetModel == "grok-4.5" &&
+			dialect.HaikuModel == "kimi-k3" {
+			return "cursor-mix"
+		}
 		switch dialect.Model {
 		case "composer-2.5":
 			return "cursor-composer"
@@ -1038,7 +1052,7 @@ func providerForDialect(dialect Dialect) string {
 		return "minimax"
 	case "deepseek":
 		return "deepseek"
-	case "cursor-composer", "cursor-composer-fast", "cursor-auto", "cursor-grok":
+	case "cursor-composer", "cursor-composer-fast", "cursor-auto", "cursor-grok", "cursor-mix":
 		return "cursor"
 	case "copilot-auto", "copilot-mai", "copilot-codex", "copilot-claude", "copilot-gemini":
 		return "copilot"

@@ -146,7 +146,7 @@ named dialects.
 | [xAI](#xai-grok-grok-build-and-composer) | `grok`, `grok-build`, `composer` | xAI OAuth | `cc-grok` |
 | [MiniMax](#minimax) | `minimax` | `MINIMAX_API_KEY` | `cc-minimax` |
 | [DeepSeek](#deepseek) | `deepseek` | `DEEPSEEK_API_KEY` | `cc-deepseek` |
-| [Cursor](#cursor) | `cursor-composer`, `cursor-composer-fast`, `cursor-grok`, `cursor-auto` | Cursor API key | `cc-cursor` |
+| [Cursor](#cursor) | `cursor-composer`, `cursor-composer-fast`, `cursor-grok`, `cursor-auto`, `cursor-mix` | Cursor API key | `cc-cursor` |
 | [GitHub Copilot](#github-copilot) | `copilot-auto`, `copilot-mai`, `copilot-codex`, `copilot-claude`, `copilot-gemini` | GitHub Copilot login | `cc-copilot` |
 | [Anthropic Claude](#anthropic-claude) | `claude` | Anthropic OAuth | `cc-claude` |
 | [Mix multiple providers](#mix-multiple-providers-in-one-session) | `mixed-frontier` | Several OAuth logins | `cc-mixed` |
@@ -324,6 +324,7 @@ Available Cursor presets are:
 - `cursor-composer` — Composer 2.5 with Fast and Standard menu mappings
 - `cursor-composer-fast` — explicitly forces Composer 2.5 Fast
 - `cursor-grok` — Cursor Grok 4.5
+- `cursor-mix` — Composer 2.5, Grok 4.5, and Kimi K3 across the Opus, Sonnet, and Haiku tiers
 - `cursor-auto` — Cursor's `auto` selection
 
 The bridge discovers the live model catalog from Cursor, supplies the catalog's
@@ -388,6 +389,22 @@ through the Cursor SDK and `CURSOR_API_KEY`. The plain `grok` preset instead
 uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.5 effort
 settings through its live SDK catalog when supported, so the bridge maps
 Claude Code's `/effort` choice onto the advertised variant.
+
+`cursor-mix` spreads three Cursor-hosted models across the tier menu in one
+route:
+
+```sh
+cc-dialect create cc-cursor-mix --preset cursor-mix
+cc-dialect shim install cc-cursor-mix
+cc-cursor-mix
+```
+
+Composer 2.5 is the default session model and `/model opus`, Grok 4.5 is
+`/model sonnet`, and Kimi K3 is `/model haiku` — all served through the
+Cursor SDK and `CURSOR_API_KEY`, with no OAuth splitting. Like the other
+Cursor routes, Cursor publishes no per-model context window for this mix, so
+it runs on the same 200,000-token conservative fallback as `cursor-composer`
+and `cursor-grok`.
 
 ### GitHub Copilot
 
@@ -759,6 +776,7 @@ mid-conversation and spawning subagents safe.
 | `composer` | 200,000 | Grok Composer 2.5 Fast |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
 | `cursor-grok` | 200,000 | Cursor Grok route |
+| `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |
 | `copilot-codex` | 200,000 | Copilot GPT-5.3-Codex route |
 | `copilot-claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
 | `glm` | 131,072 | GLM-4.5-Air |
