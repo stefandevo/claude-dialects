@@ -779,6 +779,13 @@ ceiling roughly 33,000 tokens below the window while the percentage measures
 against the window itself. That offset exists against first-party models too;
 what the second variable removes is the wrong denominator, not the offset.
 
+Because `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is skipped for `claude-…` IDs, the
+presets that route to Claude model names — `claude`, `copilot-claude`, and
+`mixed-frontier` — keep reporting against whatever Claude Code's own registry
+resolves, which need not equal the declared window. Their **compaction** is
+still calibrated, because `CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such
+exclusion; only their reported percentage can be off.
+
 The division of responsibility is deliberate:
 
 - **Claude Dialects supplies the capacity.** Nothing else. It never summarizes,
