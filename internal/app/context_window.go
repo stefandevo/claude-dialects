@@ -218,18 +218,20 @@ func applyContextWindow(env []string, window int) []string {
 }
 
 // contextWindowOverride reads a dialect's ExtraEnv entry for one capacity
-// variable. present distinguishes an unusable override from an absent one,
-// which is what diagnostics need to name the entry at fault.
-func contextWindowOverride(dialect Dialect, key string) (window int, present, usable bool) {
+// variable, following this file's convention that zero is not a capacity: an
+// entry that does not parse to a usable window reports zero. present separates
+// that from an absent entry, which is what diagnostics need to name the one at
+// fault.
+func contextWindowOverride(dialect Dialect, key string) (window int, present bool) {
 	raw, present := dialect.ExtraEnv[key]
 	if !present {
-		return 0, false, false
+		return 0, false
 	}
 	parsed, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || !validContextWindow(parsed) {
-		return 0, true, false
+		return 0, true
 	}
-	return parsed, true, true
+	return parsed, true
 }
 
 // effectiveContextWindow returns the window the launched Claude Code process
@@ -245,11 +247,11 @@ func contextWindowOverride(dialect Dialect, key string) (window int, present, us
 func effectiveContextWindow(dialect Dialect) int {
 	window := dialect.ContextWindow
 	for _, key := range contextWindowEnvs {
-		override, present, usable := contextWindowOverride(dialect, key)
+		override, present := contextWindowOverride(dialect, key)
 		if !present {
 			continue
 		}
-		if !usable {
+		if override == 0 {
 			return 0
 		}
 		// A dialect with nothing stored is calibrated by the override alone
@@ -405,7 +407,7 @@ func contextWindowDiagnostics(name string, dialect Dialect) []string {
 	// exists, so the stored field cannot rescue it — say which entry is the
 	// problem, because either variable can be the one carrying it.
 	for _, key := range contextWindowEnvs {
-		if _, present, usable := contextWindowOverride(dialect, key); !present || usable {
+		if override, present := contextWindowOverride(dialect, key); !present || override != 0 {
 			continue
 		}
 		return []string{fmt.Sprintf(
@@ -474,14 +476,14 @@ func contextWindowCompatibilityDiagnostics(claudePath string) []string {
 	return lines
 }
 
-// autoCompactScanChunk is the read size used when scanning the Claude Code
-// executable. Chunks overlap by the length of the searched literal so a match
-// straddling a boundary is still found.
-const autoCompactScanChunk = 1 << 20
+// contextWindowScanChunk is the read size used when scanning the Claude Code
+// executable. Chunks overlap by contextWindowScanOverlap so a match straddling a
+// boundary is still found.
+const contextWindowScanChunk = 1 << 20
 
-// autoCompactScanLimit bounds the scan so an unexpectedly large or endless file
-// cannot stall doctor.
-const autoCompactScanLimit = 512 << 20
+// contextWindowScanLimit bounds the scan so an unexpectedly large or endless
+// file cannot stall doctor.
+const contextWindowScanLimit = 512 << 20
 
 // contextWindowScanOverlap is how much of each chunk has to be carried into the
 // next read so a literal straddling the boundary is still found: one byte short
@@ -514,17 +516,21 @@ func claudeMissingContextWindowVars(claudePath string) ([]string, error) {
 	}
 	defer file.Close()
 
+	needles := make(map[string][]byte, len(contextWindowEnvs))
+	for _, name := range contextWindowEnvs {
+		needles[name] = []byte(name)
+	}
 	found := make(map[string]bool, len(contextWindowEnvs))
 	overlap := contextWindowScanOverlap()
-	buffer := make([]byte, autoCompactScanChunk+overlap)
+	buffer := make([]byte, contextWindowScanChunk+overlap)
 	filled := 0
 	scanned := 0
-	for scanned < autoCompactScanLimit {
+	for scanned < contextWindowScanLimit {
 		read, readErr := io.ReadFull(file, buffer[filled:])
 		filled += read
 		scanned += read
-		for _, name := range contextWindowEnvs {
-			if !found[name] && bytes.Contains(buffer[:filled], []byte(name)) {
+		for name, needle := range needles {
+			if !found[name] && bytes.Contains(buffer[:filled], needle) {
 				found[name] = true
 			}
 		}

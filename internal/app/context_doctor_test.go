@@ -163,7 +163,7 @@ func TestClaudeMissingContextWindowVarsScansTheExecutable(t *testing.T) {
 func TestClaudeMissingContextWindowVarsMatchesAcrossBufferBoundaries(t *testing.T) {
 	for _, name := range contextWindowEnvs {
 		path := filepath.Join(t.TempDir(), "claude")
-		firstReadEnd := autoCompactScanChunk + contextWindowScanOverlap()
+		firstReadEnd := contextWindowScanChunk + contextWindowScanOverlap()
 		start := firstReadEnd - len(name)/2
 		body := strings.Repeat("x", start) + name + strings.Repeat("x", 1024)
 		if start >= firstReadEnd || start+len(name) <= firstReadEnd {
