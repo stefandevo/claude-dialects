@@ -29,21 +29,23 @@ const autoCompactWindowEnv = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 // ID that is not there and does not begin with "claude-", falls back to this
 // variable before defaulting to 200,000 tokens.
 //
-// That default is what every readout measured against the window uses — the
+// The window this resolves to is what every readout measures against — the
 // `context_window.used_percentage` the statusline prints, and Claude Code's own
-// `/context` view. Declaring only the auto-compact window therefore leaves the
-// two indicators sharing a numerator over different denominators: a dialect
-// declaring 131,072 reported 47% full while its own countdown said 4% remained.
-// The "claude-" exclusion is exactly the dialect case, so first-party model IDs
-// keep resolving through the registry as before.
+// `/context` view — and, because compaction runs against the smaller of the two
+// chains, it also caps when compaction fires. Declaring only the auto-compact
+// window therefore leaves the two indicators sharing a numerator over different
+// denominators: a dialect declaring 131,072 reported 47% full while its own
+// countdown said 4% remained. The "claude-" exclusion is exactly the dialect
+// case, so first-party model IDs keep resolving through the registry as before.
 const maxContextTokensEnv = "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
 
 // contextWindowEnvs lists both variables in the order diagnostics report them.
-// They always carry the same value: they describe one capacity, and a launch
-// that let them disagree would compact against one number while reporting
-// against another. Keeping the set here means a future Claude Code release that
-// renames or rejects either one is a single-line change, and doctor has one
-// place to report the incompatibility from.
+// applyContextWindow writes the same value to both: they describe one capacity,
+// and a launch that let them disagree would compact against one number while
+// reporting against another. Only a dialect's own ExtraEnv, applied afterwards
+// and per variable, can still separate them. Keeping the set here means a future
+// Claude Code release that renames or rejects either one is a single-line
+// change, and doctor has one place to report the incompatibility from.
 var contextWindowEnvs = []string{autoCompactWindowEnv, maxContextTokensEnv}
 
 // maxContextWindow bounds accepted capacity values. It sits an order of
