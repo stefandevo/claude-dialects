@@ -897,31 +897,39 @@ cc-dialect create cc-my-model \
 
 The value must be a positive integer of at most 20,000,000 tokens.
 
-A capacity describes one specific set of models, so it is kept only while that
-set is unchanged. Updating a port, concurrency, or effort keeps the stored
-value; changing the primary model, a tier, or the upstream clears it unless you
-pass a new `--context-window`, and `create` then warns that the dialect is
-uncalibrated. Carrying the old number across a model change would be the more
-damaging default: a window larger than the new route supports is exactly what
-lets a conversation run past the provider's real limit, while an unset one only
-returns to uncalibrated behavior and says so. A stored value also survives naming
-the same preset again: that asks for the preset's models, not for its window to
-be raised. An explicit `--context-window` always wins.
+A capacity describes one specific set of models, so an existing stored value is
+kept only while that set is unchanged. Updating a port, concurrency, or effort
+keeps it; changing the primary model, a tier, or the upstream discards it. The
+fully resolved route then adopts a built-in preset's reviewed window when every
+model, tier, and upstream field matches exactly; otherwise `create` warns that
+the dialect is uncalibrated unless you pass a new `--context-window`. Carrying
+the old number across a model change would be the more damaging default: a
+window larger than the new route supports is exactly what lets a conversation
+run past the provider's real limit, while an unset one only returns to
+uncalibrated behavior and says so. A stored value also survives naming the same
+preset again: that asks for the preset's models, not for its window to be raised.
+An explicit `--context-window` always wins.
 
-Dialects created before this field existed are migrated on first read: a dialect
-that carries a preset's exact model and route mapping adopts that preset's
-value, while a modified or genuinely custom mapping is left unset and reported
-by `doctor`. The `preset` key is itself younger than some of those dialects, so
-one that records no preset at all still qualifies when it matches a preset field
-for field — and the matched name is then written alongside the window, so
-`doctor` can offer a `--preset` command that restores the dialect's OAuth route
-instead of telling you to edit `config.json` by hand. Matching is equality, not
-resemblance: a single hand-swapped tier leaves the dialect uncalibrated, because
-the preset's window may be larger than that tier's model supports. A preset name
-already stored always wins over a match, so a labeled dialect that has since
-diverged keeps being judged against what it claims to be. The migrated value
-takes effect immediately at launch; `cc-dialect doctor --fix` records it in
-`config.json` so the file stops lagging behind.
+Dialects created before this field existed are migrated on first read through
+the same exact-route rule. The stored preset label supplies the window while it
+still describes that route. If the label has diverged but the complete route is
+field-for-field identical to another preset, the dialect adopts that route's
+reviewed window while keeping its original label; a route that matches no preset
+exactly remains unset and is reported by `doctor`. The `preset` key is itself
+younger than some dialects, so one that records no label still qualifies for an
+exact match — and the matched name is written alongside its window. An
+unrecognized label may belong to a newer build, so it receives an exact route's
+window without being renamed.
+
+This route fallback calibrates only the window; it does not choose the preset a
+remedy command may restate. A recognized but diverged label still produces a
+command based on that stored preset plus the route overrides, while an
+unrecognized label is not rewritten through today's match. Matching is equality,
+not resemblance: a single hand-swapped tier that completes no preset route stays
+uncalibrated, because a guessed window may be larger than that tier's model
+supports. The migrated value takes effect immediately at launch;
+`cc-dialect doctor --fix` records it in `config.json` so the file stops lagging
+behind.
 
 Presets themselves are compiled into the executable, so a revised preset window
 arrives with `cc-dialect upgrade` and applies to newly created dialects.
@@ -946,10 +954,10 @@ longer references either capacity variable — one line per variable, because
 dropping `CLAUDE_CODE_AUTO_COMPACT_WINDOW` delays compaction, while dropping
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` falls back to Claude Code's 200,000-token
 default, which skews the reported percentage and compacts any larger declared
-window early. Adding `--fix`
-records migrated windows in `config.json`, together with the preset name a route
-match resolved for a dialect that stored none; it never invents one for a custom
-or re-pointed dialect, which stays reported until you set it yourself.
+window early. Adding `--fix` records migrated windows in `config.json`, together
+with the preset name an exact route match resolved for a dialect that stored
+none. Existing labels are preserved, and a custom route or any route that
+matches no preset exactly stays reported until you set a window yourself.
 
 Each dialect's embedded proxy also records the latest request's input usage to
 `instances/<name>/context.json` and warns once per 80%, 90%, and 95% threshold.
