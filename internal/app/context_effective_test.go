@@ -42,6 +42,10 @@ func TestEffectiveContextWindowRejectsAnUnusableOverride(t *testing.T) {
 // model and the auto-compact window, so a dialect that declares the two
 // separately runs against whichever is tighter — not against whichever the
 // launcher happened to write last.
+//
+// Each variable resolves on its own: an override replaces the stored value for
+// that half of the declaration, so a stored window both overrides displaced
+// cannot cap the result. It is not in the launched environment at all.
 func TestEffectiveContextWindowTakesTheSmallestDeclaredCapacity(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
@@ -60,9 +64,11 @@ func TestEffectiveContextWindowTakesTheSmallestDeclaredCapacity(t *testing.T) {
 			map[string]string{autoCompactWindowEnv: "150000", maxContextTokensEnv: "500000"},
 			150000,
 		},
-		{"both above the stored window", map[string]string{
-			autoCompactWindowEnv: "500000", maxContextTokensEnv: "600000",
-		}, 372000},
+		{
+			"both above the stored window, which no longer appears in the environment",
+			map[string]string{autoCompactWindowEnv: "500000", maxContextTokensEnv: "600000"},
+			500000,
+		},
 	} {
 		dialect := presets["codex-sol"]
 		dialect.ExtraEnv = testCase.extraEnv
@@ -72,14 +78,29 @@ func TestEffectiveContextWindowTakesTheSmallestDeclaredCapacity(t *testing.T) {
 	}
 }
 
-// An uncalibrated dialect has no stored window to be capped by, so a single
-// override is the whole calibration rather than a ceiling on one.
-func TestEffectiveContextWindowAdoptsAnOverrideWhenNothingIsStored(t *testing.T) {
+// A dialect with nothing stored declares neither variable at launch, so a
+// single override calibrates only its own half: the other chain stays on
+// whatever Claude Code falls back to. Compaction and the reported percentage
+// would then measure against different capacities, which is exactly the split
+// this task exists to close — so the window is unknown and doctor says so,
+// rather than the lone override passing as a full calibration.
+func TestEffectiveContextWindowRejectsAHalfCalibratedDialect(t *testing.T) {
 	for _, key := range contextWindowEnvs {
 		dialect := Dialect{Model: "vendor-model", ExtraEnv: map[string]string{key: "150000"}}
-		if got := effectiveContextWindow(dialect); got != 150000 {
-			t.Errorf("%s override gave effective window %d, want 150000", key, got)
+		if got := effectiveContextWindow(dialect); got != 0 {
+			t.Errorf("%s override alone gave effective window %d, want 0 (half uncalibrated)", key, got)
 		}
+		if lines := contextWindowDiagnostics("cc-custom", dialect); len(lines) != 1 {
+			t.Errorf("%s override alone reported %d diagnostics, want 1: %v", key, len(lines), lines)
+		}
+	}
+
+	// Overriding both halves is a complete declaration again.
+	dialect := Dialect{Model: "vendor-model", ExtraEnv: map[string]string{
+		autoCompactWindowEnv: "150000", maxContextTokensEnv: "150000",
+	}}
+	if got := effectiveContextWindow(dialect); got != 150000 {
+		t.Errorf("both overrides gave effective window %d, want 150000", got)
 	}
 }
 

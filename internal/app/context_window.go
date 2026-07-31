@@ -237,27 +237,30 @@ func contextWindowOverride(dialect Dialect, key string) (window int, present boo
 // effectiveContextWindow returns the window the launched Claude Code process
 // actually runs against.
 //
-// claudeEnvironment applies ExtraEnv last, so an entry for either capacity
-// variable replaces the stored value for that half of the declaration. Claude
-// Code then compacts against the smaller of the two, so the tightest declared
-// capacity — not whichever the launcher wrote last — is what the session lives
-// within. An override that is not a usable window leaves the real denominator
-// unknown; reporting zero keeps callers from measuring against a number that is
-// certainly wrong.
+// Each variable resolves on its own: claudeEnvironment writes the stored window
+// to both and then applies ExtraEnv last, so an override replaces the stored
+// value for that half of the declaration and leaves the other half alone. The
+// stored field therefore cannot cap a pair of overrides that displaced it — it
+// is not in the launched environment at all. Claude Code compacts against the
+// smaller of the two chains, so the tightest resolved value is what the session
+// lives within.
+//
+// A half that resolves to no usable window leaves the real denominator unknown,
+// whether because an override is unparseable or because an uncalibrated dialect
+// declared only the other variable. Reporting zero keeps the monitor from
+// measuring against a number the session never received, and lets doctor say so.
 func effectiveContextWindow(dialect Dialect) int {
-	window := dialect.ContextWindow
+	window := 0
 	for _, key := range contextWindowEnvs {
-		override, present := contextWindowOverride(dialect, key)
-		if !present {
-			continue
+		declared := dialect.ContextWindow
+		if override, present := contextWindowOverride(dialect, key); present {
+			declared = override
 		}
-		if override == 0 {
+		if !validContextWindow(declared) {
 			return 0
 		}
-		// A dialect with nothing stored is calibrated by the override alone
-		// rather than capped by an absent value.
-		if window == 0 || override < window {
-			window = override
+		if window == 0 || declared < window {
+			window = declared
 		}
 	}
 	return window
@@ -406,12 +409,17 @@ func contextWindowDiagnostics(name string, dialect Dialect) []string {
 	// An override is the calibration for its half of the declaration once it
 	// exists, so the stored field cannot rescue it — say which entry is the
 	// problem, because either variable can be the one carrying it.
+	//
+	// The consequence is phrased against the declaration rather than against
+	// compaction: a broken CLAUDE_CODE_MAX_CONTEXT_TOKENS override primarily
+	// falsifies what Claude Code reports, and naming compaction there would
+	// point the reader at the wrong behavior.
 	for _, key := range contextWindowEnvs {
 		if override, present := contextWindowOverride(dialect, key); !present || override != 0 {
 			continue
 		}
 		return []string{fmt.Sprintf(
-			"✗ %s overrides %s with %q, which is not a usable context window; auto-compaction is uncalibrated "+
+			"✗ %s overrides %s with %q, which is not a usable context window; its declared capacity is uncalibrated "+
 				"(remove or correct that entry in the %q extraEnv in config.json)",
 			name, key, dialect.ExtraEnv[key], name)}
 	}
