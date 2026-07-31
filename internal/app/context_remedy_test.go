@@ -75,6 +75,24 @@ func TestContextWindowRemedyDoesNotReResolveALabeledDialect(t *testing.T) {
 	}
 }
 
+// Window calibration may resolve a diverged label through another exact route,
+// but the remedy command must still rebuild from the label the dialect carries.
+func TestContextWindowFixCommandKeepsTheDivergedPresetLabel(t *testing.T) {
+	dialect := presets["cursor-mix"]
+	dialect.Preset = "cursor-composer"
+	dialect.ContextWindow = 0
+
+	command := contextWindowFixCommand("cc-cursor-mix", dialect)
+	want := "cc-dialect create cc-cursor-mix --preset cursor-composer --opus-model composer-2.5 " +
+		"--sonnet-model grok-4.5 --haiku-model kimi-k3 --context-window TOKENS"
+	if command != want {
+		t.Fatalf("command = %q, want %q", command, want)
+	}
+	if strings.Contains(command, "--preset cursor-mix") {
+		t.Fatalf("command re-resolved the stored label through cursor-mix: %q", command)
+	}
+}
+
 // A label this build does not recognize may name a preset a newer one owns, so
 // backfill leaves it alone rather than downgrading it to whatever matches today.
 // A command carries that same weight: `create --preset codex-sol` would write

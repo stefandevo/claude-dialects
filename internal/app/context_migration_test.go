@@ -499,6 +499,63 @@ func TestPersistContextWindowBackfillWritesOnlyUnambiguousDialects(t *testing.T)
 	}
 }
 
+// A recognized label can diverge onto another preset's exact route. Doctor may
+// calibrate that route without renaming the dialect, because reading a window
+// costs the stored label nothing while a create command would rewrite it.
+func TestPersistContextWindowBackfillCalibratesExactRouteWithoutChangingDivergedPresetLabel(t *testing.T) {
+	writeLegacyConfig(t, `{
+      "version": 2,
+      "basePort": 43170,
+      "dialects": {
+        "cc-cursor-mix": {
+          "preset": "cursor-composer",
+          "model": "composer-2.5",
+          "subagentModel": "composer-2.5",
+          "opusModel": "composer-2.5",
+          "sonnetModel": "grok-4.5",
+          "haikuModel": "kimi-k3",
+          "bridge": "cursor",
+          "authTokenEnv": "CURSOR_API_KEY",
+          "port": 43170,
+          "bridgePort": 43171,
+          "apiKey": "local-secret"
+        }
+      }
+    }`)
+
+	migrated, err := persistContextWindowBackfill()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrated) != 1 || migrated[0] != "cc-cursor-mix" {
+		t.Fatalf("migrated = %v, want only [cc-cursor-mix]", migrated)
+	}
+
+	_, path, _, _, _, _, _, err := paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored struct {
+		Dialects map[string]struct {
+			Preset        string `json:"preset"`
+			ContextWindow int    `json:"contextWindow"`
+		} `json:"dialects"`
+	}
+	if err = json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.Dialects["cc-cursor-mix"].ContextWindow; got != 200000 {
+		t.Errorf("stored context window = %d, want the exact cursor-mix route's 200000", got)
+	}
+	if got := stored.Dialects["cc-cursor-mix"].Preset; got != "cursor-composer" {
+		t.Errorf("stored preset = %q, want the diverged cursor-composer label preserved", got)
+	}
+}
+
 // The label a route match resolves has to reach disk alongside the window it
 // justified. It is what a later create, doctor remedy, or dashboard save reads
 // to restate the dialect's OAuth route in one flag, so leaving it in memory

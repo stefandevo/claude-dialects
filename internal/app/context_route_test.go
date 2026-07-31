@@ -87,6 +87,28 @@ func TestPresetWithAModelOverrideDoesNotKeepThePresetCapacity(t *testing.T) {
 	}
 }
 
+// Overrides may move a dialect off the preset it names and onto another preset's
+// exact route. That route's reviewed window is still valid, while the stored
+// label remains the user's original create input.
+func TestCreateDialectAdoptsWindowFromTheExactResolvedRoute(t *testing.T) {
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	service := newAppService()
+
+	result, err := service.CreateDialect(DialectInput{
+		Name: "cc-cursor-mix", Preset: "cursor-composer",
+		OpusModel: "composer-2.5", SonnetModel: "grok-4.5", HaikuModel: "kimi-k3",
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.Dialect.ContextWindow; got != 200000 {
+		t.Fatalf("context window = %d, want the exact cursor-mix route's 200000", got)
+	}
+	if got := result.Dialect.Preset; got != "cursor-composer" {
+		t.Fatalf("preset = %q, want the requested cursor-composer label preserved", got)
+	}
+}
+
 // An explicit value is the operator's own measurement and stays authoritative
 // however far the route moved.
 func TestAnExplicitContextWindowSurvivesAModelChange(t *testing.T) {

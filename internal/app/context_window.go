@@ -288,6 +288,25 @@ func roundTripsThroughMutations(dialect Dialect) bool {
 	return dialect.Bridge == "" && dialect.AuthProvider == ""
 }
 
+// presetCalibratingWindow names the preset whose reviewed window is valid for a
+// dialect: the label it carries while that label still describes its route, or
+// — when the label has diverged — the preset whose route it matches exactly.
+//
+// Unlike presetSupplyingRoute, this is not used to phrase a create command, so
+// resolving past a diverged label costs the dialect nothing. sharesContextRoute
+// compares every route field and refuses ExtraEnv, which makes the matched
+// preset's window correct by equality rather than inference.
+func presetCalibratingWindow(dialect Dialect) string {
+	if preset, labeled := presets[dialect.Preset]; labeled && sharesContextRoute(dialect, preset) {
+		return dialect.Preset
+	}
+	matched := presetByContextRoute(dialect)
+	if preset, ok := presets[matched]; ok && sharesContextRoute(dialect, preset) {
+		return matched
+	}
+	return ""
+}
+
 // presetSupplyingRoute names the preset that supplies a dialect's route: the
 // label it carries, or — for a dialect written before that label existed — the
 // preset whose route it matches exactly.

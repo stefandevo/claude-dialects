@@ -458,7 +458,7 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 		}
 		dialect.ContextWindow = input.ContextWindow
 	} else {
-		dialect.ContextWindow = inheritedContextWindow(dialect, input.Preset, existing, exists)
+		dialect.ContextWindow = inheritedContextWindow(dialect, existing, exists)
 	}
 	// A hand-edited configuration can carry a nonsensical capacity. Treat it as
 	// unknown rather than refusing every later operation; doctor reports it.
@@ -538,9 +538,9 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 // request did not state one.
 //
 // Capacity describes a specific set of models, so it only carries over while the
-// resolved route is still that same set: a preset's reviewed value when the
-// request did not move off the preset's mapping, or the stored value when an
-// update left the mapping untouched. Anything else leaves it unknown.
+// resolved route is still that same set: the stored value when an update left
+// the mapping untouched, or a preset's reviewed value when the complete route
+// matches that preset exactly. Anything else leaves it unknown.
 //
 // Carrying a window across a model change would be the more damaging default. A
 // window larger than the new route supports lets a conversation run past the
@@ -556,11 +556,11 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 // what keeps the unsafe direction — silently increasing a window — out of the
 // default. A preset whose window later changes therefore does not reach an
 // already-calibrated dialect; passing --context-window is how that is adopted.
-func inheritedContextWindow(resolved Dialect, preset string, existing Dialect, exists bool) int {
+func inheritedContextWindow(resolved Dialect, existing Dialect, exists bool) int {
 	if exists && validContextWindow(existing.ContextWindow) && sharesContextRoute(resolved, existing) {
 		return existing.ContextWindow
 	}
-	if source, ok := presets[preset]; ok && sharesContextRoute(resolved, source) {
+	if source, ok := presets[presetCalibratingWindow(resolved)]; ok {
 		return source.ContextWindow
 	}
 	return 0
