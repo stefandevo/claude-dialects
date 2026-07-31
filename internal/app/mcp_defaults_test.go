@@ -99,6 +99,29 @@ func TestLoadMCPDefaultsRejectsNull(t *testing.T) {
 	}
 }
 
+// A non-object mcpServers section is malformed, not empty: returning an error
+// keeps the file off every launch instead of silently dropping every server.
+func TestLoadMCPDefaultsRejectsMalformedSection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	writeDefaultsFile(t, home, `{"mcpServers":[]}`)
+	if _, err := loadMCPDefaults(); err == nil {
+		t.Fatal("non-object mcpServers section should error")
+	}
+}
+
+// A malformed server entry must fail the whole load, even alongside a valid one:
+// silently keeping the valid entry would leave a non-empty result, and the
+// original file — still malformed — would then be passed through to Claude Code.
+func TestLoadMCPDefaultsRejectsMalformedEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	writeDefaultsFile(t, home, `{"mcpServers":{"good":{"command":"x"},"bad":"not-an-object"}}`)
+	if _, err := loadMCPDefaults(); err == nil {
+		t.Fatal("a malformed server entry should error even with a valid sibling")
+	}
+}
+
 // The defaults file may carry tokens in env, so it must be created 0600 and
 // survive a round-trip through load.
 func TestWriteMCPDefaultsCreates0600(t *testing.T) {
@@ -379,6 +402,30 @@ func TestMCPImportCommand(t *testing.T) {
 	defaults, _ := loadMCPDefaults()
 	if defaults.MCPServers["devflow"]["command"] != "npx" {
 		t.Fatalf("import did not persist the server: %#v", defaults.MCPServers)
+	}
+}
+
+// The documented `mcp import <dialect> --force` order must work, not just the
+// --force-first form Go's flag package would otherwise require.
+func TestMCPImportCommandForceAfterName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	base := availablePortRange(t, 2)
+	if err := saveConfig(&Config{Version: configVersion, BasePort: base, Dialects: map[string]Dialect{}, NativeLaunchers: map[string]NativeLauncher{}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAppService().CreateDialect(DialectInput{Name: "cc-test", Preset: "codex"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	// A conflicting shared entry that --force must overwrite.
+	writeDefaultsFile(t, home, `{"mcpServers":{"devflow":{"command":"existing"}}}`)
+	writeDialectClaudeJSON(t, home, "cc-test", `{"mcpServers":{"devflow":{"command":"npx"}}}`)
+	if err := mcpCommand([]string{"import", "cc-test", "--force"}); err != nil {
+		t.Fatalf("trailing --force should be accepted: %v", err)
+	}
+	defaults, _ := loadMCPDefaults()
+	if defaults.MCPServers["devflow"]["command"] != "npx" {
+		t.Fatalf("trailing --force did not overwrite: %#v", defaults.MCPServers)
 	}
 }
 
