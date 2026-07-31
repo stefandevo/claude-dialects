@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"sort"
@@ -25,9 +24,13 @@ type mcpDefaultsFile struct {
 
 // loadMCPDefaults reads the shared MCP server defaults. A missing file is the
 // normal pre-seed state and is not an error: the caller launches with no flag to
-// inject. A malformed file, or a literal null, is reported so the caller can warn
-// and omit the flag rather than feed Claude Code a bad path that breaks every
-// dialect at once.
+// inject. Any malformed file — invalid JSON, a literal null, a non-object
+// mcpServers section, or a non-object server entry — is reported as an error so
+// the caller can warn and omit the flag rather than feed Claude Code a bad path
+// that breaks every dialect at once. Validation is strict on purpose: if a single
+// valid entry alongside a malformed one were silently kept, the result would look
+// non-empty and the original, still-malformed file would be passed through
+// unchanged for Claude Code to reject on every launch.
 func loadMCPDefaults() (mcpDefaultsFile, error) {
 	path, err := defaultsMCPPath()
 	if err != nil {
@@ -48,11 +51,25 @@ func loadMCPDefaults() (mcpDefaultsFile, error) {
 		return mcpDefaultsFile{}, fmt.Errorf("parse shared MCP defaults %q: must be a JSON object", path)
 	}
 	file := mcpDefaultsFile{MCPServers: map[string]map[string]any{}}
-	if section, ok := document["mcpServers"].(map[string]any); ok {
-		for name, config := range section {
-			if server, ok := config.(map[string]any); ok {
-				file.MCPServers[name] = server
+	section, hasSection := document["mcpServers"]
+	if hasSection && section != nil {
+		servers, ok := section.(map[string]any)
+		if !ok {
+			return mcpDefaultsFile{}, fmt.Errorf("parse shared MCP defaults %q: mcpServers must be an object", path)
+		}
+		// Sort server names so a malformed entry is reported deterministically
+		// rather than depending on map iteration order.
+		names := make([]string, 0, len(servers))
+		for name := range servers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			server, ok := servers[name].(map[string]any)
+			if !ok {
+				return mcpDefaultsFile{}, fmt.Errorf("parse shared MCP defaults %q: server %q must be an object", path, name)
 			}
+			file.MCPServers[name] = server
 		}
 	}
 	return file, nil
@@ -157,35 +174,43 @@ func readDialectMCPServers(name string) (map[string]map[string]any, error) {
 // overwrite a shared configuration with one dialect's local copy. It reports the
 // servers it added and the ones it declined to overwrite.
 func importMCPServers(name string, force bool) (added, skipped []string, err error) {
-	servers, err := readDialectMCPServers(name)
-	if err != nil {
-		return nil, nil, err
-	}
-	defaults, err := loadMCPDefaults()
-	if err != nil {
-		return nil, nil, err
-	}
-	if defaults.MCPServers == nil {
-		defaults.MCPServers = map[string]map[string]any{}
-	}
-	// Sort for deterministic added/skipped order across map iteration.
-	names := make([]string, 0, len(servers))
-	for serverName := range servers {
-		names = append(names, serverName)
-	}
-	sort.Strings(names)
-	for _, serverName := range names {
-		if _, exists := defaults.MCPServers[serverName]; exists && !force {
-			skipped = append(skipped, serverName)
-			continue
+	// The shared defaults file is updated by a read-modify-write: load, merge,
+	// write back. Two concurrent imports that each snapshot the same defaults and
+	// apply different servers would have the last writer silently discard the
+	// other's import, so the whole transaction runs under withStateLock — the
+	// same cross-process lock the rest of the state machine already uses.
+	err = withStateLock(func() error {
+		servers, err := readDialectMCPServers(name)
+		if err != nil {
+			return err
 		}
-		defaults.MCPServers[serverName] = servers[serverName]
-		added = append(added, serverName)
-	}
-	if len(added) == 0 {
-		return added, skipped, nil
-	}
-	if err := writeMCPDefaults(defaults); err != nil {
+		defaults, err := loadMCPDefaults()
+		if err != nil {
+			return err
+		}
+		if defaults.MCPServers == nil {
+			defaults.MCPServers = map[string]map[string]any{}
+		}
+		// Sort for deterministic added/skipped order across map iteration.
+		names := make([]string, 0, len(servers))
+		for serverName := range servers {
+			names = append(names, serverName)
+		}
+		sort.Strings(names)
+		for _, serverName := range names {
+			if _, exists := defaults.MCPServers[serverName]; exists && !force {
+				skipped = append(skipped, serverName)
+				continue
+			}
+			defaults.MCPServers[serverName] = servers[serverName]
+			added = append(added, serverName)
+		}
+		if len(added) == 0 {
+			return nil
+		}
+		return writeMCPDefaults(defaults)
+	})
+	if err != nil {
 		return nil, nil, err
 	}
 	return added, skipped, nil
@@ -279,15 +304,27 @@ func mcpCommand(args []string) error {
 	}
 	switch args[0] {
 	case "import":
-		fs := flag.NewFlagSet("mcp import", flag.ContinueOnError)
-		force := fs.Bool("force", false, "overwrite a server already present in the shared defaults")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
+		// --force may appear before or after the dialect name. Go's flag package
+		// stops at the first positional argument, which would reject the documented
+		// `mcp import <dialect> --force` order, so the args are scanned manually.
+		force := false
+		var positional []string
+		for _, a := range args[1:] {
+			switch {
+			case a == "--force" || a == "-force" || a == "--force=true" || a == "-force=true":
+				force = true
+			case a == "--force=false" || a == "-force=false":
+				force = false
+			case strings.HasPrefix(a, "-"):
+				return fmt.Errorf("unknown mcp import flag %q", a)
+			default:
+				positional = append(positional, a)
+			}
 		}
-		if fs.NArg() != 1 {
+		if len(positional) != 1 {
 			return errors.New("mcp import requires a dialect name")
 		}
-		name := fs.Arg(0)
+		name := positional[0]
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
@@ -295,7 +332,7 @@ func mcpCommand(args []string) error {
 		if _, ok := cfg.Dialects[name]; !ok {
 			return fmt.Errorf("dialect %q does not exist", name)
 		}
-		added, skipped, err := importMCPServers(name, *force)
+		added, skipped, err := importMCPServers(name, force)
 		if err != nil {
 			return err
 		}

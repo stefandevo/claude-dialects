@@ -1313,9 +1313,11 @@ cc-dialect mcp list
 ```
 
 Every `cc-dialect run` then launches Claude Code with `--mcp-config <path>`, which
-**merges** the shared servers into the dialect's own set rather than replacing it.
-A server already configured in the dialect is left untouched — the shared default
-is purely additive — and `cc-dialect doctor` flags any dialect that redefines a
+**merges** the shared servers into the dialect's own set rather than replacing it:
+a server present only in the shared defaults becomes available, and nothing the
+dialect already defines is removed. Claude Code does not document which definition
+wins when a dialect and the shared defaults define a server with the same name, so
+keep the two disjoint; `cc-dialect doctor` flags any dialect that redefines a
 shared server locally so the duplicate can be cleaned up. `mcp import` never
 overwrites a server already in the shared defaults unless you pass `--force`.
 
