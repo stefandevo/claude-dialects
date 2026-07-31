@@ -348,15 +348,15 @@ func normalizeConfig(cfg *Config) {
 }
 
 // backfillContextWindows gives dialects written before capacity metadata existed
-// the reviewed window of the preset they were created from.
+// the reviewed window of the preset whose route they match exactly.
 //
-// It fills only where the answer is unambiguous: the dialect must carry a known
-// preset's exact model, tier, and route mapping, whether it names that preset or
-// — having been written before the preset field existed — is simply identical to
-// it. A dialect that was re-pointed at other models is left unknown and reported
-// by doctor instead: a capacity guessed from a model name could be larger than
-// the route really supports, which is worse than no calibration at all. An
-// explicit stored value is never overwritten.
+// It fills only where the answer is unambiguous: every model, tier, and upstream
+// field must equal one preset, whether the dialect names that preset, carries a
+// label that has since diverged, or predates the preset field entirely. A dialect
+// that matches no preset exactly is left unknown and reported by doctor instead:
+// a capacity guessed from a model name could be larger than the route really
+// supports, which is worse than no calibration at all. An explicit stored value
+// is never overwritten.
 //
 // Migration runs once per load rather than inside normalizeConfig, which
 // configRevision applies to a shallow copy that still shares the dialect map —
@@ -371,9 +371,9 @@ func backfillContextWindows(cfg *Config) []string {
 		if dialect.ContextWindow != 0 {
 			continue
 		}
-		source := presetSupplyingRoute(dialect)
+		source := presetCalibratingWindow(dialect)
 		preset, ok := presets[source]
-		if !ok || !sharesContextRoute(dialect, preset) || !validContextWindow(preset.ContextWindow) {
+		if !ok || !validContextWindow(preset.ContextWindow) {
 			continue
 		}
 		dialect.ContextWindow = preset.ContextWindow
@@ -399,7 +399,7 @@ func backfillContextWindows(cfg *Config) []string {
 //
 // This is a deterministic repair, which is what `doctor --fix` promises: it
 // writes only the value a load already resolves in memory, for dialects whose
-// mapping still matches their preset. Custom and re-pointed dialects stay
+// route matches a reviewed preset exactly. Custom and unmatched dialects stay
 // unwritten and keep being reported, because inventing a capacity for them is
 // exactly what makes a window unsafe. It takes the state lock itself, so callers
 // must not already hold it.
