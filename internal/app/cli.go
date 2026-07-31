@@ -25,6 +25,7 @@ Usage:
   cc-dialect list
   cc-dialect show <name>
   cc-dialect remove <name>
+  cc-dialect mcp <import <dialect> [--force] | list | path>
   cc-dialect detect [preset-or-provider] [--running] [--json] [--quiet]
   cc-dialect models <name>
   cc-dialect presets
@@ -79,6 +80,8 @@ func Run(args []string, version string) error {
 		return showDialect(args[1:])
 	case "models":
 		return listModels(args[1:])
+	case "mcp":
+		return mcpCommand(args[1:])
 	case "remove":
 		return removeDialect(args[1:])
 	case "detect":
@@ -535,6 +538,15 @@ func runDialect(args []string) error {
 	if d.Effort && d.EffortLevel != "" && d.EffortLevel != "auto" && !hasFlag(claudeArgs, "--effort") {
 		claudeArgs = append([]string{"--effort", d.EffortLevel}, claudeArgs...)
 	}
+	// Merge shared MCP server defaults via --mcp-config. The file lives outside
+	// the instance directory, so `remove` cannot delete it and re-creating a
+	// dialect keeps its servers. A bad file is warned about and skipped, not
+	// passed through to Claude Code.
+	if mcpArgs, mcpErr := sharedMCPConfigArgs(claudeArgs); mcpErr != nil {
+		warnMCPDefaults(mcpErr)
+	} else if mcpArgs != nil {
+		claudeArgs = append(mcpArgs, claudeArgs...)
+	}
 	if warning := modelOverrideWarning(name, d, claudeArgs); warning != "" {
 		fmt.Fprintln(os.Stderr, warning)
 	}
@@ -983,6 +995,13 @@ func doctor(args []string, version string) error {
 			fmt.Println("✓ CURSOR_API_KEY")
 		}
 	}
+	// Shared MCP server defaults are merged into every dialect on launch, so one
+	// unreadable file would silently drop servers from all of them — report it
+	// here rather than letting every dialect warn on its own.
+	sharedDefaults, sharedDefaultsErr := loadMCPDefaults()
+	if line := mcpDefaultsSummary(sharedDefaults, sharedDefaultsErr); line != "" {
+		fmt.Println(line)
+	}
 	for name := range cfg.Dialects {
 		shimName := preferredShimName(name)
 		if alias, found := zshAlias(shimName); found {
@@ -1014,6 +1033,9 @@ func doctor(args []string, version string) error {
 		if problem := attributionDiagnostic(name); problem != "" {
 			fmt.Println(problem)
 			needsAttributionSeed = append(needsAttributionSeed, name)
+		}
+		if line := mcpDefaultsDuplicateDiagnostic(name, sharedDefaults.MCPServers); line != "" {
+			fmt.Println(line)
 		}
 		if line := contextUsageReport(name); line != "" {
 			fmt.Println(line)

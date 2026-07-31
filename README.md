@@ -388,7 +388,10 @@ that crashed while its proxy is still running.
 `@cursor/sdk` is pinned by `cc-dialect` for reproducible installs but remains a
 separate Cursor-licensed dependency under Cursor's terms. Re-run
 `cc-dialect cursor install` after updating `cc-dialect` when its pinned SDK
-version changes.
+version changes. To apply a new `cc-dialect` build to an existing Cursor dialect,
+re-run `cc-dialect create <name> --preset <preset>` — creating an existing name
+is an upsert that preserves authentication, isolated state, and shims, so removing
+and recreating the dialect is never the right response to an update.
 
 Cursor Grok 4.5 is a different route from the direct xAI preset:
 
@@ -485,7 +488,10 @@ advertise configurable reasoning levels.
 `cc-dialect copilot install` after updating `cc-dialect` when the pinned SDK
 version changes. It remains a separately installed GitHub dependency under
 GitHub's terms. Copilot prompts consume the account's normal Copilot usage
-allowance.
+allowance. To apply a new `cc-dialect` build to an existing Copilot dialect,
+re-run `cc-dialect create <name> --preset <preset>` — creating an existing name
+is an upsert that preserves authentication, isolated state, and shims, so removing
+and recreating the dialect is never the right response to an update.
 
 ### Anthropic Claude
 
@@ -1115,6 +1121,8 @@ cursor-runtime/
 copilot-runtime/
   copilot_bridge.mjs
   node_modules/@github/copilot-sdk/
+defaults/
+  mcp.json         # shared MCP server defaults (owner-only); merged into every dialect
 ```
 
 Proxy servers bind only to `127.0.0.1`. Configuration, local API keys, and OAuth
@@ -1232,6 +1240,7 @@ cc-dialect web
 cc-dialect doctor
 cc-dialect upgrade
 cc-dialect remove cc-codex
+cc-dialect mcp list
 cc-dialect --version
 ```
 
@@ -1262,8 +1271,11 @@ cc-dialect shim install legacy-name --name cc-codex
 ```
 
 `cc-dialect remove <name>` stops that dialect's proxy and permanently removes
-its configuration, OAuth credentials, and isolated Claude Code history. Shims
-are ordinary files and must be removed separately:
+its configuration, OAuth credentials, isolated Claude Code history, and any MCP
+servers configured inside the dialect (they live in its `claude/.claude.json`).
+Promote servers you want to keep across removals to the
+[shared MCP defaults](#shared-mcp-server-defaults) first. Shims are ordinary
+files and must be removed separately:
 
 ```sh
 cc-dialect remove cc-gemini
@@ -1281,6 +1293,37 @@ rm -rf "$HOME/Library/Application Support/claude-dialects"
 The final `rm -rf` is intentionally explicit because it permanently deletes
 all remaining provider credentials and conversation history stored by Claude
 Dialects.
+
+### Shared MCP server defaults
+
+MCP servers added inside a running dialect — via `claude mcp add`, or written
+directly into a dialect's `claude/.claude.json` — live inside that dialect's
+instance directory, so `cc-dialect remove` deletes them along with everything
+else. To make a set of servers survive removal and apply to every dialect,
+promote them to the shared defaults file, which `cc-dialect` owns outside
+`instances/` and which `remove` structurally cannot delete:
+
+```sh
+# Copy this dialect's mcpServers into the shared defaults (owner-only file):
+cc-dialect mcp import cc-codex
+# Print the shared defaults file location, for manual editing:
+cc-dialect mcp path
+# List the shared servers (env values are never printed):
+cc-dialect mcp list
+```
+
+Every `cc-dialect run` then launches Claude Code with `--mcp-config <path>`, which
+**merges** the shared servers into the dialect's own set rather than replacing it.
+A server already configured in the dialect is left untouched — the shared default
+is purely additive — and `cc-dialect doctor` flags any dialect that redefines a
+shared server locally so the duplicate can be cleaned up. `mcp import` never
+overwrites a server already in the shared defaults unless you pass `--force`.
+
+The defaults file is written with owner-only permissions (`0600`) because a
+server's `env` may carry tokens, and `mcp list` deliberately omits `env`. A
+missing or empty file injects nothing, so every dialect behaves exactly as before.
+A malformed file is skipped with a warning rather than passed to Claude Code, so
+one bad file cannot break every dialect at once.
 
 CLIProxyAPI is pinned as a Go dependency so a new upstream release cannot alter
 an already-built executable. Its MIT license permits embedding and

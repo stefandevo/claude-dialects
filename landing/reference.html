@@ -356,7 +356,9 @@ cursor-runtime/
   node_modules/@cursor/sdk/
 copilot-runtime/
   copilot_bridge.mjs
-  node_modules/@github/copilot-sdk/</code></pre>
+  node_modules/@github/copilot-sdk/
+defaults/
+  mcp.json         # shared MCP server defaults (owner-only)</code></pre>
         </div>
       </section>
 
@@ -386,6 +388,10 @@ copilot-runtime/
           <div class="command-item">
             <code>cc-dialect remove cc-codex</code>
             <span>Remove a dialect permanently</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect mcp import cc-codex</code>
+            <span>Promote MCP servers to shared defaults (survive <code>remove</code>)</span>
           </div>
           <div class="command-item">
             <code>cc-dialect presets</code>

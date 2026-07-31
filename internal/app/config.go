@@ -230,6 +230,18 @@ func claudeConfigDir(name string) (string, error) {
 	return filepath.Join(home, "instances", name, "claude"), nil
 }
 
+// defaultsMCPPath is the home-level location of the shared MCP server defaults
+// passed to every dialect via `--mcp-config`. It lives outside instances/, so
+// `remove` — which erases a whole instance directory — structurally cannot
+// delete it, and re-creating a dialect keeps its servers.
+func defaultsMCPPath() (string, error) {
+	home, err := homeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "defaults", "mcp.json"), nil
+}
+
 func ensureClaudeConfigDir(name string) (string, error) {
 	instance, err := openInstanceFS(name)
 	if err != nil {
