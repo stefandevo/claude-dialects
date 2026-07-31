@@ -763,8 +763,8 @@ further requests fail.
 Every dialect therefore carries a **context window**: the number of tokens the
 route can hold. When you launch a dialect, Claude Dialects exports it for that
 Claude Code process as **both** `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, always with the same value. Claude Code reads
-the two through separate chains:
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, with the same value. Claude Code reads the two
+through separate chains:
 
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decides **when it compacts**.
 - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is the **denominator it reports against** —
@@ -785,12 +785,23 @@ ceiling roughly 33,000 tokens below the window while the percentage measures
 against the window itself. That offset exists against first-party models too;
 what the second variable removes is the wrong denominator, not the offset.
 
-Because `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is skipped for `claude-…` IDs, the
-presets that route to Claude model names — `claude`, `copilot-claude`, and
-`mixed-frontier` — keep reporting against whatever Claude Code's own registry
-resolves, which need not equal the declared window. Their **compaction** is
-still calibrated, because `CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such
-exclusion; only their reported percentage can be off.
+Because `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is skipped for `claude-…` IDs, that
+exclusion follows the **model in use**, not the dialect. `claude` and
+`copilot-claude` map every tier to a Claude model, so they always report against
+whatever Claude Code's own registry resolves, which need not equal the declared
+window. `mixed-frontier` does so only on its main and subagent model
+(`claude-fable-5`); switching to `/model opus`, `sonnet`, or `haiku` selects
+GPT-5.6 Sol, Kimi K3, or Grok 4.5, and the declared window applies again.
+**Compaction** stays calibrated in every case, because
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such exclusion; only the reported
+percentage can be off.
+
+If you override either variable yourself through a dialect's `extraEnv`, note
+that it is applied last and per variable — set **both**, or the reported
+percentage and the compaction point go back to measuring against different
+numbers, which is the split this section exists to close. `doctor` catches the
+case where this leaves no usable window at all, but a one-sided override that is
+still a valid number passes silently, so keeping the two in step is on you.
 
 The division of responsibility is deliberate:
 
@@ -900,8 +911,10 @@ cc-dialect doctor
 `doctor` reports dialects with a missing or invalid context window, the fill
 level of the most recent request per dialect, and a Claude Code build that no
 longer references either capacity variable — one line per variable, because
-dropping `CLAUDE_CODE_AUTO_COMPACT_WINDOW` delays compaction while dropping
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS` only falsifies what is reported. Adding `--fix`
+dropping `CLAUDE_CODE_AUTO_COMPACT_WINDOW` delays compaction, while dropping
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` falls back to Claude Code's 200,000-token
+default, which skews the reported percentage and compacts any larger declared
+window early. Adding `--fix`
 records migrated windows in `config.json`, together with the preset name a route
 match resolved for a dialect that stored none; it never invents one for a custom
 or re-pointed dialect, which stays reported until you set it yourself.

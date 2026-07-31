@@ -408,20 +408,26 @@ func contextWindowDiagnostics(name string, dialect Dialect) []string {
 	}
 	// An override is the calibration for its half of the declaration once it
 	// exists, so the stored field cannot rescue it — say which entry is the
-	// problem, because either variable can be the one carrying it.
+	// problem, because either variable can be the one carrying it. Every broken
+	// entry is reported, so a doubly broken declaration is correctable in one
+	// pass rather than one doctor run per entry.
 	//
 	// The consequence is phrased against the declaration rather than against
-	// compaction: a broken CLAUDE_CODE_MAX_CONTEXT_TOKENS override primarily
-	// falsifies what Claude Code reports, and naming compaction there would
-	// point the reader at the wrong behavior.
+	// compaction: a broken CLAUDE_CODE_MAX_CONTEXT_TOKENS override falsifies
+	// what Claude Code reports and only caps compaction indirectly, so naming
+	// compaction alone would point the reader at the wrong behavior.
+	var overrides []string
 	for _, key := range contextWindowEnvs {
 		if override, present := contextWindowOverride(dialect, key); !present || override != 0 {
 			continue
 		}
-		return []string{fmt.Sprintf(
+		overrides = append(overrides, fmt.Sprintf(
 			"✗ %s overrides %s with %q, which is not a usable context window; its declared capacity is uncalibrated "+
 				"(remove or correct that entry in the %q extraEnv in config.json)",
-			name, key, dialect.ExtraEnv[key], name)}
+			name, key, dialect.ExtraEnv[key], name))
+	}
+	if len(overrides) > 0 {
+		return overrides
 	}
 	problem := fmt.Sprintf("%s has no context window; Claude Code auto-compaction is uncalibrated for %s",
 		name, dialect.Model)
@@ -453,19 +459,25 @@ func contextWindowRemedy(name string, dialect Dialect) string {
 var contextWindowSupportProbe = claudeMissingContextWindowVars
 
 // contextWindowEnvConsequence describes what a build that ignores each variable
-// costs, because the two calibrate different things and only one of them is
-// about compaction.
+// costs. The two are not interchangeable: the auto-compact window is the only
+// one that can delay compaction, while losing the context-token variable drops
+// a custom model ID to Claude Code's 200,000-token default. That default skews
+// every readout, and because compaction runs against the smaller of the two
+// chains it also compacts any larger declared window early — so this is not a
+// display-only loss.
 var contextWindowEnvConsequence = map[string]string{
 	autoCompactWindowEnv: "auto-compaction may be uncalibrated for custom model IDs",
-	maxContextTokensEnv:  "context readouts for custom model IDs are measured against Claude Code's 200,000-token default",
+	maxContextTokensEnv: "custom model IDs fall back to Claude Code's 200,000-token default, " +
+		"skewing context readouts and compacting any larger declared window early",
 }
 
 // contextWindowCompatibilityDiagnostics reports a Claude Code build that no
 // longer honors a variable Claude Dialects calibrates with. Dropping the
 // auto-compact window silently returns every dialect to the uncalibrated
 // behavior issue #44 fixes; dropping the context-token variable silently
-// returns the statusline to a percentage unrelated to the declared capacity.
-// They are separate losses, so each gets its own line.
+// returns the declared window to Claude Code's default, which both falsifies
+// the reported percentage and compacts a larger window early. They are separate
+// losses, so each gets its own line.
 //
 // A build that cannot be inspected proves nothing either way, so it produces no
 // diagnostic: a false alarm about a working installation is worse than silence.
