@@ -140,6 +140,13 @@ func formatMCPArgs(args any) string {
 // .claude.json through that dialect's own root, so the read stays confined. A
 // missing file — a fresh dialect Claude Code has not yet written — yields no
 // servers and no error; import then has nothing to copy.
+//
+// Only the top-level, user-scoped mcpServers is read. `claude mcp add` defaults
+// to the local scope, which Claude Code stores under a per-project path in the
+// same file (projects.<cwd>.mcpServers); those entries are intentionally not
+// imported, since a project-scoped server is, by definition, not meant to apply
+// to every dialect. Add servers you want to share with `claude mcp add --scope
+// user`, which writes the top-level section read here.
 func readDialectMCPServers(name string) (map[string]map[string]any, error) {
 	instance, err := openInstanceFS(name)
 	if err != nil {
