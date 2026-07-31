@@ -1312,10 +1312,21 @@ cc-dialect mcp path
 cc-dialect mcp list
 ```
 
-Every `cc-dialect run` then launches Claude Code with `--mcp-config <path>`, which
-**merges** the shared servers into the dialect's own set rather than replacing it:
-a server present only in the shared defaults becomes available, and nothing the
-dialect already defines is removed. Claude Code does not document which definition
+`mcp import` and `doctor` read only the **user-scoped** `mcpServers` at the top
+of a dialect's `claude/.claude.json` — the section `claude mcp add --scope user`
+writes to. `claude mcp add` without `--scope` defaults to the `local` scope,
+which Claude Code stores under a per-project path those commands do not read; so
+to share a server, add it with `--scope user` (or edit the top-level `mcpServers`
+object directly).
+
+Unless the run already passes its own `--mcp-config`, every `cc-dialect run`
+launches Claude Code with `--mcp-config <path>`, which **merges** the shared
+servers into the dialect's own set rather than replacing it: a server present
+only in the shared defaults becomes available, and nothing the dialect already
+defines is removed. A run that already includes `--mcp-config` — for example
+`cc-dialect run cc-codex -- --mcp-config ./mine.json` — keeps your file as-is and
+does not add the shared defaults; include the shared path (printed by
+`cc-dialect mcp path`) alongside your own `--mcp-config` if you want both merged. Claude Code does not document which definition
 wins when a dialect and the shared defaults define a server with the same name, so
 keep the two disjoint; `cc-dialect doctor` flags any dialect that redefines a
 shared server locally so the duplicate can be cleaned up. `mcp import` never

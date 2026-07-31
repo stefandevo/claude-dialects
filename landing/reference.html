@@ -360,6 +360,10 @@ copilot-runtime/
 defaults/
   mcp.json         # shared MCP server defaults (owner-only)</code></pre>
         </div>
+        <div class="callout">
+          <div class="callout__title">⚙ Shared MCP defaults</div>
+          <p>Unless a run already passes its own <code>--mcp-config</code>, every <code>cc-dialect run</code> launches Claude Code with <code>--mcp-config defaults/mcp.json</code>, which <strong>merges</strong> these servers into each dialect's own set — keep shared and dialect-defined names disjoint. <code>mcp import</code> copies a dialect's user-scoped servers (<code>claude mcp add --scope user</code>) and never overwrites a shared one without <code>--force</code>. The file is owner-only (<code>0600</code>) because <code>env</code> may carry tokens; a malformed file is skipped on launch rather than breaking every dialect.</p>
+        </div>
       </section>
 
       <section id="commands" class="doc-section reveal">
@@ -392,6 +396,14 @@ defaults/
           <div class="command-item">
             <code>cc-dialect mcp import cc-codex</code>
             <span>Promote MCP servers to shared defaults (survive <code>remove</code>)</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect mcp list</code>
+            <span>List shared MCP servers (env values are never printed)</span>
+          </div>
+          <div class="command-item">
+            <code>cc-dialect mcp path</code>
+            <span>Print the shared defaults file location for editing</span>
           </div>
           <div class="command-item">
             <code>cc-dialect presets</code>
