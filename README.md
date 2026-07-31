@@ -766,11 +766,13 @@ Claude Code process as **both** `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, with the same value. Claude Code reads the two
 through separate chains:
 
-- `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decides **when it compacts**.
-- `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is the **denominator it reports against** —
-  the `ctx N%` in the statusline and its own `/context` view. It applies only to
-  model IDs Claude Code cannot recognize, so first-party `claude-…` IDs keep
-  resolving through Claude Code's own registry.
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW` caps **when it compacts**.
+- `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is the window it **resolves for the model**.
+  That is the denominator it reports against — the `ctx N%` in the statusline and
+  its own `/context` view — and, because Claude Code compacts against the smaller
+  of the two, a second cap on when it compacts. It applies only to model IDs
+  Claude Code cannot recognize, so first-party `claude-…` IDs keep resolving
+  through Claude Code's own registry.
 
 Declaring only the first leaves the two indicators counting the same tokens over
 different denominators. A `cc-glm` session showed `ctx 47%` beside `4% until
@@ -792,9 +794,12 @@ whatever Claude Code's own registry resolves, which need not equal the declared
 window. `mixed-frontier` does so only on its main and subagent model
 (`claude-fable-5`); switching to `/model opus`, `sonnet`, or `haiku` selects
 GPT-5.6 Sol, Kimi K3, or Grok 4.5, and the declared window applies again.
-**Compaction** stays calibrated in every case, because
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such exclusion; only the reported
-percentage can be off.
+**Compaction** can only come out tighter than the declared window, never looser,
+because `CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such exclusion and Claude Code
+takes the smaller of the two — so these conversations still cannot outrun the
+route. Where the registry resolves *below* the declared window, though, they
+compact earlier than that window implies and report against the registry value
+rather than the declared one.
 
 If you override either variable yourself through a dialect's `extraEnv`, note
 that it is applied last and per variable — set **both**, or the reported
