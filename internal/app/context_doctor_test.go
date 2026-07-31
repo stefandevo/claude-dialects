@@ -38,93 +38,157 @@ func TestContextWindowDiagnosticsStaysQuietForACalibratedDialect(t *testing.T) {
 	}
 }
 
-// Claude Dialects only supplies the capacity; Claude Code owns compaction. If a
-// future release stops honoring the variable, that boundary has broken and
-// doctor has to say so rather than silently keeping a dead setting.
-func TestAutoCompactCompatibilityDiagnosticReportsAnUnsupportedBuild(t *testing.T) {
-	stubAutoCompactSupport(t, func(string) (bool, error) { return false, nil })
-
-	line := autoCompactCompatibilityDiagnostic("/usr/local/bin/claude")
-
-	if line == "" {
-		t.Fatal("an unsupported Claude Code build produced no diagnostic")
-	}
-	for _, expected := range []string{autoCompactWindowEnv, "/usr/local/bin/claude", "43989"} {
-		if !strings.Contains(line, expected) {
-			t.Errorf("diagnostic %q does not mention %q", line, expected)
+// An ExtraEnv entry that is not a usable window has to name the variable
+// carrying it, because either of the two can be the one at fault and the user
+// has to know which line of config.json to correct.
+func TestContextWindowDiagnosticsNamesTheOffendingOverride(t *testing.T) {
+	for _, key := range contextWindowEnvs {
+		dialect := presets["codex-sol"]
+		dialect.ExtraEnv = map[string]string{key: "not-a-number"}
+		lines := contextWindowDiagnostics("cc-codex", dialect)
+		if len(lines) != 1 {
+			t.Fatalf("%s: got %d diagnostics, want 1: %v", key, len(lines), lines)
+		}
+		for _, expected := range []string{"cc-codex", key, "not-a-number"} {
+			if !strings.Contains(lines[0], expected) {
+				t.Errorf("diagnostic %q does not mention %q", lines[0], expected)
+			}
 		}
 	}
 }
 
-func TestAutoCompactCompatibilityDiagnosticStaysQuietWhenSupported(t *testing.T) {
-	stubAutoCompactSupport(t, func(string) (bool, error) { return true, nil })
+// Claude Dialects only supplies the capacity; Claude Code owns compaction and
+// its own context readouts. If a future release stops honoring either variable,
+// that boundary has broken and doctor has to say so rather than silently
+// keeping a dead setting.
+func TestContextWindowCompatibilityDiagnosticsReportsEachDroppedVariable(t *testing.T) {
+	for _, missing := range contextWindowEnvs {
+		stubContextWindowSupport(t, func(string) ([]string, error) { return []string{missing}, nil })
 
-	if line := autoCompactCompatibilityDiagnostic("/usr/local/bin/claude"); line != "" {
-		t.Fatalf("supported build reported %q", line)
+		lines := contextWindowCompatibilityDiagnostics("/usr/local/bin/claude")
+
+		if len(lines) != 1 {
+			t.Fatalf("%s missing: got %d diagnostics, want 1: %v", missing, len(lines), lines)
+		}
+		for _, expected := range []string{missing, "/usr/local/bin/claude", "43989"} {
+			if !strings.Contains(lines[0], expected) {
+				t.Errorf("diagnostic %q does not mention %q", lines[0], expected)
+			}
+		}
+		for _, other := range contextWindowEnvs {
+			if other != missing && strings.Contains(lines[0], other) {
+				t.Errorf("diagnostic %q blames %q, which the build still references", lines[0], other)
+			}
+		}
+	}
+}
+
+// A capacity variable added without an explanation of what losing it costs
+// would produce a diagnostic that names a variable and then trails off.
+func TestEveryCapacityVariableExplainsWhatLosingItCosts(t *testing.T) {
+	for _, key := range contextWindowEnvs {
+		if strings.TrimSpace(contextWindowEnvConsequence[key]) == "" {
+			t.Errorf("%s has no entry in contextWindowEnvConsequence", key)
+		}
+	}
+}
+
+// A build that dropped both is two separate losses — one delays compaction, the
+// other falsifies the reported fill level — so each is reported on its own line.
+func TestContextWindowCompatibilityDiagnosticsReportsBoth(t *testing.T) {
+	stubContextWindowSupport(t, func(string) ([]string, error) { return contextWindowEnvs, nil })
+
+	if lines := contextWindowCompatibilityDiagnostics("/usr/local/bin/claude"); len(lines) != len(contextWindowEnvs) {
+		t.Fatalf("got %d diagnostics, want %d: %v", len(lines), len(contextWindowEnvs), lines)
+	}
+}
+
+func TestContextWindowCompatibilityDiagnosticsStaysQuietWhenSupported(t *testing.T) {
+	stubContextWindowSupport(t, func(string) ([]string, error) { return nil, nil })
+
+	if lines := contextWindowCompatibilityDiagnostics("/usr/local/bin/claude"); len(lines) != 0 {
+		t.Fatalf("supported build reported %v", lines)
 	}
 }
 
 // An unreadable executable proves nothing either way, so doctor must not raise
 // a false alarm about a Claude Code build it could not inspect.
-func TestAutoCompactCompatibilityDiagnosticStaysQuietWhenUninspectable(t *testing.T) {
-	stubAutoCompactSupport(t, func(string) (bool, error) { return false, errors.New("permission denied") })
+func TestContextWindowCompatibilityDiagnosticsStaysQuietWhenUninspectable(t *testing.T) {
+	stubContextWindowSupport(t, func(string) ([]string, error) {
+		return contextWindowEnvs, errors.New("permission denied")
+	})
 
-	if line := autoCompactCompatibilityDiagnostic("/usr/local/bin/claude"); line != "" {
-		t.Fatalf("uninspectable build reported %q", line)
+	if lines := contextWindowCompatibilityDiagnostics("/usr/local/bin/claude"); len(lines) != 0 {
+		t.Fatalf("uninspectable build reported %v", lines)
 	}
 }
 
-func TestClaudeSupportsAutoCompactWindowScansTheExecutable(t *testing.T) {
+func TestClaudeMissingContextWindowVarsScansTheExecutable(t *testing.T) {
 	dir := t.TempDir()
-	supported := filepath.Join(dir, "claude-supported")
-	unsupported := filepath.Join(dir, "claude-unsupported")
-	if err := os.WriteFile(supported, []byte("prefix\x00"+autoCompactWindowEnv+"\x00suffix"), 0o755); err != nil {
+	both := filepath.Join(dir, "claude-both")
+	partial := filepath.Join(dir, "claude-partial")
+	neither := filepath.Join(dir, "claude-neither")
+	if err := os.WriteFile(both, []byte("prefix\x00"+strings.Join(contextWindowEnvs, "\x00")+"\x00suffix"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(unsupported, []byte("a build without the variable"), 0o755); err != nil {
+	if err := os.WriteFile(partial, []byte("prefix\x00"+autoCompactWindowEnv+"\x00suffix"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(neither, []byte("a build without the variables"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	if ok, err := claudeSupportsAutoCompactWindow(supported); err != nil || !ok {
-		t.Fatalf("supported executable: ok=%t err=%v", ok, err)
+	if missing, err := claudeMissingContextWindowVars(both); err != nil || len(missing) != 0 {
+		t.Fatalf("supporting executable: missing=%v err=%v", missing, err)
 	}
-	if ok, err := claudeSupportsAutoCompactWindow(unsupported); err != nil || ok {
-		t.Fatalf("unsupported executable: ok=%t err=%v", ok, err)
+	missing, err := claudeMissingContextWindowVars(partial)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := claudeSupportsAutoCompactWindow(filepath.Join(dir, "missing")); err == nil {
+	if len(missing) != 1 || missing[0] != maxContextTokensEnv {
+		t.Fatalf("partial executable: missing=%v, want [%s]", missing, maxContextTokensEnv)
+	}
+	if missing, err := claudeMissingContextWindowVars(neither); err != nil || len(missing) != len(contextWindowEnvs) {
+		t.Fatalf("unsupporting executable: missing=%v err=%v", missing, err)
+	}
+	if _, err := claudeMissingContextWindowVars(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("a missing executable must report an error, not a verdict")
 	}
 }
 
-// The literal can straddle the boundary between two reads, so the scan must
+// A literal can straddle the boundary between two reads, so the scan must
 // carry a tail forward rather than only matching within one chunk. The first
 // read fills chunk+overlap bytes, so placing the literal to span that offset
 // splits it across the two reads.
-func TestClaudeSupportsAutoCompactWindowMatchesAcrossBufferBoundaries(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "claude")
-	firstReadEnd := autoCompactScanChunk + len(autoCompactWindowEnv) - 1
-	start := firstReadEnd - len(autoCompactWindowEnv)/2
-	body := strings.Repeat("x", start) + autoCompactWindowEnv + strings.Repeat("x", 1024)
-	if start >= firstReadEnd || start+len(autoCompactWindowEnv) <= firstReadEnd {
-		t.Fatalf("literal at [%d,%d) does not span the %d-byte read boundary",
-			start, start+len(autoCompactWindowEnv), firstReadEnd)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+func TestClaudeMissingContextWindowVarsMatchesAcrossBufferBoundaries(t *testing.T) {
+	for _, name := range contextWindowEnvs {
+		path := filepath.Join(t.TempDir(), "claude")
+		firstReadEnd := autoCompactScanChunk + contextWindowScanOverlap()
+		start := firstReadEnd - len(name)/2
+		body := strings.Repeat("x", start) + name + strings.Repeat("x", 1024)
+		if start >= firstReadEnd || start+len(name) <= firstReadEnd {
+			t.Fatalf("literal at [%d,%d) does not span the %d-byte read boundary",
+				start, start+len(name), firstReadEnd)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
 
-	ok, err := claudeSupportsAutoCompactWindow(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Fatal("literal spanning a chunk boundary was not found")
+		missing, err := claudeMissingContextWindowVars(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, reported := range missing {
+			if reported == name {
+				t.Errorf("%s spanning a chunk boundary was not found", name)
+			}
+		}
 	}
 }
 
-func stubAutoCompactSupport(t *testing.T, probe func(string) (bool, error)) {
+func stubContextWindowSupport(t *testing.T, probe func(string) ([]string, error)) {
 	t.Helper()
-	previous := autoCompactSupportProbe
-	autoCompactSupportProbe = probe
-	t.Cleanup(func() { autoCompactSupportProbe = previous })
+	previous := contextWindowSupportProbe
+	contextWindowSupportProbe = probe
+	t.Cleanup(func() { contextWindowSupportProbe = previous })
 }

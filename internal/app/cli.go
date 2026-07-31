@@ -579,7 +579,7 @@ func claudeEnvironment(inherited []string, claudeDir string, dialect Dialect) []
 	env = setEnv(env, "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", boolNumber(dialect.Effort))
 	env = setEnv(env, "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY", strconv.Itoa(dialect.Concurrency))
 	env = setEnv(env, "ENABLE_TOOL_SEARCH", strconv.FormatBool(dialect.ToolSearch))
-	env = applyAutoCompactWindow(env, dialect.ContextWindow)
+	env = applyContextWindow(env, dialect.ContextWindow)
 	for key, value := range dialect.ExtraEnv {
 		env = setEnv(env, key, value)
 	}
@@ -933,7 +933,7 @@ func doctor(args []string, version string) error {
 	fmt.Println("✓ configuration")
 	if path, err := exec.LookPath("claude"); err == nil {
 		fmt.Println("✓ Claude Code:", path)
-		if problem := autoCompactCompatibilityDiagnostic(path); problem != "" {
+		for _, problem := range contextWindowCompatibilityDiagnostics(path) {
 			fmt.Println(problem)
 		}
 	} else {
