@@ -191,7 +191,8 @@ cc-dialect create cc-glm --preset glm
 cc-dialect shim install cc-glm
 cc-glm</code></pre>
         </div>
-        <p>Maps <code>opus</code> → <code>glm-5.2</code>, <code>sonnet</code> → <code>glm-5-turbo</code>, <code>haiku</code> → <code>glm-4.5-air</code>. GLM-5.2 accepts <code>high</code> or <code>max</code> effort.</p>
+        <p>Maps <code>opus</code> → <code>glm-5.2</code>, and both <code>sonnet</code> and <code>haiku</code> → <code>glm-5-turbo</code>. GLM-5.2 accepts <code>high</code> or <code>max</code> effort.</p>
+        <p>The <code>haiku</code> tier is deliberately not the cheaper GLM-4.5-Air. A dialect gets one context window for the whole Claude Code process, sized to the smallest model it can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.2's 1M — so pointing one tier at it cut every conversation to an eighth of the main model's capacity, to serve a tier Claude Code sends only short auxiliary work to. GLM-5-Turbo holds 262,144. An existing <code>cc-glm</code> keeps its stored window until you re-run <code>cc-dialect create cc-glm --preset glm</code>.</p>
       </article>
 
       <article id="kimi" class="provider-detail reveal">

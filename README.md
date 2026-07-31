@@ -201,10 +201,37 @@ cc-dialect shim install cc-glm
 cc-glm
 ```
 
-The GLM preset maps `opus` to `glm-5.2`, `sonnet` to `glm-5-turbo`, and
-`haiku` to `glm-4.5-air`. Its `auto` effort setting leaves GLM-5.2 at the
-provider default (`max`). Inside Claude Code, GLM-5.2 accepts `high` or `max`;
-the provider maps `xhigh` to `max` and maps `low` or `medium` to `high`.
+The GLM preset maps `opus` to `glm-5.2` and both `sonnet` and `haiku` to
+`glm-5-turbo`. Its `auto` effort setting leaves GLM-5.2 at the provider default
+(`max`). Inside Claude Code, GLM-5.2 accepts `high` or `max`; the provider maps
+`xhigh` to `max` and maps `low` or `medium` to `high`.
+
+The `haiku` tier is deliberately **not** GLM-4.5-Air, even though it is the
+cheaper model. A dialect gets [one context window for the whole Claude Code
+process](#context-window-and-auto-compaction), sized to the smallest model it
+can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.2's 1M — so
+pointing one tier at it cut the entire session to an eighth of the main model's
+capacity. Claude Code sends the `haiku` tier short auxiliary work (titles,
+summaries, classification) that never approaches either number, and subagents
+already run GLM-5.2, so the cheaper tier was paid for out of every conversation.
+GLM-5-Turbo holds 262,144, which is what the preset now declares. If you would
+rather have the cheaper tier back, restore both the model and the window it
+implies:
+
+```sh
+cc-dialect create cc-glm --preset glm \
+  --haiku-model glm-4.5-air \
+  --context-window 131072
+```
+
+An existing `cc-glm` keeps its stored 131,072-token window and its
+`glm-4.5-air` mapping. [A recorded window is never raised on your
+behalf](#custom-dialects), because silently widening one is the direction that
+can outrun a provider. Re-run `cc-dialect create cc-glm --preset glm` to adopt
+the new mapping and window together. (A `cc-glm` old enough to predate the
+stored window entirely no longer matches this preset field for field, so it is
+left uncalibrated rather than given a window its GLM-4.5-Air tier cannot hold;
+`doctor` reports it with the same command.)
 
 ### Moonshot Kimi
 
@@ -777,9 +804,9 @@ through separate chains:
 Declaring only the first leaves the two indicators counting the same tokens over
 different denominators. A `cc-glm` session showed `ctx 47%` beside `4% until
 auto-compact` and compacted moments later: the percentage was dividing by Claude
-Code's 200,000-token default instead of the dialect's declared 131,072. Dialects
-with a window above 200,000 had the opposite fault — the statusline sat at 100%
-for most of a long session.
+Code's 200,000-token default instead of the 131,072 that dialect declared at the
+time. Dialects with a window above 200,000 had the opposite fault — the
+statusline sat at 100% for most of a long session.
 
 The two readings still will not be identical. Claude Code holds back an output
 allowance and a compaction buffer, so the countdown measures against a usable
@@ -833,6 +860,7 @@ mid-conversation and spawning subagents safe.
 | `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
 | `kimi` | 262,144 | Kimi K3, K2.7 Code Highspeed, K2.6 |
 | `mixed-frontier` | 262,144 | Kimi K3 |
+| `glm` | 262,144 | GLM-5-Turbo |
 | `grok-build` | 256,000 | Grok Build 0.1 |
 | `copilot-mai` | 256,000 | MAI-Code-1-Flash |
 | `minimax` | 204,800 | MiniMax-M2.7 (input and output combined) |
@@ -843,7 +871,6 @@ mid-conversation and spawning subagents safe.
 | `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |
 | `copilot-codex` | 200,000 | Copilot GPT-5.3-Codex route |
 | `copilot-claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
-| `glm` | 131,072 | GLM-4.5-Air |
 | `cursor-auto`, `copilot-auto` | 128,000 | any model the route may select |
 
 OAuth-backed values come from the embedded CLIProxyAPI model registry. Cursor
