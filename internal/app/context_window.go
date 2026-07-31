@@ -12,19 +12,39 @@ import (
 )
 
 // autoCompactWindowEnv is the Claude Code environment variable that declares the
-// model's context capacity. Claude Code uses the minimum of this value and the
-// window it detects itself, then applies its own compaction threshold inside it,
-// so the value is raw model capacity and never a pre-discounted trigger point.
+// model's context capacity to the compaction path. Claude Code uses the minimum
+// of this value and the window it detects itself, then applies its own
+// compaction threshold inside it, so the value is raw model capacity and never a
+// pre-discounted trigger point.
 //
 // Claude Dialects launches Claude Code with provider model IDs it cannot
 // recognize, so without this variable there is no dependable denominator and a
 // conversation can reach the provider's real limit before compaction runs.
-//
-// The assignment is deliberately isolated in applyAutoCompactWindow so a future
-// Claude Code release that renames or rejects the variable is a single-line
-// change, and so doctor can report the incompatibility from one place.
 // See https://github.com/anthropics/claude-code/issues/43989.
 const autoCompactWindowEnv = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+
+// maxContextTokensEnv is the second half of the same declaration. Claude Code
+// resolves a model's context window through a chain that never consults the
+// auto-compact variable: it looks the model up in its own registry and, for an
+// ID that is not there and does not begin with "claude-", falls back to this
+// variable before defaulting to 200,000 tokens.
+//
+// That default is what every readout measured against the window uses — the
+// `context_window.used_percentage` the statusline prints, and Claude Code's own
+// `/context` view. Declaring only the auto-compact window therefore leaves the
+// two indicators sharing a numerator over different denominators: a dialect
+// declaring 131,072 reported 47% full while its own countdown said 4% remained.
+// The "claude-" exclusion is exactly the dialect case, so first-party model IDs
+// keep resolving through the registry as before.
+const maxContextTokensEnv = "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+
+// contextWindowEnvs lists both variables in the order diagnostics report them.
+// They always carry the same value: they describe one capacity, and a launch
+// that let them disagree would compact against one number while reporting
+// against another. Keeping the set here means a future Claude Code release that
+// renames or rejects either one is a single-line change, and doctor has one
+// place to report the incompatibility from.
+var contextWindowEnvs = []string{autoCompactWindowEnv, maxContextTokensEnv}
 
 // maxContextWindow bounds accepted capacity values. It sits an order of
 // magnitude above today's largest published window so genuine growth is not
@@ -178,38 +198,67 @@ func validContextWindow(value int) bool {
 	return value > 0 && value <= maxContextWindow
 }
 
-// applyAutoCompactWindow declares the dialect's context capacity to the Claude
-// Code process it is about to launch.
+// applyContextWindow declares the dialect's context capacity to the Claude Code
+// process it is about to launch, through both variables Claude Code reads a
+// window from.
 //
 // A known window always replaces whatever the parent shell exported, so a preset
 // launch behaves the same in every terminal. An unknown window has nothing to
-// calibrate with, so an ambient value is left in place: it is the user's own
-// explicit choice, and dropping it would only make compaction less informed.
-func applyAutoCompactWindow(env []string, window int) []string {
+// calibrate with, so ambient values are left in place: they are the user's own
+// explicit choice, and dropping them would only make compaction less informed.
+func applyContextWindow(env []string, window int) []string {
 	if !validContextWindow(window) {
 		return env
 	}
-	return setEnv(env, autoCompactWindowEnv, strconv.Itoa(window))
+	value := strconv.Itoa(window)
+	for _, key := range contextWindowEnvs {
+		env = setEnv(env, key, value)
+	}
+	return env
+}
+
+// contextWindowOverride reads a dialect's ExtraEnv entry for one capacity
+// variable. present distinguishes an unusable override from an absent one,
+// which is what diagnostics need to name the entry at fault.
+func contextWindowOverride(dialect Dialect, key string) (window int, present, usable bool) {
+	raw, present := dialect.ExtraEnv[key]
+	if !present {
+		return 0, false, false
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || !validContextWindow(parsed) {
+		return 0, true, false
+	}
+	return parsed, true, true
 }
 
 // effectiveContextWindow returns the window the launched Claude Code process
-// actually receives.
+// actually runs against.
 //
-// claudeEnvironment applies ExtraEnv last, so an entry for the auto-compact
-// variable replaces the stored capacity — that override, not the stored field,
-// is the denominator the session runs against. An override that is not a usable
-// window leaves the real denominator unknown; reporting zero keeps callers from
-// measuring against a number that is certainly wrong.
+// claudeEnvironment applies ExtraEnv last, so an entry for either capacity
+// variable replaces the stored value for that half of the declaration. Claude
+// Code then compacts against the smaller of the two, so the tightest declared
+// capacity — not whichever the launcher wrote last — is what the session lives
+// within. An override that is not a usable window leaves the real denominator
+// unknown; reporting zero keeps callers from measuring against a number that is
+// certainly wrong.
 func effectiveContextWindow(dialect Dialect) int {
-	override, overridden := dialect.ExtraEnv[autoCompactWindowEnv]
-	if !overridden {
-		return dialect.ContextWindow
+	window := dialect.ContextWindow
+	for _, key := range contextWindowEnvs {
+		override, present, usable := contextWindowOverride(dialect, key)
+		if !present {
+			continue
+		}
+		if !usable {
+			return 0
+		}
+		// A dialect with nothing stored is calibrated by the override alone
+		// rather than capped by an absent value.
+		if window == 0 || override < window {
+			window = override
+		}
 	}
-	parsed, err := strconv.Atoi(strings.TrimSpace(override))
-	if err != nil || !validContextWindow(parsed) {
-		return 0
-	}
-	return parsed
+	return window
 }
 
 // roundTripsThroughMutations reports whether a dialect's configuration can
@@ -352,21 +401,23 @@ func contextWindowDiagnostics(name string, dialect Dialect) []string {
 	if validContextWindow(effectiveContextWindow(dialect)) {
 		return nil
 	}
-	var problem string
-	switch override, overridden := dialect.ExtraEnv[autoCompactWindowEnv]; {
-	case overridden:
-		// The override is the calibration once it exists, so the stored field
-		// cannot rescue it — say which value is the problem.
+	// An override is the calibration for its half of the declaration once it
+	// exists, so the stored field cannot rescue it — say which entry is the
+	// problem, because either variable can be the one carrying it.
+	for _, key := range contextWindowEnvs {
+		if _, present, usable := contextWindowOverride(dialect, key); !present || usable {
+			continue
+		}
 		return []string{fmt.Sprintf(
 			"✗ %s overrides %s with %q, which is not a usable context window; auto-compaction is uncalibrated "+
 				"(remove or correct that entry in the %q extraEnv in config.json)",
-			name, autoCompactWindowEnv, override, name)}
-	case dialect.ContextWindow != 0:
+			name, key, dialect.ExtraEnv[key], name)}
+	}
+	problem := fmt.Sprintf("%s has no context window; Claude Code auto-compaction is uncalibrated for %s",
+		name, dialect.Model)
+	if dialect.ContextWindow != 0 {
 		problem = fmt.Sprintf("%s has an invalid context window (%d); auto-compaction is uncalibrated",
 			name, dialect.ContextWindow)
-	default:
-		problem = fmt.Sprintf("%s has no context window; Claude Code auto-compaction is uncalibrated for %s",
-			name, dialect.Model)
 	}
 	return []string{"✗ " + problem + " (" + contextWindowRemedy(name, dialect) + ")"}
 }
@@ -387,25 +438,40 @@ func contextWindowRemedy(name string, dialect Dialect) string {
 			"that cc-dialect create and the dashboard would both drop", name)
 }
 
-// autoCompactSupportProbe reports whether an installed Claude Code build still
-// recognizes the auto-compact window variable. A variable so tests can stub it.
-var autoCompactSupportProbe = claudeSupportsAutoCompactWindow
+// contextWindowSupportProbe reports which capacity variables an installed
+// Claude Code build no longer recognizes. A variable so tests can stub it.
+var contextWindowSupportProbe = claudeMissingContextWindowVars
 
-// autoCompactCompatibilityDiagnostic reports a Claude Code build that no longer
-// honors the variable Claude Dialects calibrates with, which would silently
-// return every dialect to the uncalibrated behavior issue #44 fixes.
+// contextWindowEnvConsequence describes what a build that ignores each variable
+// costs, because the two calibrate different things and only one of them is
+// about compaction.
+var contextWindowEnvConsequence = map[string]string{
+	autoCompactWindowEnv: "auto-compaction may be uncalibrated for custom model IDs",
+	maxContextTokensEnv:  "context readouts for custom model IDs are measured against Claude Code's 200,000-token default",
+}
+
+// contextWindowCompatibilityDiagnostics reports a Claude Code build that no
+// longer honors a variable Claude Dialects calibrates with. Dropping the
+// auto-compact window silently returns every dialect to the uncalibrated
+// behavior issue #44 fixes; dropping the context-token variable silently
+// returns the statusline to a percentage unrelated to the declared capacity.
+// They are separate losses, so each gets its own line.
 //
 // A build that cannot be inspected proves nothing either way, so it produces no
 // diagnostic: a false alarm about a working installation is worse than silence.
-func autoCompactCompatibilityDiagnostic(claudePath string) string {
-	supported, err := autoCompactSupportProbe(claudePath)
-	if err != nil || supported {
-		return ""
+func contextWindowCompatibilityDiagnostics(claudePath string) []string {
+	missing, err := contextWindowSupportProbe(claudePath)
+	if err != nil || len(missing) == 0 {
+		return nil
 	}
-	return fmt.Sprintf(
-		"✗ Claude Code at %s does not reference %s; auto-compaction may be uncalibrated "+
-			"for custom model IDs (see https://github.com/anthropics/claude-code/issues/43989)",
-		claudePath, autoCompactWindowEnv)
+	lines := make([]string, 0, len(missing))
+	for _, key := range missing {
+		lines = append(lines, fmt.Sprintf(
+			"✗ Claude Code at %s does not reference %s; %s "+
+				"(see https://github.com/anthropics/claude-code/issues/43989)",
+			claudePath, key, contextWindowEnvConsequence[key]))
+	}
+	return lines
 }
 
 // autoCompactScanChunk is the read size used when scanning the Claude Code
@@ -417,24 +483,39 @@ const autoCompactScanChunk = 1 << 20
 // cannot stall doctor.
 const autoCompactScanLimit = 512 << 20
 
-// claudeSupportsAutoCompactWindow scans the resolved Claude Code executable for
-// the auto-compact window variable name. Claude Code exposes no API for asking
-// which environment variables it honors, so the embedded literal is the only
-// available signal; symlinks are resolved first so an npm-style launcher shim is
-// inspected as the script it points at rather than as the link.
-func claudeSupportsAutoCompactWindow(claudePath string) (bool, error) {
+// contextWindowScanOverlap is how much of each chunk has to be carried into the
+// next read so a literal straddling the boundary is still found: one byte short
+// of the longest name being searched for.
+func contextWindowScanOverlap() int {
+	longest := 0
+	for _, name := range contextWindowEnvs {
+		if len(name) > longest {
+			longest = len(name)
+		}
+	}
+	return longest - 1
+}
+
+// claudeMissingContextWindowVars scans the resolved Claude Code executable for
+// the capacity variable names, reporting the ones it does not contain. Claude
+// Code exposes no API for asking which environment variables it honors, so the
+// embedded literals are the only available signal; symlinks are resolved first
+// so an npm-style launcher shim is inspected as the script it points at rather
+// than as the link. All names are searched in a single pass, because the file is
+// large enough that a pass per variable would be felt.
+func claudeMissingContextWindowVars(claudePath string) ([]string, error) {
 	resolved, err := filepath.EvalSymlinks(claudePath)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	file, err := os.Open(resolved)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer file.Close()
 
-	needle := []byte(autoCompactWindowEnv)
-	overlap := len(needle) - 1
+	found := make(map[string]bool, len(contextWindowEnvs))
+	overlap := contextWindowScanOverlap()
 	buffer := make([]byte, autoCompactScanChunk+overlap)
 	filled := 0
 	scanned := 0
@@ -442,21 +523,32 @@ func claudeSupportsAutoCompactWindow(claudePath string) (bool, error) {
 		read, readErr := io.ReadFull(file, buffer[filled:])
 		filled += read
 		scanned += read
-		if bytes.Contains(buffer[:filled], needle) {
-			return true, nil
+		for _, name := range contextWindowEnvs {
+			if !found[name] && bytes.Contains(buffer[:filled], []byte(name)) {
+				found[name] = true
+			}
+		}
+		if len(found) == len(contextWindowEnvs) {
+			return nil, nil
 		}
 		if readErr != nil {
 			// io.EOF or io.ErrUnexpectedEOF simply means the file ended; any
 			// other error means the verdict would be unreliable.
 			if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
-				return false, nil
+				break
 			}
-			return false, readErr
+			return nil, readErr
 		}
 		// Carry the tail forward so the next chunk can complete a match that
 		// began at the end of this one.
 		copy(buffer, buffer[filled-overlap:filled])
 		filled = overlap
 	}
-	return false, nil
+	missing := make([]string, 0, len(contextWindowEnvs))
+	for _, name := range contextWindowEnvs {
+		if !found[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing, nil
 }

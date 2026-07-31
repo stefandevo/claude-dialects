@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -82,34 +83,99 @@ func TestValidContextWindowBounds(t *testing.T) {
 
 // The dialect's calculated window must win over whatever the parent shell
 // exported, so a preset launch is deterministic in any terminal.
-func TestApplyAutoCompactWindowReplacesAnInheritedValue(t *testing.T) {
-	env := []string{"PATH=/usr/bin", autoCompactWindowEnv + "=999", "HOME=/Users/example"}
-	got := applyAutoCompactWindow(env, 372000)
-	if count := countEnv(got, autoCompactWindowEnv); count != 1 {
-		t.Fatalf("%s appears %d times, want exactly 1: %v", autoCompactWindowEnv, count, got)
-	}
-	if value := lookupEnv(got, autoCompactWindowEnv); value != "372000" {
-		t.Fatalf("%s = %q, want %q", autoCompactWindowEnv, value, "372000")
+func TestApplyContextWindowReplacesAnInheritedValue(t *testing.T) {
+	env := []string{"PATH=/usr/bin", autoCompactWindowEnv + "=999", maxContextTokensEnv + "=999", "HOME=/Users/example"}
+	got := applyContextWindow(env, 372000)
+	for _, key := range contextWindowEnvs {
+		if count := countEnv(got, key); count != 1 {
+			t.Fatalf("%s appears %d times, want exactly 1: %v", key, count, got)
+		}
+		if value := lookupEnv(got, key); value != "372000" {
+			t.Fatalf("%s = %q, want %q", key, value, "372000")
+		}
 	}
 }
 
 // An unknown window has nothing to calibrate with, so an explicitly exported
 // ambient value stays the user's choice rather than being silently dropped.
-func TestApplyAutoCompactWindowLeavesAmbientValueWhenUnknown(t *testing.T) {
-	env := []string{autoCompactWindowEnv + "=250000"}
+func TestApplyContextWindowLeavesAmbientValueWhenUnknown(t *testing.T) {
+	env := []string{autoCompactWindowEnv + "=250000", maxContextTokensEnv + "=250000"}
 	for _, window := range []int{0, -1, maxContextWindow + 1} {
-		got := applyAutoCompactWindow(env, window)
-		if value := lookupEnv(got, autoCompactWindowEnv); value != "250000" {
-			t.Fatalf("window %d: %s = %q, want the inherited %q", window, autoCompactWindowEnv, value, "250000")
+		got := applyContextWindow(env, window)
+		for _, key := range contextWindowEnvs {
+			if value := lookupEnv(got, key); value != "250000" {
+				t.Fatalf("window %d: %s = %q, want the inherited %q", window, key, value, "250000")
+			}
 		}
 	}
 }
 
-func TestApplyAutoCompactWindowAddsTheVariableWhenAbsent(t *testing.T) {
-	got := applyAutoCompactWindow([]string{"PATH=/usr/bin"}, 262144)
-	if value := lookupEnv(got, autoCompactWindowEnv); value != "262144" {
-		t.Fatalf("%s = %q, want %q", autoCompactWindowEnv, value, "262144")
+// Both variables carry the same declared capacity, because Claude Code reads
+// them through separate chains: one decides when to compact, the other is the
+// denominator its own context readouts — and the statusline — are measured
+// against. Declaring only one leaves the other on Claude Code's 200,000-token
+// default for a model ID it cannot recognize.
+func TestApplyContextWindowAddsBothVariablesWhenAbsent(t *testing.T) {
+	got := applyContextWindow([]string{"PATH=/usr/bin"}, 262144)
+	for _, key := range contextWindowEnvs {
+		if value := lookupEnv(got, key); value != "262144" {
+			t.Errorf("%s = %q, want %q", key, value, "262144")
+		}
 	}
+}
+
+// The reported cc-glm session showed `ctx 47%` beside `4% until auto-compact`
+// and compacted immediately. Both readings share a numerator; only the
+// denominator differed, because Claude Code resolved glm-5.2 to its 200,000
+// default while auto-compaction measured against the declared 131,072.
+//
+// The reserve Claude Code holds back before compacting (a 20,000-token output
+// allowance plus a 13,000-token buffer) means the two readings still will not
+// be equal — that offset exists against first-party models too. What the second
+// variable removes is the false denominator, which is what made them move in
+// opposite directions.
+func TestGlmLaunchReconcilesTheStatuslineWithTheCompactionCountdown(t *testing.T) {
+	const claudeCodeDefaultWindow = 200000
+	const outputReserve = 20000
+	const compactionBuffer = 13000
+	const usedTokens = 94149
+
+	window := presets["glm"].ContextWindow
+	if window != 131072 {
+		t.Fatalf("glm context window = %d, want the 131072-token GLM-4.5-Air window", window)
+	}
+	env := applyContextWindow(nil, window)
+	declared := lookupEnv(env, maxContextTokensEnv)
+	if declared != strconv.Itoa(window) {
+		t.Fatalf("%s = %q, want the declared %q", maxContextTokensEnv, declared, strconv.Itoa(window))
+	}
+
+	// The countdown's threshold, as Claude Code derives it from the same window.
+	threshold := window - outputReserve - compactionBuffer
+	if threshold != 98072 {
+		t.Fatalf("auto-compact threshold = %d, want the reported 98072", threshold)
+	}
+	remaining := percent(threshold-usedTokens, threshold)
+	if remaining != 4 {
+		t.Fatalf("countdown = %d%% until auto-compact, want the reported 4%%", remaining)
+	}
+
+	if stale := percent(usedTokens, claudeCodeDefaultWindow); stale != 47 {
+		t.Fatalf("undeclared statusline reading = %d%%, want the reported 47%%", stale)
+	}
+	fixed := percent(usedTokens, window)
+	if fixed != 72 {
+		t.Fatalf("declared statusline reading = %d%%, want 72%%", fixed)
+	}
+	// A session this close to compaction must no longer read as under half full.
+	if fixed+remaining < 70 {
+		t.Fatalf("statusline %d%% and countdown %d%% still disagree by more than the reserve", fixed, remaining)
+	}
+}
+
+// percent mirrors the rounding Claude Code applies to both readings.
+func percent(part, whole int) int {
+	return int(math.Round(float64(part) / float64(whole) * 100))
 }
 
 // The reproduced codex-sol session reached 368,812 effective input tokens
@@ -129,7 +195,7 @@ func TestCodexSolWindowCoversTheReproducedExhaustionCase(t *testing.T) {
 	if effectiveInput >= window {
 		t.Fatalf("effective input %d must stay below the configured window %d", effectiveInput, window)
 	}
-	env := applyAutoCompactWindow(nil, window)
+	env := applyContextWindow(nil, window)
 	if value := lookupEnv(env, autoCompactWindowEnv); value != strconv.Itoa(window) {
 		t.Fatalf("%s = %q, want %q", autoCompactWindowEnv, value, strconv.Itoa(window))
 	}

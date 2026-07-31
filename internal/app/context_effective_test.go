@@ -24,13 +24,61 @@ func TestEffectiveContextWindowFollowsAnExtraEnvOverride(t *testing.T) {
 }
 
 // An override that is not a usable window leaves the real denominator unknown,
-// so nothing is measured against a number that is certainly wrong.
+// so nothing is measured against a number that is certainly wrong. Either
+// variable can be the one carrying it.
 func TestEffectiveContextWindowRejectsAnUnusableOverride(t *testing.T) {
-	for _, override := range []string{"not-a-number", "0", "-5", ""} {
+	for _, key := range contextWindowEnvs {
+		for _, override := range []string{"not-a-number", "0", "-5", ""} {
+			dialect := presets["codex-sol"]
+			dialect.ExtraEnv = map[string]string{key: override}
+			if got := effectiveContextWindow(dialect); got != 0 {
+				t.Errorf("%s override %q gave effective window %d, want 0 (unknown)", key, override, got)
+			}
+		}
+	}
+}
+
+// Claude Code compacts against the smaller of the window it resolves for the
+// model and the auto-compact window, so a dialect that declares the two
+// separately runs against whichever is tighter — not against whichever the
+// launcher happened to write last.
+func TestEffectiveContextWindowTakesTheSmallestDeclaredCapacity(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		extraEnv map[string]string
+		want     int
+	}{
+		{"max context tokens alone", map[string]string{maxContextTokensEnv: "150000"}, 150000},
+		{"auto compact window alone", map[string]string{autoCompactWindowEnv: "150000"}, 150000},
+		{
+			"both below the stored window",
+			map[string]string{autoCompactWindowEnv: "180000", maxContextTokensEnv: "150000"},
+			150000,
+		},
+		{
+			"the tighter one is the auto-compact window",
+			map[string]string{autoCompactWindowEnv: "150000", maxContextTokensEnv: "500000"},
+			150000,
+		},
+		{"both above the stored window", map[string]string{
+			autoCompactWindowEnv: "500000", maxContextTokensEnv: "600000",
+		}, 372000},
+	} {
 		dialect := presets["codex-sol"]
-		dialect.ExtraEnv = map[string]string{autoCompactWindowEnv: override}
-		if got := effectiveContextWindow(dialect); got != 0 {
-			t.Errorf("override %q gave effective window %d, want 0 (unknown)", override, got)
+		dialect.ExtraEnv = testCase.extraEnv
+		if got := effectiveContextWindow(dialect); got != testCase.want {
+			t.Errorf("%s: effective window = %d, want %d", testCase.name, got, testCase.want)
+		}
+	}
+}
+
+// An uncalibrated dialect has no stored window to be capped by, so a single
+// override is the whole calibration rather than a ceiling on one.
+func TestEffectiveContextWindowAdoptsAnOverrideWhenNothingIsStored(t *testing.T) {
+	for _, key := range contextWindowEnvs {
+		dialect := Dialect{Model: "vendor-model", ExtraEnv: map[string]string{key: "150000"}}
+		if got := effectiveContextWindow(dialect); got != 150000 {
+			t.Errorf("%s override gave effective window %d, want 150000", key, got)
 		}
 	}
 }

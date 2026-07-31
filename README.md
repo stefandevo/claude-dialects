@@ -755,17 +755,38 @@ reach the provider's real limit before any compaction happens, after which
 further requests fail.
 
 Every dialect therefore carries a **context window**: the number of tokens the
-route can hold. When you launch a dialect, Claude Dialects exports it as
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW` for that Claude Code process.
+route can hold. When you launch a dialect, Claude Dialects exports it for that
+Claude Code process as **both** `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS`, always with the same value. Claude Code reads
+the two through separate chains:
+
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW` decides **when it compacts**.
+- `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is the **denominator it reports against** —
+  the `ctx N%` in the statusline and its own `/context` view. It applies only to
+  model IDs Claude Code cannot recognize, so first-party `claude-…` IDs keep
+  resolving through Claude Code's own registry.
+
+Declaring only the first leaves the two indicators counting the same tokens over
+different denominators. A `cc-glm` session showed `ctx 47%` beside `4% until
+auto-compact` and compacted moments later: the percentage was dividing by Claude
+Code's 200,000-token default instead of the dialect's declared 131,072. Dialects
+with a window above 200,000 had the opposite fault — the statusline sat at 100%
+for most of a long session.
+
+The two readings still will not be identical. Claude Code holds back an output
+allowance and a compaction buffer, so the countdown measures against a usable
+ceiling roughly 33,000 tokens below the window while the percentage measures
+against the window itself. That offset exists against first-party models too;
+what the second variable removes is the wrong denominator, not the offset.
 
 The division of responsibility is deliberate:
 
 - **Claude Dialects supplies the capacity.** Nothing else. It never summarizes,
   truncates, or deletes conversation turns or tool results.
-- **Claude Code owns compaction.** It applies its own threshold and buffer
-  inside the declared capacity, and it uses the smaller of the configured and
-  detected window. The value is raw model capacity, not a trigger point, so do
-  not pre-apply a safety percentage yourself.
+- **Claude Code owns compaction and every readout.** It applies its own
+  threshold and buffer inside the declared capacity, and it uses the smaller of
+  the configured and detected window. The value is raw model capacity, not a
+  trigger point, so do not pre-apply a safety percentage yourself.
 
 ### Preset values
 
@@ -865,10 +886,12 @@ cc-dialect doctor
 
 `doctor` reports dialects with a missing or invalid context window, the fill
 level of the most recent request per dialect, and a Claude Code build that no
-longer references `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Adding `--fix` records
-migrated windows in `config.json`, together with the preset name a route match
-resolved for a dialect that stored none; it never invents one for a custom or
-re-pointed dialect, which stays reported until you set it yourself.
+longer references either capacity variable — one line per variable, because
+dropping `CLAUDE_CODE_AUTO_COMPACT_WINDOW` delays compaction while dropping
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` only falsifies what is reported. Adding `--fix`
+records migrated windows in `config.json`, together with the preset name a route
+match resolved for a dialect that stored none; it never invents one for a custom
+or re-pointed dialect, which stays reported until you set it yourself.
 
 Each dialect's embedded proxy also records the latest request's input usage to
 `instances/<name>/context.json` and warns once per 80%, 90%, and 95% threshold.

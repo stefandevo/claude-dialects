@@ -6,32 +6,39 @@ import (
 )
 
 // A preset launch must be deterministic: whatever the parent shell exported for
-// the auto-compact window, the dialect's own capacity is what Claude Code sees.
-func TestClaudeEnvironmentOverridesInheritedAutoCompactWindow(t *testing.T) {
+// either capacity variable, the dialect's own capacity is what Claude Code sees.
+func TestClaudeEnvironmentOverridesInheritedContextWindow(t *testing.T) {
 	dialect := presets["codex-sol"]
 	dialect.Port = 43170
 	dialect.APIKey = "local-secret"
 
-	env := claudeEnvironment([]string{"PATH=/usr/bin", autoCompactWindowEnv + "=8000"}, "/tmp/claude", dialect)
+	env := claudeEnvironment([]string{
+		"PATH=/usr/bin", autoCompactWindowEnv + "=8000", maxContextTokensEnv + "=8000",
+	}, "/tmp/claude", dialect)
 
-	if count := countEnv(env, autoCompactWindowEnv); count != 1 {
-		t.Fatalf("%s appears %d times, want exactly 1", autoCompactWindowEnv, count)
-	}
-	if value := lookupEnv(env, autoCompactWindowEnv); value != "372000" {
-		t.Fatalf("%s = %q, want the codex-sol capacity %q", autoCompactWindowEnv, value, "372000")
+	for _, key := range contextWindowEnvs {
+		if count := countEnv(env, key); count != 1 {
+			t.Fatalf("%s appears %d times, want exactly 1", key, count)
+		}
+		if value := lookupEnv(env, key); value != "372000" {
+			t.Fatalf("%s = %q, want the codex-sol capacity %q", key, value, "372000")
+		}
 	}
 }
 
-// Every preset must hand Claude Code a denominator, otherwise the route it
-// cannot recognize is left uncalibrated exactly as issue #44 describes.
-func TestClaudeEnvironmentSetsAutoCompactWindowForEveryPreset(t *testing.T) {
+// Every preset must hand Claude Code a denominator through both chains,
+// otherwise the route it cannot recognize is left uncalibrated exactly as issue
+// #44 describes, or reports its fill level against the 200,000-token default.
+func TestClaudeEnvironmentSetsBothCapacityVariablesForEveryPreset(t *testing.T) {
 	for _, name := range presetNames() {
 		dialect := presets[name]
 		dialect.Port = 43170
 		dialect.APIKey = "local-secret"
 		env := claudeEnvironment(nil, "/tmp/claude", dialect)
-		if value := lookupEnv(env, autoCompactWindowEnv); value == "" {
-			t.Errorf("preset %q launches without %s", name, autoCompactWindowEnv)
+		for _, key := range contextWindowEnvs {
+			if value := lookupEnv(env, key); value == "" {
+				t.Errorf("preset %q launches without %s", name, key)
+			}
 		}
 	}
 }
@@ -41,27 +48,42 @@ func TestClaudeEnvironmentSetsAutoCompactWindowForEveryPreset(t *testing.T) {
 func TestClaudeEnvironmentKeepsAmbientWindowForUnknownCapacity(t *testing.T) {
 	dialect := Dialect{Model: "custom-model", Port: 43170, APIKey: "local-secret"}
 
-	env := claudeEnvironment([]string{autoCompactWindowEnv + "=250000"}, "/tmp/claude", dialect)
+	env := claudeEnvironment([]string{
+		autoCompactWindowEnv + "=250000", maxContextTokensEnv + "=250000",
+	}, "/tmp/claude", dialect)
 
-	if value := lookupEnv(env, autoCompactWindowEnv); value != "250000" {
-		t.Fatalf("%s = %q, want the inherited %q", autoCompactWindowEnv, value, "250000")
+	for _, key := range contextWindowEnvs {
+		if value := lookupEnv(env, key); value != "250000" {
+			t.Fatalf("%s = %q, want the inherited %q", key, value, "250000")
+		}
 	}
 }
 
-// ExtraEnv is explicit per-dialect configuration, so it stays the last word.
-func TestClaudeEnvironmentLetsExtraEnvOverrideTheWindow(t *testing.T) {
-	dialect := presets["codex-sol"]
-	dialect.Port = 43170
-	dialect.APIKey = "local-secret"
-	dialect.ExtraEnv = map[string]string{autoCompactWindowEnv: "123456"}
+// ExtraEnv is explicit per-dialect configuration, so it stays the last word for
+// each variable independently.
+func TestClaudeEnvironmentLetsExtraEnvOverrideEitherWindowVariable(t *testing.T) {
+	for _, overridden := range contextWindowEnvs {
+		dialect := presets["codex-sol"]
+		dialect.Port = 43170
+		dialect.APIKey = "local-secret"
+		dialect.ExtraEnv = map[string]string{overridden: "123456"}
 
-	env := claudeEnvironment(nil, "/tmp/claude", dialect)
+		env := claudeEnvironment(nil, "/tmp/claude", dialect)
 
-	if value := lookupEnv(env, autoCompactWindowEnv); value != "123456" {
-		t.Fatalf("%s = %q, want the explicit extraEnv value %q", autoCompactWindowEnv, value, "123456")
-	}
-	if count := countEnv(env, autoCompactWindowEnv); count != 1 {
-		t.Fatalf("%s appears %d times, want exactly 1", autoCompactWindowEnv, count)
+		if value := lookupEnv(env, overridden); value != "123456" {
+			t.Errorf("%s = %q, want the explicit extraEnv value %q", overridden, value, "123456")
+		}
+		if count := countEnv(env, overridden); count != 1 {
+			t.Errorf("%s appears %d times, want exactly 1", overridden, count)
+		}
+		for _, other := range contextWindowEnvs {
+			if other == overridden {
+				continue
+			}
+			if value := lookupEnv(env, other); value != "372000" {
+				t.Errorf("%s = %q, want the untouched codex-sol capacity %q", other, value, "372000")
+			}
+		}
 	}
 }
 
@@ -76,9 +98,10 @@ func TestCodexSolLaunchDeclaresTheWindowTheReproducedSessionLacked(t *testing.T)
 	dialect.APIKey = "local-secret"
 
 	env := claudeEnvironment(nil, "/tmp/claude", dialect)
-	value := lookupEnv(env, autoCompactWindowEnv)
-	if value != "372000" {
-		t.Fatalf("%s = %q, want %q", autoCompactWindowEnv, value, "372000")
+	for _, key := range contextWindowEnvs {
+		if value := lookupEnv(env, key); value != "372000" {
+			t.Fatalf("%s = %q, want %q", key, value, "372000")
+		}
 	}
 	if percent := float64(effectiveInput) / float64(dialect.ContextWindow) * 100; percent < 99 || percent > 100 {
 		t.Fatalf("reproduced fill = %.1f%%, want the reported 99.1%% of the configured window", percent)
@@ -100,6 +123,7 @@ func TestClaudeEnvironmentKeepsExistingRoutingVariables(t *testing.T) {
 		"ANTHROPIC_DEFAULT_OPUS_MODEL": "kimi-k3",
 		"CLAUDE_CODE_SUBAGENT_MODEL":   "kimi-k3",
 		autoCompactWindowEnv:           "262144",
+		maxContextTokensEnv:            "262144",
 	} {
 		if value := lookupEnv(env, key); value != want {
 			t.Errorf("%s = %q, want %q", key, value, want)
