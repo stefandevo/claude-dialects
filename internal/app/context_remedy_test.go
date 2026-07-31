@@ -174,10 +174,15 @@ func TestContextWindowDiagnosticsReportsAnUnusableOverride(t *testing.T) {
 	}
 }
 
-// An override that is a usable window is the calibration, so there is nothing to
-// report even when it disagrees with the stored field.
+// An override that is a usable window is the calibration for its half of the
+// declaration, so there is nothing to report even when it disagrees with the
+// stored field — the stored field still calibrates the variable the override
+// does not name.
 func TestContextWindowDiagnosticsAcceptsAUsableOverride(t *testing.T) {
-	dialect := Dialect{Model: "vendor-model", ExtraEnv: map[string]string{autoCompactWindowEnv: "150000"}}
+	dialect := Dialect{
+		Model: "vendor-model", ContextWindow: 372000,
+		ExtraEnv: map[string]string{autoCompactWindowEnv: "150000"},
+	}
 
 	if lines := contextWindowDiagnostics("cc-custom", dialect); len(lines) != 0 {
 		t.Fatalf("a dialect calibrated by its override reported %v", lines)
