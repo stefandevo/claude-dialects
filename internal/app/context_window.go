@@ -109,8 +109,8 @@ var presetContextWindows = map[string]contextWindowSource{
 		Basis: "Kimi K3 at 262144 caps Fable 5 (1M), GPT-5.6 Sol (372000), and Grok 4.5 (500000) (CLIProxyAPI registry)",
 	},
 	"glm": {
-		Window: 131072, Verified: "2026-07-27",
-		Basis: "GLM-4.5-Air at 131072 caps GLM-5.2 (1M) and GLM-5-Turbo (262144) (Z.ai model documentation)",
+		Window: 262144, Verified: "2026-07-27",
+		Basis: "GLM-5-Turbo at 262144 on both lower tiers caps GLM-5.2 (1M) (Z.ai model documentation)",
 	},
 	"grok": {
 		Window: 500000, Verified: "2026-07-27",

@@ -54,7 +54,7 @@ func TestMultiModelPresetsUseTheSmallestSupportedWindow(t *testing.T) {
 	}{
 		{"claude", 200000, "Sonnet 4.6 and Haiku 4.5 cap the 1M Fable 5 main model"},
 		{"mixed-frontier", 262144, "Kimi K3 caps Fable 5, GPT-5.6 Sol, and Grok 4.5"},
-		{"glm", 131072, "GLM-4.5-Air caps GLM-5.2 and GLM-5-Turbo"},
+		{"glm", 262144, "GLM-5-Turbo on both lower tiers caps GLM-5.2"},
 		{"codex-sol", 372000, "every GPT-5.6 Sol/Terra/Luna tier shares one window"},
 	} {
 		if got := presets[testCase.preset].ContextWindow; got != testCase.window {
@@ -134,16 +134,19 @@ func TestApplyContextWindowAddsBothVariablesWhenAbsent(t *testing.T) {
 // be equal — that offset exists against first-party models too. What the second
 // variable removes is the false denominator, which is what made them move in
 // opposite directions.
-func TestGlmLaunchReconcilesTheStatuslineWithTheCompactionCountdown(t *testing.T) {
+//
+// The window is the one that session ran against, not whatever the glm preset
+// declares today: this reproduces a recorded incident, so its numbers are fixed
+// by what was observed. The preset has since moved its haiku tier off
+// GLM-4.5-Air and now declares 262,144 — a change to the mapping, not to the
+// reconciliation this asserts, which holds for any declared window.
+func TestDeclaredWindowReconcilesTheStatuslineWithTheCompactionCountdown(t *testing.T) {
 	const claudeCodeDefaultWindow = 200000
 	const outputReserve = 20000
 	const compactionBuffer = 13000
 	const usedTokens = 94149
+	const window = 131072
 
-	window := presets["glm"].ContextWindow
-	if window != 131072 {
-		t.Fatalf("glm context window = %d, want the 131072-token GLM-4.5-Air window", window)
-	}
 	env := applyContextWindow(nil, window)
 	declared := lookupEnv(env, maxContextTokensEnv)
 	if declared != strconv.Itoa(window) {

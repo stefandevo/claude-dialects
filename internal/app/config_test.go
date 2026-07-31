@@ -117,7 +117,6 @@ func TestWriteProxyConfigRoutesLatestGLMModels(t *testing.T) {
 		`base-url: "https://api.z.ai/api/anthropic"`,
 		`name: "glm-5.2"`,
 		`name: "glm-5-turbo"`,
-		`name: "glm-4.5-air"`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("GLM proxy config does not contain %q:\n%s", expected, text)
@@ -358,7 +357,11 @@ func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
 	if glm.Model != "glm-5.2" || glm.SubagentModel != "glm-5.2" || glm.OpusModel != "glm-5.2" {
 		t.Fatalf("GLM preset does not use GLM-5.2 for main, subagent, and opus: %#v", glm)
 	}
-	if glm.SonnetModel != "glm-5-turbo" || glm.HaikuModel != "glm-4.5-air" {
+	// Both lower tiers hold 262,144 tokens. GLM-4.5-Air is cheaper still, but it
+	// holds 131,072, and one model below the rest sets the whole process-level
+	// window — an 8x cut against the main model to serve the tier Claude Code
+	// only sends short auxiliary work to.
+	if glm.SonnetModel != "glm-5-turbo" || glm.HaikuModel != "glm-5-turbo" {
 		t.Fatalf("GLM preset has unexpected lower-tier model mappings: %#v", glm)
 	}
 	if glm.BaseURL != "https://api.z.ai/api/anthropic" {
