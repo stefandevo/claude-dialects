@@ -57,6 +57,27 @@ func TestContextWindowDiagnosticsNamesTheOffendingOverride(t *testing.T) {
 	}
 }
 
+// A doubly broken declaration has to be correctable in one pass: reporting only
+// the first entry would send the user back to doctor to discover the second.
+func TestContextWindowDiagnosticsReportsEveryUnusableOverride(t *testing.T) {
+	dialect := presets["codex-sol"]
+	dialect.ExtraEnv = map[string]string{
+		autoCompactWindowEnv: "not-a-number",
+		maxContextTokensEnv:  "0",
+	}
+
+	lines := contextWindowDiagnostics("cc-codex", dialect)
+
+	if len(lines) != len(contextWindowEnvs) {
+		t.Fatalf("got %d diagnostics, want %d: %v", len(lines), len(contextWindowEnvs), lines)
+	}
+	for index, key := range contextWindowEnvs {
+		if !strings.Contains(lines[index], key) {
+			t.Errorf("diagnostic %d (%q) does not name %q", index, lines[index], key)
+		}
+	}
+}
+
 // Claude Dialects only supplies the capacity; Claude Code owns compaction and
 // its own context readouts. If a future release stops honoring either variable,
 // that boundary has broken and doctor has to say so rather than silently
