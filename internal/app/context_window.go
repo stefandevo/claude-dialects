@@ -276,8 +276,9 @@ func effectiveContextWindow(dialect Dialect) int {
 // A stored preset name is therefore not enough on its own. A dialect whose name
 // still says "cursor-composer" but whose bridge or OAuth route was changed by
 // hand would have that route silently replaced by the `--preset` command this
-// would otherwise bless — the same divergence backfill already refuses through
-// sharesContextRoute, so the two must agree.
+// would otherwise bless. Window calibration may resolve another exact route
+// without mutating the dialect; a command cannot, so these hidden fields must
+// still agree with the preset it restates.
 func roundTripsThroughMutations(dialect Dialect) bool {
 	if len(dialect.ExtraEnv) > 0 {
 		return false
