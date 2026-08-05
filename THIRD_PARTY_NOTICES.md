@@ -1431,7 +1431,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## github.com/router-for-me/CLIProxyAPI/v7 v7.2.104
+## github.com/router-for-me/CLIProxyAPI/v7 v7.2.111
 
 Source: https://github.com/router-for-me/CLIProxyAPI/v7
 
