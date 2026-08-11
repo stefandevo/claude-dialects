@@ -157,6 +157,9 @@ async function chatCompletion(request, response, body) {
           "You are the model running inside the Claude Code harness.",
           "Claude Code owns all filesystem, terminal, web, MCP, and tool execution.",
           "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop.",
+          "The conversation below is plain-text history for context only. Never reproduce its",
+          "\"ASSISTANT TOOL CALL\" or \"CLAUDE CODE TOOL RESULT\" labels in your own reply — write your",
+          "response as normal prose and call a tool directly instead of describing one in text.",
         ].join("\n"),
       },
     });
@@ -281,7 +284,7 @@ function waitForTurn(session, tools, setText, setToolCall) {
 
     session.on((event) => {
       if (event.type === "assistant.message" && typeof event.data?.content === "string") {
-        setText(event.data.content);
+        setText(stripImitatedTranscript(event.data.content));
       } else if (event.type === "external_tool.requested") {
         const tool = findTool(tools, event.data?.toolName);
         if (!tool) return;
@@ -382,6 +385,19 @@ function buildPrompt(messages, tools) {
     "",
     transcript.join("\n\n"),
   ].join("\n");
+}
+
+// buildPrompt flattens prior turns into literal "ASSISTANT TOOL CALL" and
+// "CLAUDE CODE TOOL RESULT" labels so the model can read them as plain text.
+// Given enough of them in context, the model sometimes imitates the format in
+// its own reply — even while still emitting a correct external_tool.requested
+// call alongside. Truncate at the first imitated label so only the model's
+// genuine reply reaches Claude Code.
+const IMITATED_TRANSCRIPT_MARKER = /(^|\n)(ASSISTANT TOOL CALL |CLAUDE CODE TOOL RESULT )/;
+
+function stripImitatedTranscript(content) {
+  const match = IMITATED_TRANSCRIPT_MARKER.exec(content);
+  return match ? content.slice(0, match.index).trimEnd() : content;
 }
 
 function normalizeTools(rawTools) {
