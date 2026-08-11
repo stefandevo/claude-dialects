@@ -806,8 +806,8 @@ func (service *appService) InstallNativeLauncher(input NativeLauncherInput, expe
 		if lookErr != nil {
 			return lookErr
 		}
-		if alias, found := zshAlias(input.Name); found {
-			return fmt.Errorf("zsh alias %q would override the installed command; remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, input.Name)
+		if alias, found := findShellAlias(input.Name); found {
+			return alias.shadowError(input.Name)
 		}
 		if conflicts := commandConflicts(input.Name, path); len(conflicts) > 0 {
 			return fmt.Errorf("command %q already exists at %s; remove it or choose another launcher name", input.Name, strings.Join(conflicts, ", "))

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const usage = `Claude Dialects — create native Claude Code runners for any model
@@ -212,8 +213,8 @@ func createDialect(args []string) error {
 	home, _ := os.UserHomeDir()
 	shimName := preferredShimName(name)
 	target := filepath.Join(home, ".local", "bin", shimName)
-	if alias, found := zshAlias(shimName); found {
-		fmt.Printf("Warning: command name %q is already used by %s.\n", shimName, alias)
+	if alias, found := findShellAlias(shimName); found {
+		fmt.Printf("Warning: command name %q is already used by a %s alias: %s.\n", shimName, alias.Shell, alias.Definition)
 		shimName = suggestedShimName(shimName)
 	} else if conflicts := commandConflicts(shimName, target); len(conflicts) > 0 {
 		fmt.Printf("Warning: command name %q already exists at %s.\n", shimName, strings.Join(conflicts, ", "))
@@ -787,8 +788,8 @@ func shimCommand(args []string) error {
 		return err
 	}
 	path := filepath.Join(*dir, *name)
-	if alias, found := zshAlias(*name); found {
-		return fmt.Errorf("zsh alias %q would override the installed command; remove it from ~/.zshrc and run `unalias %s` in already-open terminals", alias, *name)
+	if alias, found := findShellAlias(*name); found {
+		return alias.shadowError(*name)
 	}
 	if conflicts := commandConflicts(*name, path); len(conflicts) > 0 {
 		return fmt.Errorf("command %q already exists at %s; choose another name, for example: cc-dialect shim install %s --name %s",
@@ -840,16 +841,91 @@ func nativeLauncherBody(claudePath string, dangerous bool) string {
 	return fmt.Sprintf("#!/bin/sh\nexec %q%s \"$@\"\n", claudePath, flag)
 }
 
-func zshAlias(name string) (string, bool) {
+// shellAlias describes an interactive-shell alias that shadows a command name,
+// naming the shell that defines it and the rc file an operator edits to remove
+// it. macOS defaults to Zsh and most Linux distributions default to Bash, so
+// both are probed rather than assuming either.
+type shellAlias struct {
+	Shell      string
+	RCFile     string
+	Definition string
+}
+
+type shellAliasProbe struct {
+	shell  string
+	rcFile string
+}
+
+var defaultShellAliasProbes = []shellAliasProbe{
+	{shell: "zsh", rcFile: "~/.zshrc"},
+	{shell: "bash", rcFile: "~/.bashrc"},
+}
+
+// shellAliasProbeOrder puts the operator's login shell first so the common case
+// resolves on the first probe. Probing is expensive — every attempt starts an
+// interactive shell that sources the full rc chain — and doctor asks about each
+// dialect in turn, so this ordering plus findShellAlias's cache is what keeps
+// the cost bounded.
+func shellAliasProbeOrder(loginShell string) []shellAliasProbe {
+	preferred := filepath.Base(strings.TrimSpace(loginShell))
+	ordered := make([]shellAliasProbe, 0, len(defaultShellAliasProbes))
+	for _, probe := range defaultShellAliasProbes {
+		if probe.shell == preferred {
+			ordered = append(ordered, probe)
+		}
+	}
+	for _, probe := range defaultShellAliasProbes {
+		if probe.shell != preferred {
+			ordered = append(ordered, probe)
+		}
+	}
+	return ordered
+}
+
+// lookupShellAlias asks each shell in turn whether name is aliased. Only stdout
+// is read: rc files routinely write to stderr, and folding that in would let
+// unrelated startup noise read as an alias definition.
+func lookupShellAlias(name string, probes []shellAliasProbe, run func(shell, command string) ([]byte, error)) (shellAlias, bool) {
 	if !validName(name) {
-		return "", false
+		return shellAlias{}, false
 	}
-	output, err := exec.Command("zsh", "-ic", "alias "+name).CombinedOutput()
-	if err != nil {
-		return "", false
+	for _, probe := range probes {
+		output, err := run(probe.shell, "alias "+name)
+		if err != nil {
+			continue
+		}
+		definition := strings.TrimSpace(string(output))
+		if definition == "" {
+			continue
+		}
+		return shellAlias{Shell: probe.shell, RCFile: probe.rcFile, Definition: definition}, true
 	}
-	alias := strings.TrimSpace(string(output))
-	return alias, alias != ""
+	return shellAlias{}, false
+}
+
+var shellAliasCache sync.Map
+
+// findShellAlias reports the interactive-shell alias shadowing name, if any.
+// Answers are cached per command name because a miss costs one interactive
+// shell startup per probed shell and doctor asks once per dialect.
+func findShellAlias(name string) (shellAlias, bool) {
+	if cached, ok := shellAliasCache.Load(name); ok {
+		alias := cached.(shellAlias)
+		return alias, alias.Definition != ""
+	}
+	alias, found := lookupShellAlias(name, shellAliasProbeOrder(os.Getenv("SHELL")),
+		func(shell, command string) ([]byte, error) {
+			return exec.Command(shell, "-ic", command).Output()
+		})
+	shellAliasCache.Store(name, alias)
+	return alias, found
+}
+
+// shadowError explains how to clear an alias that would win over the installed
+// command, naming the shell and the rc file that actually define it.
+func (a shellAlias) shadowError(name string) error {
+	return fmt.Errorf("%s alias %q would override the installed command; remove it from %s and run `unalias %s` in already-open terminals",
+		a.Shell, a.Definition, a.RCFile, name)
 }
 
 func pathContains(dir string) bool {
@@ -939,8 +1015,10 @@ func doctor(args []string, version string) error {
 	} else {
 		fmt.Println("✗ Claude Code not found in PATH")
 	}
-	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
-		fmt.Printf("✗ unsupported platform %s/%s (requires darwin/arm64)\n", runtime.GOOS, runtime.GOARCH)
+	if supportedPlatform(runtime.GOOS, runtime.GOARCH) {
+		fmt.Printf("✓ platform %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	} else {
+		fmt.Printf("✗ unsupported platform %s/%s (requires macOS or Linux on amd64 or arm64)\n", runtime.GOOS, runtime.GOARCH)
 	}
 	hasCursor := false
 	hasCopilot := false
@@ -1004,8 +1082,9 @@ func doctor(args []string, version string) error {
 	}
 	for name := range cfg.Dialects {
 		shimName := preferredShimName(name)
-		if alias, found := zshAlias(shimName); found {
-			fmt.Printf("✗ %s is shadowed by %s\n", shimName, alias)
+		if alias, found := findShellAlias(shimName); found {
+			fmt.Printf("✗ %s is shadowed by a %s alias: %s (remove it from %s)\n",
+				shimName, alias.Shell, alias.Definition, alias.RCFile)
 		}
 		home, _ := os.UserHomeDir()
 		target := filepath.Join(home, ".local", "bin", shimName)

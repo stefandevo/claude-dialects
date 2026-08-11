@@ -49,7 +49,7 @@
   <header class="hero">
     <div class="hero__badge reveal">
       <span class="pulse"></span>
-      macOS · MIT License
+      macOS &amp; Linux · MIT License
     </div>
     <h1 class="hero__title reveal">
       One Claude Code.<br>
@@ -74,7 +74,7 @@
           <span class="terminal__dot terminal__dot--red"></span>
           <span class="terminal__dot terminal__dot--yellow"></span>
           <span class="terminal__dot terminal__dot--green"></span>
-          <span class="terminal__title">zsh — cc-dialects</span>
+          <span class="terminal__title">shell — cc-dialects</span>
         </div>
         <div class="terminal__body">
           <div class="terminal__line"><span class="prompt">$</span> cc-dialect create cc-codex --preset codex-sol</div>
@@ -341,8 +341,9 @@ cd claude-dialects
 make install
 export PATH="$HOME/.local/bin:$PATH"
 
-# Persist PATH
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc</code></pre>
+# Persist PATH — Zsh (macOS default) or Bash (most Linux distributions)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc</code></pre>
         </div>
       </div>
 
@@ -501,7 +502,7 @@ cc-dialect create cc-my-model \
 
   <footer class="footer">
     <div class="footer__platform">
-      <span class="footer__badge">macOS only</span>
+      <span class="footer__badge">macOS &amp; Linux</span>
       <span class="footer__badge footer__badge--muted">Build from source</span>
     </div>
     <p class="footer__disclaimer">

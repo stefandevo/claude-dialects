@@ -17,7 +17,7 @@ There is no separate proxy download, installation, container, or global
 `~/.claude/settings.json` modification. Changes made with `/model`, `/effort`,
 or other user-level Claude Code settings stay inside the active dialect.
 
-> Current target: macOS only.
+> Current targets: macOS and Linux, on amd64 and arm64.
 
 > [!IMPORTANT]
 > This is an independent, unofficial project. It is not affiliated with or
@@ -57,7 +57,7 @@ or other user-level Claude Code settings stay inside the active dialect.
 
 Requirements:
 
-- macOS;
+- macOS or Linux, on amd64 or arm64
 - Go 1.26.5 or newer
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
@@ -76,10 +76,13 @@ export PATH="$HOME/.local/bin:$PATH"
 ```
 
 This produces one static executable at `~/.local/bin/cc-dialect`.
-To make that PATH change persist across terminal restarts:
+To make that PATH change persist across terminal restarts, append it to your
+shell's startup file — `~/.zshrc` for Zsh (the macOS default) or `~/.bashrc`
+for Bash (the default on most Linux distributions):
 
 ```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # Zsh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # Bash
 ```
 
 ### Update Claude Dialects
@@ -641,8 +644,10 @@ cc-codex · GPT-5.6 Sol · effort:auto · ctx 42%
 `cc-dialect create` writes `instances/<name>/statusline.sh` and wires it into
 the dialect's isolated `claude/settings.json`; dialects created before this
 feature are backfilled the next time they run. The dialect name is colored per
-provider route. The script uses `jq` (preinstalled on recent macOS); when `jq`
-is missing the statusline stays empty instead of erroring.
+provider route. The script uses `jq` — preinstalled on recent macOS, and
+usually an explicit install on Linux (`apt install jq`, `dnf install jq`,
+`pacman -S jq`). When `jq` is missing the statusline stays empty instead of
+erroring.
 
 - **Customize:** point the `statusLine` key in
   `instances/<name>/claude/settings.json` at your own script — a `statusLine`
@@ -1074,6 +1079,11 @@ cc-dialect web --listen '[::1]:8765'
 `localhost`, wildcard addresses such as `0.0.0.0`, LAN addresses, remote access,
 and reverse-proxy deployment are not supported.
 
+The browser is launched with `open` on macOS and `xdg-open` on Linux. Headless
+Linux hosts (SSH sessions, containers, WSL) often ship without `xdg-open`; on
+those, install `xdg-utils` or use `--no-browser` and open the printed URL
+yourself.
+
 The dashboard can:
 
 - inspect safe views of configured preset and custom dialects, their effective
@@ -1149,8 +1159,10 @@ Supported embedded OAuth providers are `codex`, `claude`, `kimi`,
 
 ## Files and security
 
-State lives under `~/Library/Application Support/claude-dialects` on macOS (or
-`DIALECT_HOME` when set):
+State lives under the platform's user configuration directory — on macOS
+`~/Library/Application Support/claude-dialects`, on Linux
+`${XDG_CONFIG_HOME:-~/.config}/claude-dialects` — or under `DIALECT_HOME` when
+that is set:
 
 ```text
 config.json          # dialect configuration and tracked native-launcher registry
@@ -1295,10 +1307,12 @@ do not need to recreate the dialect, re-authenticate its proxy, or reinstall its
 shim. Conversations previously stored in the shared `~/.claude` directory do
 not automatically appear in the new isolated history.
 
-If a Zsh alias already uses the generated command name, it takes precedence
-over the executable. Remove the alias from `~/.zshrc`, then run `unalias
-<name>` in terminals that were already open. Both `cc-dialect shim install` and
-`cc-dialect doctor` detect these collisions.
+If a shell alias already uses the generated command name, it takes precedence
+over the executable. Zsh and Bash are both checked, starting with your `$SHELL`.
+Remove the alias from the reported startup file (`~/.zshrc` for Zsh, `~/.bashrc`
+for Bash), then run `unalias <name>` in terminals that were already open. Both
+`cc-dialect shim install` and `cc-dialect doctor` detect these collisions and
+name the shell that defines the alias.
 
 The same applies to existing executables. `cc-dialect create` checks the
 preferred `cc-` command name and recommends an unambiguous alternative when it
@@ -1370,7 +1384,8 @@ To erase every currently configured dialect, remove each name shown by
 
 ```sh
 rm ~/.local/bin/cc-dialect
-rm -rf "$HOME/Library/Application Support/claude-dialects"
+rm -rf "$HOME/Library/Application Support/claude-dialects"   # macOS
+rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/claude-dialects"   # Linux
 ```
 
 The final `rm -rf` is intentionally explicit because it permanently deletes
@@ -1440,22 +1455,34 @@ the binary.
 
 This project does not publish prebuilt binaries or GitHub releases. Everyone
 builds the executable from the checked-out source. To create a shareable local
-macOS archive and checksum instead of installing it:
+archive and checksum instead of installing it:
 
 ```sh
 make assets VERSION=dev
 ls artifacts/
-(cd artifacts && shasum -a 256 -c SHA256SUMS)
+(cd artifacts && sha256sum -c SHA256SUMS)   # Linux
+(cd artifacts && shasum -a 256 -c SHA256SUMS)  # macOS
 ```
 
-The generated files are:
+The archive is named for the platform it was built on, and macOS gets a `.zip`
+while Linux gets a `.tar.gz`. On an Apple silicon Mac the generated files are:
 
 - `artifacts/cc-dialect_dev_darwin_arm64.zip`
 - `artifacts/SHA256SUMS`
 
+and on an x86-64 Linux host:
+
+- `artifacts/cc-dialect_dev_linux_amd64.tar.gz`
+- `artifacts/SHA256SUMS`
+
+`make build` and `make assets` target the host platform by default; override
+`GOOS` and `GOARCH` to cross-compile (for example
+`make assets VERSION=dev GOOS=linux GOARCH=arm64`).
+
 Set `VERSION` to any identifier you want in the filename and embedded
 `cc-dialect --version` output. `make package` is an alias for `make assets`.
-These locally produced assets are not signed or notarized by this project.
+These locally produced assets carry no code signature; on macOS they are
+neither signed nor notarized.
 
 ## Contributing and security
 

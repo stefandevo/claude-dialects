@@ -197,6 +197,9 @@ var presets = map[string]Dialect{
 	},
 }
 
+// homeDir resolves the state root. os.UserConfigDir is what makes this portable
+// without a per-platform branch: it yields ~/Library/Application Support on
+// macOS and ${XDG_CONFIG_HOME:-~/.config} on Linux. DIALECT_HOME overrides both.
 func homeDir() (string, error) {
 	if value := os.Getenv("DIALECT_HOME"); value != "" {
 		return filepath.Abs(value)

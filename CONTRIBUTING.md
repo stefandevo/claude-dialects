@@ -34,7 +34,7 @@ review.
 
 Requirements:
 
-- macOS;
+- macOS or Linux, on amd64 or arm64;
 - Go 1.26.5 or newer;
 - Claude Code installed and available as `claude`;
 - npm and Node.js 22.22.2+ or 24.15.0+ when changing or verifying the dashboard.

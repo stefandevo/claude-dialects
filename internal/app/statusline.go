@@ -115,9 +115,10 @@ func seedStatusline(name string, dialect Dialect) error {
 	if _, exists := settings["statusLine"]; exists || seeded {
 		return committedScriptErr
 	}
-	// statusLine.command is executed by a shell, and the default config root
-	// (~/Library/Application Support/claude-dialects) contains a space — the
-	// stored command must be quoted to survive word splitting.
+	// statusLine.command is executed by a shell, and the config root can hold a
+	// space — the macOS default (~/Library/Application Support/claude-dialects)
+	// always does, and any DIALECT_HOME may — so the stored command must be
+	// quoted to survive word splitting.
 	settings["statusLine"] = map[string]any{"type": "command", "command": shellQuote(scriptPath)}
 	merged, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {

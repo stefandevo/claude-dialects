@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,90 @@ func TestClaudeEnvironmentKeepsExistingRoutingVariables(t *testing.T) {
 	for _, item := range env {
 		if strings.HasPrefix(item, "ANTHROPIC_API_KEY=") {
 			t.Error("launch environment must not define ANTHROPIC_API_KEY")
+		}
+	}
+}
+
+func TestShellAliasProbeOrderPrefersLoginShell(t *testing.T) {
+	order := shellAliasProbeOrder("/bin/bash")
+	if len(order) != 2 || order[0].shell != "bash" || order[1].shell != "zsh" {
+		t.Fatalf("bash login shell should be probed first, got %#v", order)
+	}
+
+	order = shellAliasProbeOrder("/opt/homebrew/bin/zsh")
+	if len(order) != 2 || order[0].shell != "zsh" || order[1].shell != "bash" {
+		t.Fatalf("zsh login shell should be probed first, got %#v", order)
+	}
+
+	order = shellAliasProbeOrder("/usr/bin/fish")
+	if len(order) != 2 || order[0].shell != "zsh" || order[1].shell != "bash" {
+		t.Fatalf("unknown login shell should keep the default order, got %#v", order)
+	}
+}
+
+func TestLookupShellAliasFallsBackToTheSecondShell(t *testing.T) {
+	var probed []string
+	alias, found := lookupShellAlias("cc-x", shellAliasProbeOrder("/bin/zsh"),
+		func(shell, command string) ([]byte, error) {
+			probed = append(probed, shell)
+			if command != "alias cc-x" {
+				t.Fatalf("unexpected probe command %q", command)
+			}
+			if shell == "zsh" {
+				return nil, errors.New("no such alias")
+			}
+			return []byte("alias cc-x='something-else'\n"), nil
+		})
+	if !found {
+		t.Fatal("expected the bash alias to be found")
+	}
+	if alias.Shell != "bash" || alias.RCFile != "~/.bashrc" {
+		t.Fatalf("alias should be attributed to bash and ~/.bashrc, got %#v", alias)
+	}
+	if alias.Definition != "alias cc-x='something-else'" {
+		t.Fatalf("alias definition = %q", alias.Definition)
+	}
+	if len(probed) != 2 || probed[0] != "zsh" || probed[1] != "bash" {
+		t.Fatalf("probes = %v, want zsh then bash", probed)
+	}
+}
+
+func TestLookupShellAliasStopsAtTheFirstMatch(t *testing.T) {
+	probes := 0
+	alias, found := lookupShellAlias("cc-x", shellAliasProbeOrder("/bin/zsh"),
+		func(string, string) ([]byte, error) {
+			probes++
+			return []byte("cc-x=other\n"), nil
+		})
+	if !found || alias.Shell != "zsh" || alias.RCFile != "~/.zshrc" {
+		t.Fatalf("expected a zsh alias, got %#v (found=%v)", alias, found)
+	}
+	if probes != 1 {
+		t.Fatalf("a match should stop probing, ran %d probes", probes)
+	}
+}
+
+func TestLookupShellAliasIgnoresEmptyAndInvalidNames(t *testing.T) {
+	if _, found := lookupShellAlias("cc-x", shellAliasProbeOrder(""),
+		func(string, string) ([]byte, error) { return []byte("  \n"), nil }); found {
+		t.Fatal("blank output must not count as an alias")
+	}
+
+	probes := 0
+	if _, found := lookupShellAlias("../evil", shellAliasProbeOrder(""),
+		func(string, string) ([]byte, error) {
+			probes++
+			return []byte("anything"), nil
+		}); found || probes != 0 {
+		t.Fatalf("an invalid name must not be probed (found=%v probes=%d)", found, probes)
+	}
+}
+
+func TestShellAliasShadowErrorNamesShellAndRCFile(t *testing.T) {
+	err := shellAlias{Shell: "bash", RCFile: "~/.bashrc", Definition: "alias cc-x='ls'"}.shadowError("cc-x")
+	for _, want := range []string{"bash alias", "~/.bashrc", "unalias cc-x"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q should mention %q", err, want)
 		}
 	}
 }
