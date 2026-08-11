@@ -166,7 +166,7 @@ func TestLookupShellAliasFallsBackToTheSecondShell(t *testing.T) {
 	if !found {
 		t.Fatal("expected the bash alias to be found")
 	}
-	if alias.Shell != "bash" || alias.RCFile != "~/.bashrc" {
+	if alias.Shell != "bash" || alias.StartupFile != "~/.bashrc" {
 		t.Fatalf("alias should be attributed to bash and ~/.bashrc, got %#v", alias)
 	}
 	if alias.Definition != "cc-x='something-else'" {
@@ -184,7 +184,7 @@ func TestLookupShellAliasStopsAtTheFirstMatch(t *testing.T) {
 			probes++
 			return map[string]string{"cc-x": "cc-x=other"}
 		})
-	if !found || alias.Shell != "zsh" || alias.RCFile != "~/.zshrc" {
+	if !found || alias.Shell != "zsh" || alias.StartupFile != "~/.zshrc" {
 		t.Fatalf("expected a zsh alias, got %#v (found=%v)", alias, found)
 	}
 	if probes != 1 {
@@ -233,11 +233,52 @@ func TestParseShellAliasesIgnoresNoise(t *testing.T) {
 	}
 }
 
-func TestShellAliasShadowErrorNamesShellAndRCFile(t *testing.T) {
-	err := shellAlias{Shell: "bash", RCFile: "~/.bashrc", Definition: "alias cc-x='ls'"}.shadowError("cc-x")
-	for _, want := range []string{"bash alias", "~/.bashrc", "unalias cc-x"} {
+// The probe reads a shell's alias table, which carries no provenance, so the
+// remediation may name only where to start looking — never a definition site.
+func TestShellAliasShadowErrorPointsAtTheStartupChain(t *testing.T) {
+	err := shellAlias{Shell: "bash", StartupFile: "~/.bashrc", Definition: "cc-x='ls'"}.shadowError("cc-x")
+	for _, want := range []string{"bash alias", "~/.bashrc", "or whichever file it sources", "unalias cc-x"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q should mention %q", err, want)
 		}
+	}
+}
+
+// A lookup memoizes each shell for its own lifetime, so doctor can share one
+// across every dialect — but a new lookup must re-read, which is what lets a
+// long-lived `cc-dialect web` observe an alias the operator has since removed.
+func TestShellAliasLookupCachesPerInstanceOnly(t *testing.T) {
+	reads := 0
+	newStub := func(table map[string]string) *shellAliasLookup {
+		return &shellAliasLookup{
+			probes: shellAliasProbeOrder("/bin/zsh"),
+			tables: map[string]map[string]string{},
+			read: func(string) map[string]string {
+				reads++
+				return table
+			},
+		}
+	}
+
+	shadowed := newStub(map[string]string{"cc-x": "cc-x='ls'"})
+	if _, found := shadowed.find("cc-x"); !found {
+		t.Fatal("expected the alias to be found")
+	}
+	if _, found := shadowed.find("cc-x"); !found {
+		t.Fatal("expected the alias to still be found")
+	}
+	if reads != 1 {
+		t.Fatalf("one lookup should read a shell once, got %d reads", reads)
+	}
+
+	// The operator removes the alias; a fresh lookup must see that rather than
+	// reusing the first lookup's table. A miss falls through to the second
+	// shell, so this costs one read per probed shell.
+	before := reads
+	if _, found := newStub(map[string]string{}).find("cc-x"); found {
+		t.Fatal("a new lookup must re-read rather than reuse a stale table")
+	}
+	if reads-before != len(defaultShellAliasProbes) {
+		t.Fatalf("a new lookup should re-read every probed shell on a miss, got %d reads", reads-before)
 	}
 }

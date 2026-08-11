@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 const usage = `Claude Dialects — create native Claude Code runners for any model
@@ -841,24 +840,29 @@ func nativeLauncherBody(claudePath string, dangerous bool) string {
 	return fmt.Sprintf("#!/bin/sh\nexec %q%s \"$@\"\n", claudePath, flag)
 }
 
-// shellAlias describes an interactive-shell alias that shadows a command name,
-// naming the shell that defines it and the rc file an operator edits to remove
-// it. macOS defaults to Zsh and most Linux distributions default to Bash, so
-// both are probed rather than assuming either.
+// shellAlias describes an interactive-shell alias that shadows a command name.
+// macOS defaults to Zsh and most Linux distributions default to Bash, so both
+// are probed rather than assuming either.
+//
+// StartupFile is the shell's conventional startup file, not the file that was
+// observed to define the alias: `alias` reports no provenance, and the
+// definition may equally come from a file that startup file sources, a plugin
+// framework such as oh-my-zsh, or system-wide configuration. Remediation text
+// therefore points at the startup chain rather than asserting a single file.
 type shellAlias struct {
-	Shell      string
-	RCFile     string
-	Definition string
+	Shell       string
+	StartupFile string
+	Definition  string
 }
 
 type shellAliasProbe struct {
-	shell  string
-	rcFile string
+	shell       string
+	startupFile string
 }
 
 var defaultShellAliasProbes = []shellAliasProbe{
-	{shell: "zsh", rcFile: "~/.zshrc"},
-	{shell: "bash", rcFile: "~/.bashrc"},
+	{shell: "zsh", startupFile: "~/.zshrc"},
+	{shell: "bash", startupFile: "~/.bashrc"},
 }
 
 // shellAliasProbeOrder puts the operator's login shell first, so an alias is
@@ -889,7 +893,7 @@ func lookupShellAlias(name string, probes []shellAliasProbe, aliases func(shell 
 	}
 	for _, probe := range probes {
 		if definition, ok := aliases(probe.shell)[name]; ok {
-			return shellAlias{Shell: probe.shell, RCFile: probe.rcFile, Definition: definition}, true
+			return shellAlias{Shell: probe.shell, StartupFile: probe.startupFile, Definition: definition}, true
 		}
 	}
 	return shellAlias{}, false
@@ -914,40 +918,64 @@ func parseShellAliases(output string) map[string]string {
 	return table
 }
 
-var (
-	shellAliasMu     sync.Mutex
-	shellAliasTables = map[string]map[string]string{}
-)
+// shellAliasLookup answers alias questions for one pass of work, memoizing each
+// shell's table for its own lifetime only. The scope is deliberate: reading a
+// table starts an interactive shell that sources the operator's full startup
+// chain, so doctor wants one lookup shared across every dialect it checks — but
+// `cc-dialect web` services launcher installs for hours, and a process-wide
+// cache there would keep refusing a name whose alias the operator has since
+// removed. One lookup per command, and one per dashboard mutation, gives both.
+type shellAliasLookup struct {
+	probes []shellAliasProbe
+	tables map[string]map[string]string
+	read   func(shell string) map[string]string
+}
 
-// shellAliasTable reads one shell's alias table, once per process. Each read
-// starts an interactive shell that sources the operator's full rc chain, so the
-// result is memoized; a shell that is not installed yields an empty table.
-// Only stdout is read, because rc files routinely write to stderr and folding
-// that in would let unrelated startup noise parse as an alias.
-func shellAliasTable(shell string) map[string]string {
-	shellAliasMu.Lock()
-	defer shellAliasMu.Unlock()
-	if table, ok := shellAliasTables[shell]; ok {
+func newShellAliasLookup() *shellAliasLookup {
+	return &shellAliasLookup{
+		probes: shellAliasProbeOrder(os.Getenv("SHELL")),
+		tables: map[string]map[string]string{},
+		read:   readShellAliasTable,
+	}
+}
+
+func (l *shellAliasLookup) table(shell string) map[string]string {
+	if table, ok := l.tables[shell]; ok {
 		return table
 	}
-	table := map[string]string{}
-	if output, err := exec.Command(shell, "-ic", "alias").Output(); err == nil {
-		table = parseShellAliases(string(output))
-	}
-	shellAliasTables[shell] = table
+	table := l.read(shell)
+	l.tables[shell] = table
 	return table
 }
 
-// findShellAlias reports the interactive-shell alias shadowing name, if any.
+// find reports the interactive-shell alias shadowing name, if any.
+func (l *shellAliasLookup) find(name string) (shellAlias, bool) {
+	return lookupShellAlias(name, l.probes, l.table)
+}
+
+// readShellAliasTable asks one shell for every alias it has defined. A shell
+// that is not installed yields an empty table. Only stdout is read, because
+// startup files routinely write to stderr and folding that in would let
+// unrelated noise parse as an alias.
+func readShellAliasTable(shell string) map[string]string {
+	output, err := exec.Command(shell, "-ic", "alias").Output()
+	if err != nil {
+		return map[string]string{}
+	}
+	return parseShellAliases(string(output))
+}
+
+// findShellAlias is the one-shot form for callers that ask about a single name.
 func findShellAlias(name string) (shellAlias, bool) {
-	return lookupShellAlias(name, shellAliasProbeOrder(os.Getenv("SHELL")), shellAliasTable)
+	return newShellAliasLookup().find(name)
 }
 
 // shadowError explains how to clear an alias that would win over the installed
-// command, naming the shell and the rc file that actually define it.
+// command. It names the shell's startup file as the place to start looking
+// rather than the definition site, which the probe cannot know.
 func (a shellAlias) shadowError(name string) error {
-	return fmt.Errorf("%s alias %q would override the installed command; remove it from %s and run `unalias %s` in already-open terminals",
-		a.Shell, a.Definition, a.RCFile, name)
+	return fmt.Errorf("%s alias %q would override the installed command; remove it from %s or whichever file it sources, then run `unalias %s` in already-open terminals",
+		a.Shell, a.Definition, a.StartupFile, name)
 }
 
 func pathContains(dir string) bool {
@@ -1102,11 +1130,14 @@ func doctor(args []string, version string) error {
 	if line := mcpDefaultsSummary(sharedDefaults, sharedDefaultsErr); line != "" {
 		fmt.Println(line)
 	}
+	// One lookup for the whole loop: each dialect has its own shim name, so
+	// without sharing it every dialect would pay for its own shell startups.
+	aliases := newShellAliasLookup()
 	for name := range cfg.Dialects {
 		shimName := preferredShimName(name)
-		if alias, found := findShellAlias(shimName); found {
-			fmt.Printf("✗ %s is shadowed by a %s alias: %s (remove it from %s)\n",
-				shimName, alias.Shell, alias.Definition, alias.RCFile)
+		if alias, found := aliases.find(shimName); found {
+			fmt.Printf("✗ %s is shadowed by a %s alias: %s (remove it from %s or whichever file it sources)\n",
+				shimName, alias.Shell, alias.Definition, alias.StartupFile)
 		}
 		home, _ := os.UserHomeDir()
 		target := filepath.Join(home, ".local", "bin", shimName)

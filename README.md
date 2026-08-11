@@ -1309,10 +1309,12 @@ not automatically appear in the new isolated history.
 
 If a shell alias already uses the generated command name, it takes precedence
 over the executable. Zsh and Bash are both checked, starting with your `$SHELL`.
-Remove the alias from the reported startup file (`~/.zshrc` for Zsh, `~/.bashrc`
-for Bash), then run `unalias <name>` in terminals that were already open. Both
-`cc-dialect shim install` and `cc-dialect doctor` detect these collisions and
-name the shell that defines the alias.
+Both `cc-dialect shim install` and `cc-dialect doctor` detect these collisions
+and name the shell that defines the alias, along with that shell's startup file
+(`~/.zshrc` for Zsh, `~/.bashrc` for Bash) as the place to start looking — the
+definition may live in a file that startup file sources, in a framework such as
+oh-my-zsh, or in system-wide configuration, which a shell does not report. Once
+removed, run `unalias <name>` in terminals that were already open.
 
 The same applies to existing executables. `cc-dialect create` checks the
 preferred `cc-` command name and recommends an unambiguous alternative when it
