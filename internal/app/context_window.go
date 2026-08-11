@@ -88,6 +88,14 @@ type contextWindowSource struct {
 // (gemini, vertex, aistudio, gemini-cli) spell it inputTokenLimit, while every
 // other key, antigravity included, spells it context_length.
 //
+// Two stamped IDs are not registry IDs and have to be normalized before that
+// lookup. codex selects gpt-5.6, a family name carried as the version field of
+// the gpt-5.6-sol/terra/luna entries rather than as any entry's id; claude
+// selects claude-haiku-4-5, the undated form of claude-haiku-4-5-20251001. The
+// other fourteen match an id verbatim, so a lookup that quietly prefix-matches
+// will paper over exactly these two and hide it if either family's tiers stop
+// agreeing.
+//
 // Cursor and GitHub publish no per-route context window, and neither the
 // @cursor/sdk model list nor the Copilot SDK carries the field, so those routes
 // carry explicit conservative fallbacks rather than borrowing a number from a
