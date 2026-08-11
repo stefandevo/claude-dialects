@@ -861,11 +861,8 @@ var defaultShellAliasProbes = []shellAliasProbe{
 	{shell: "bash", rcFile: "~/.bashrc"},
 }
 
-// shellAliasProbeOrder puts the operator's login shell first so the common case
-// resolves on the first probe. Probing is expensive — every attempt starts an
-// interactive shell that sources the full rc chain — and doctor asks about each
-// dialect in turn, so this ordering plus findShellAlias's cache is what keeps
-// the cost bounded.
+// shellAliasProbeOrder puts the operator's login shell first, so an alias is
+// attributed to the shell they actually use when both define the same name.
 func shellAliasProbeOrder(loginShell string) []shellAliasProbe {
 	preferred := filepath.Base(strings.TrimSpace(loginShell))
 	ordered := make([]shellAliasProbe, 0, len(defaultShellAliasProbes))
@@ -882,43 +879,68 @@ func shellAliasProbeOrder(loginShell string) []shellAliasProbe {
 	return ordered
 }
 
-// lookupShellAlias asks each shell in turn whether name is aliased. Only stdout
-// is read: rc files routinely write to stderr, and folding that in would let
-// unrelated startup noise read as an alias definition.
-func lookupShellAlias(name string, probes []shellAliasProbe, run func(shell, command string) ([]byte, error)) (shellAlias, bool) {
+// lookupShellAlias finds the first probed shell that aliases name. aliases
+// yields a whole shell's alias table, so asking about many names costs no more
+// shell startups than asking about one — which is what keeps doctor cheap, since
+// it asks once per dialect and every dialect has its own cc-prefixed shim name.
+func lookupShellAlias(name string, probes []shellAliasProbe, aliases func(shell string) map[string]string) (shellAlias, bool) {
 	if !validName(name) {
 		return shellAlias{}, false
 	}
 	for _, probe := range probes {
-		output, err := run(probe.shell, "alias "+name)
-		if err != nil {
-			continue
+		if definition, ok := aliases(probe.shell)[name]; ok {
+			return shellAlias{Shell: probe.shell, RCFile: probe.rcFile, Definition: definition}, true
 		}
-		definition := strings.TrimSpace(string(output))
-		if definition == "" {
-			continue
-		}
-		return shellAlias{Shell: probe.shell, RCFile: probe.rcFile, Definition: definition}, true
 	}
 	return shellAlias{}, false
 }
 
-var shellAliasCache sync.Map
+// parseShellAliases reads the output of a bare `alias`. Zsh prints `name=value`
+// and Bash prints `alias name=value`; dropping the optional keyword and cutting
+// at the first `=` handles both. A value spanning several lines contributes only
+// its first line, and continuation lines are skipped because they carry no
+// name-shaped prefix.
+func parseShellAliases(output string) map[string]string {
+	table := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		definition := strings.TrimSpace(line)
+		definition = strings.TrimPrefix(definition, "alias ")
+		name, _, found := strings.Cut(definition, "=")
+		if !found || !validName(name) {
+			continue
+		}
+		table[name] = definition
+	}
+	return table
+}
+
+var (
+	shellAliasMu     sync.Mutex
+	shellAliasTables = map[string]map[string]string{}
+)
+
+// shellAliasTable reads one shell's alias table, once per process. Each read
+// starts an interactive shell that sources the operator's full rc chain, so the
+// result is memoized; a shell that is not installed yields an empty table.
+// Only stdout is read, because rc files routinely write to stderr and folding
+// that in would let unrelated startup noise parse as an alias.
+func shellAliasTable(shell string) map[string]string {
+	shellAliasMu.Lock()
+	defer shellAliasMu.Unlock()
+	if table, ok := shellAliasTables[shell]; ok {
+		return table
+	}
+	table := map[string]string{}
+	if output, err := exec.Command(shell, "-ic", "alias").Output(); err == nil {
+		table = parseShellAliases(string(output))
+	}
+	shellAliasTables[shell] = table
+	return table
+}
 
 // findShellAlias reports the interactive-shell alias shadowing name, if any.
-// Answers are cached per command name because a miss costs one interactive
-// shell startup per probed shell and doctor asks once per dialect.
 func findShellAlias(name string) (shellAlias, bool) {
-	if cached, ok := shellAliasCache.Load(name); ok {
-		alias := cached.(shellAlias)
-		return alias, alias.Definition != ""
-	}
-	alias, found := lookupShellAlias(name, shellAliasProbeOrder(os.Getenv("SHELL")),
-		func(shell, command string) ([]byte, error) {
-			return exec.Command(shell, "-ic", command).Output()
-		})
-	shellAliasCache.Store(name, alias)
-	return alias, found
+	return lookupShellAlias(name, shellAliasProbeOrder(os.Getenv("SHELL")), shellAliasTable)
 }
 
 // shadowError explains how to clear an alias that would win over the installed

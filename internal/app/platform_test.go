@@ -55,13 +55,25 @@ func TestBrowserCommandPerPlatform(t *testing.T) {
 func TestBrowserCommandMissingOpenerPointsAtNoBrowser(t *testing.T) {
 	missing := func(string) (string, error) { return "", errors.New("not found") }
 
-	_, err := browserCommand("linux", missing)
-	if err == nil {
-		t.Fatal("expected an error when xdg-open is missing")
-	}
+	err := mustBrowserCommandError(t, "linux", missing)
 	if !strings.Contains(err.Error(), "--no-browser") || !strings.Contains(err.Error(), "xdg-utils") {
 		t.Fatalf("error should name xdg-utils and --no-browser, got %q", err)
 	}
+
+	// Every platform points at the escape hatch, not just the one where a
+	// missing opener is common.
+	if err = mustBrowserCommandError(t, "darwin", missing); !strings.Contains(err.Error(), "--no-browser") {
+		t.Fatalf("error should point at --no-browser, got %q", err)
+	}
+}
+
+func mustBrowserCommandError(t *testing.T, goos string, lookPath func(string) (string, error)) error {
+	t.Helper()
+	if _, err := browserCommand(goos, lookPath); err != nil {
+		return err
+	}
+	t.Fatalf("expected an error resolving a browser on %s", goos)
+	return nil
 }
 
 func TestBrowserCommandUnsupportedPlatform(t *testing.T) {

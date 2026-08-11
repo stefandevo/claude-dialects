@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
@@ -157,15 +156,12 @@ func TestShellAliasProbeOrderPrefersLoginShell(t *testing.T) {
 func TestLookupShellAliasFallsBackToTheSecondShell(t *testing.T) {
 	var probed []string
 	alias, found := lookupShellAlias("cc-x", shellAliasProbeOrder("/bin/zsh"),
-		func(shell, command string) ([]byte, error) {
+		func(shell string) map[string]string {
 			probed = append(probed, shell)
-			if command != "alias cc-x" {
-				t.Fatalf("unexpected probe command %q", command)
-			}
 			if shell == "zsh" {
-				return nil, errors.New("no such alias")
+				return map[string]string{"other": "other=nope"}
 			}
-			return []byte("alias cc-x='something-else'\n"), nil
+			return map[string]string{"cc-x": "cc-x='something-else'"}
 		})
 	if !found {
 		t.Fatal("expected the bash alias to be found")
@@ -173,7 +169,7 @@ func TestLookupShellAliasFallsBackToTheSecondShell(t *testing.T) {
 	if alias.Shell != "bash" || alias.RCFile != "~/.bashrc" {
 		t.Fatalf("alias should be attributed to bash and ~/.bashrc, got %#v", alias)
 	}
-	if alias.Definition != "alias cc-x='something-else'" {
+	if alias.Definition != "cc-x='something-else'" {
 		t.Fatalf("alias definition = %q", alias.Definition)
 	}
 	if len(probed) != 2 || probed[0] != "zsh" || probed[1] != "bash" {
@@ -184,31 +180,56 @@ func TestLookupShellAliasFallsBackToTheSecondShell(t *testing.T) {
 func TestLookupShellAliasStopsAtTheFirstMatch(t *testing.T) {
 	probes := 0
 	alias, found := lookupShellAlias("cc-x", shellAliasProbeOrder("/bin/zsh"),
-		func(string, string) ([]byte, error) {
+		func(string) map[string]string {
 			probes++
-			return []byte("cc-x=other\n"), nil
+			return map[string]string{"cc-x": "cc-x=other"}
 		})
 	if !found || alias.Shell != "zsh" || alias.RCFile != "~/.zshrc" {
 		t.Fatalf("expected a zsh alias, got %#v (found=%v)", alias, found)
 	}
 	if probes != 1 {
-		t.Fatalf("a match should stop probing, ran %d probes", probes)
+		t.Fatalf("a match should stop probing, read %d alias tables", probes)
 	}
 }
 
-func TestLookupShellAliasIgnoresEmptyAndInvalidNames(t *testing.T) {
-	if _, found := lookupShellAlias("cc-x", shellAliasProbeOrder(""),
-		func(string, string) ([]byte, error) { return []byte("  \n"), nil }); found {
-		t.Fatal("blank output must not count as an alias")
-	}
-
+func TestLookupShellAliasSkipsInvalidNames(t *testing.T) {
 	probes := 0
 	if _, found := lookupShellAlias("../evil", shellAliasProbeOrder(""),
-		func(string, string) ([]byte, error) {
+		func(string) map[string]string {
 			probes++
-			return []byte("anything"), nil
+			return map[string]string{"../evil": "../evil=anything"}
 		}); found || probes != 0 {
 		t.Fatalf("an invalid name must not be probed (found=%v probes=%d)", found, probes)
+	}
+}
+
+// Zsh and Bash disagree on whether `alias` echoes the keyword back, and both
+// forms have to yield the same table.
+func TestParseShellAliasesHandlesBothShellFormats(t *testing.T) {
+	zsh := parseShellAliases("cc-x='echo hi'\nll='ls -la'\n")
+	if got := zsh["cc-x"]; got != "cc-x='echo hi'" {
+		t.Fatalf("zsh cc-x = %q", got)
+	}
+	if got := zsh["ll"]; got != "ll='ls -la'" {
+		t.Fatalf("zsh ll = %q", got)
+	}
+
+	bash := parseShellAliases("alias cc-x='echo hi'\nalias ll='ls -la'\n")
+	if got := bash["cc-x"]; got != "cc-x='echo hi'" {
+		t.Fatalf("bash cc-x = %q", got)
+	}
+	if len(bash) != 2 {
+		t.Fatalf("bash table = %#v, want two entries", bash)
+	}
+}
+
+func TestParseShellAliasesIgnoresNoise(t *testing.T) {
+	table := parseShellAliases("\n  \nbash: no job control in this shell\nnot-an-alias-line\ncc-x='ok'\n")
+	if len(table) != 1 {
+		t.Fatalf("table = %#v, want only the real alias", table)
+	}
+	if _, ok := table["cc-x"]; !ok {
+		t.Fatalf("table = %#v, want cc-x", table)
 	}
 }
 

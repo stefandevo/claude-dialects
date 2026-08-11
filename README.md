@@ -1460,8 +1460,8 @@ archive and checksum instead of installing it:
 ```sh
 make assets VERSION=dev
 ls artifacts/
-(cd artifacts && sha256sum -c SHA256SUMS)   # Linux
 (cd artifacts && shasum -a 256 -c SHA256SUMS)  # macOS
+(cd artifacts && sha256sum -c SHA256SUMS)      # Linux
 ```
 
 The archive is named for the platform it was built on, and macOS gets a `.zip`
