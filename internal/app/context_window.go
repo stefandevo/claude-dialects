@@ -79,12 +79,14 @@ type contextWindowSource struct {
 // for the OAuth-backed routes because it is the same catalog the proxy serves.
 // Recalibrating means re-reading that file at the version go.mod pins now, not
 // diffing against the version named here: a stamp left behind hides every change
-// made since. Each preset's models are looked up under the provider key its
-// AuthProvider names — antigravity for gemini, the codex-free/team/plus/pro
-// tiers for codex — and the window field varies by key rather than by model, so
-// the Google-native keys (gemini, vertex, aistudio, gemini-cli) spell it
-// inputTokenLimit while every other key, antigravity included, spells it
-// context_length.
+// made since. Each of a preset's models is looked up on its own, under the
+// registry key providerForModel maps that model to — per model rather than per
+// preset, which is what lets mixed-frontier's four models resolve under four
+// different keys and a preset with no AuthProvider resolve at all. The codex
+// provider spans the codex-free/team/plus/pro keys, one per account tier. The
+// window field then varies by key rather than by model: the Google-native keys
+// (gemini, vertex, aistudio, gemini-cli) spell it inputTokenLimit, while every
+// other key, antigravity included, spells it context_length.
 //
 // Cursor and GitHub publish no per-route context window, and neither the
 // @cursor/sdk model list nor the Copilot SDK carries the field, so those routes
