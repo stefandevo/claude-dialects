@@ -198,9 +198,32 @@ check(
 );
 check("CRLF marker", strip("Sure.\r\nASSISTANT TOOL CALL Bash:\r\nargs\r\n"), "Sure.\r\n");
 
+// An exact example is indistinguishable from an imitation by shape, so a reply
+// explaining the format is only recoverable by where it puts that example.
+// (Built from a char code because the Go raw string holding this cannot carry a
+// backtick.)
+const fence = String.fromCharCode(96).repeat(3);
+const explanation = "The bridge frames a call like this:\n" +
+  fence + "\nASSISTANT TOOL CALL Read:\n{\"path\":\"a\"}\n" + fence + "\n" +
+  "and the result like this:\n" +
+  "~~~\nCLAUDE CODE TOOL RESULT Read:\nfile contents\n~~~\n" +
+  "That framing is added by the harness.\n";
+check("fenced examples survive", strip(explanation), explanation);
+// A closed fence must not leave the rest of the turn unguarded.
+check(
+  "marker after a closed fence",
+  strip(fence + "\ncode\n" + fence + "\nASSISTANT TOOL CALL Read:\nx\n"),
+  fence + "\ncode\n" + fence + "\n",
+);
+// The turn can also end on the example, inside a fence that never closed,
+// which is the flush path rather than the line-completion path.
+const openFence = fence + "\nASSISTANT TOOL CALL Read:";
+check("turn ends inside a fence", strip(openFence), openFence);
+
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
-const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, "no newline in this reply"];
+const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, explanation,
+  "no newline in this reply"];
 for (const source of cases) {
   const want = strip(source);
   for (let split = 0; split <= source.length; split += 1) {

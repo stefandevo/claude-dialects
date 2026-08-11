@@ -991,6 +991,13 @@ const MARKER_LINE = new RegExp(
   `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
 );
 
+// An exact example of the framing is indistinguishable from an imitation of it
+// by shape alone, and a reply explaining the transcript format puts that
+// example in a fenced block. What was actually reported is unfenced framing, so
+// a marker inside a fence is left alone: an explanation survives whole, and the
+// backstop still covers the case it exists for.
+const FENCE_LINE = /^\s*(?:```|~~~)/;
+
 // True while `line` could still grow into a marker line: either it is a partial
 // label, or the label is complete and the tool name is still arriving.
 function couldStartMarker(line) {
@@ -1006,6 +1013,7 @@ function createMarkerFilter(onSuppress) {
   let lineText = "";
   let held = "";
   let lineSafe = false;
+  let inFence = false;
   let suppressed = false;
 
   const suppress = () => {
@@ -1037,7 +1045,9 @@ function createMarkerFilter(onSuppress) {
         lineText += rest.slice(0, index);
         held += rest.slice(0, index + 1);
         rest = rest.slice(index + 1);
-        if (!lineSafe && MARKER_LINE.test(lineText)) {
+        if (FENCE_LINE.test(lineText)) {
+          inFence = !inFence;
+        } else if (!inFence && !lineSafe && MARKER_LINE.test(lineText)) {
           // The turn has started imitating the transcript. Everything after the
           // marker belongs to the imitation too, so drop the rest of the turn.
           suppress();
@@ -1054,7 +1064,7 @@ function createMarkerFilter(onSuppress) {
     // suppresses it when the turn ended on a marker with no closing newline.
     flush() {
       if (suppressed) return "";
-      if (!lineSafe && MARKER_LINE.test(lineText)) {
+      if (!inFence && !lineSafe && MARKER_LINE.test(lineText)) {
         suppress();
         return "";
       }
