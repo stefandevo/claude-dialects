@@ -138,6 +138,10 @@ cc-dialect shim install cc-my-model</code></pre>
           <div class="callout__title">⚠ Updating presets</div>
           <p>Updating <code>cc-dialect</code> does not silently change existing dialects. Re-run <code>cc-dialect create cc-kimi --preset kimi</code> to apply the latest preset while preserving port, credentials, and history. Start a new conversation after changing the underlying model.</p>
         </div>
+        <div class="callout callout--info">
+          <div class="callout__title">ℹ Command name collisions</div>
+          <p>A shell alias using the generated command name takes precedence over the installed executable. Zsh and Bash are both checked, starting with your <code>$SHELL</code>. Remove the alias from the reported startup file (<code>~/.zshrc</code> for Zsh, <code>~/.bashrc</code> for Bash), then run <code>unalias &lt;name&gt;</code> in terminals that were already open. Both <code>cc-dialect shim install</code> and <code>cc-dialect doctor</code> detect these collisions and name the shell that defines the alias. The same applies to existing executables: <code>cc-dialect create</code> recommends an unambiguous alternative, and shim installation refuses an ambiguous name and lists the conflicting paths.</p>
+        </div>
       </section>
 
       <section id="context-window" class="doc-section reveal">
