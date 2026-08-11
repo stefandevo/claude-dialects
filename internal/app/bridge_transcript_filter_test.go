@@ -202,7 +202,8 @@ check("CRLF marker", strip("Sure.\r\nASSISTANT TOOL CALL Bash:\r\nargs\r\n"), "S
 // explaining the format is only recoverable by where it puts that example.
 // (Built from a char code because the Go raw string holding this cannot carry a
 // backtick.)
-const fence = String.fromCharCode(96).repeat(3);
+const tick = String.fromCharCode(96);
+const fence = tick.repeat(3);
 const explanation = "The bridge frames a call like this:\n" +
   fence + "\nASSISTANT TOOL CALL Read:\n{\"path\":\"a\"}\n" + fence + "\n" +
   "and the result like this:\n" +
@@ -220,10 +221,27 @@ check(
 const openFence = fence + "\nASSISTANT TOOL CALL Read:";
 check("turn ends inside a fence", strip(openFence), openFence);
 
+// A fence closes only on its own character at its own length or longer. A reply
+// documenting a fenced example wraps it in a longer fence, so the inner fence
+// must not end the outer one and expose the example it contains.
+const nested = "To document the framing, write:\n" +
+  fence + tick + "\n" + fence + "\nASSISTANT TOOL CALL Read:\n{}\n" + fence + "\n" +
+  fence + tick + "\nBack to prose.\n";
+check("fence nested in a longer fence", strip(nested), nested);
+// A tilde run does not close a backtick fence.
+const mismatched = fence + "\n~~~\nCLAUDE CODE TOOL RESULT Read:\nout\n~~~\n" + fence + "\n";
+check("mismatched fence delimiters", strip(mismatched), mismatched);
+// A longer closing run is still a close, so what follows is guarded again.
+check(
+  "longer closing run still closes",
+  strip(fence + "\ncode\n" + fence + tick + "\nASSISTANT TOOL CALL Read:\nx\n"),
+  fence + "\ncode\n" + fence + tick + "\n",
+);
+
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
 const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, explanation,
-  "no newline in this reply"];
+  nested, mismatched, "no newline in this reply"];
 for (const source of cases) {
   const want = strip(source);
   for (let split = 0; split <= source.length; split += 1) {
