@@ -427,11 +427,12 @@ const MARKER_LINE = new RegExp(
 // a marker inside a fence is left alone: an explanation survives whole, and the
 // backstop still covers the case it exists for.
 //
-// The delimiter run is captured because a fence closes only on its own
-// character at its own length or longer. A reply that documents a fenced
-// example wraps it in a longer fence, and treating the inner one as a close
+// The delimiter run and what follows it are both captured because a fence
+// closes only on its own character, at its own length or longer, with nothing
+// after it but whitespace. A reply that documents a fenced example wraps it in
+// a longer fence and may carry info strings inside; treating either as a close
 // would expose exactly the example the fence was meant to protect.
-const FENCE_LINE = /^\s*(```+|~~~+)/;
+const FENCE_LINE = /^\s*(```+|~~~+)(.*)$/;
 
 // True while `line` could still grow into a marker line: either it is a partial
 // label, or the label is complete and the tool name is still arriving.
@@ -481,14 +482,19 @@ function createMarkerFilter(onSuppress) {
         lineText += rest.slice(0, index);
         held += rest.slice(0, index + 1);
         rest = rest.slice(index + 1);
-        const delimiter = FENCE_LINE.exec(lineText)?.[1];
-        if (delimiter) {
+        const fenceMatch = FENCE_LINE.exec(lineText);
+        if (fenceMatch) {
+          const [, delimiter, trailing] = fenceMatch;
           if (!fence) {
             fence = delimiter;
-          } else if (delimiter[0] === fence[0] && delimiter.length >= fence.length) {
+          } else if (
+            delimiter[0] === fence[0]
+            && delimiter.length >= fence.length
+            && trailing.trim() === ""
+          ) {
             fence = "";
           }
-          // Anything else is a fence nested inside the open one, not its close.
+          // Anything else is content inside the open fence, not its close.
         } else if (!fence && !lineSafe && MARKER_LINE.test(lineText)) {
           // The turn has started imitating the transcript. Everything after the
           // marker belongs to the imitation too, so drop the rest of the turn.
