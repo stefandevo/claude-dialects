@@ -237,11 +237,21 @@ check(
   strip(fence + "\ncode\n" + fence + tick + "\nASSISTANT TOOL CALL Read:\nx\n"),
   fence + "\ncode\n" + fence + tick + "\n",
 );
+// A close carries nothing but whitespace, so a same-delimiter line with an info
+// string is content inside the block rather than its end.
+const infoString = fence + "\n" + fence + "js\nASSISTANT TOOL CALL Read:\n{}\n" +
+  fence + "\nDone.\n";
+check("info string does not close a fence", strip(infoString), infoString);
+check(
+  "trailing whitespace still closes",
+  strip(fence + "\ncode\n" + fence + "  \nASSISTANT TOOL CALL Read:\nx\n"),
+  fence + "\ncode\n" + fence + "  \n",
+);
 
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
 const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, explanation,
-  nested, mismatched, "no newline in this reply"];
+  nested, mismatched, infoString, "no newline in this reply"];
 for (const source of cases) {
   const want = strip(source);
   for (let split = 0; split <= source.length; split += 1) {
