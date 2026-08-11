@@ -77,12 +77,14 @@ type contextWindowSource struct {
 // "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.122
 // model registry (internal/registry/models/models.json), which is authoritative
 // for the OAuth-backed routes because it is the same catalog the proxy serves.
-// Recalibrating means re-reading that file at the version go.mod currently
-// pins, not diffing against the version named here: a stamp left behind hides
-// every change made since. A window is looked up per model family — the Gemini
-// entries carry inputTokenLimit, every other family carries context_length —
-// under the provider key matching the preset's AuthProvider, so the antigravity
-// key serves the gemini preset and the codex-free/team/plus/pro keys serve codex.
+// Recalibrating means re-reading that file at the version go.mod pins now, not
+// diffing against the version named here: a stamp left behind hides every change
+// made since. Each preset's models are looked up under the provider key its
+// AuthProvider names — antigravity for gemini, the codex-free/team/plus/pro
+// tiers for codex — and the window field varies by key rather than by model, so
+// the Google-native keys (gemini, vertex, aistudio, gemini-cli) spell it
+// inputTokenLimit while every other key, antigravity included, spells it
+// context_length.
 //
 // Cursor and GitHub publish no per-route context window, and neither the
 // @cursor/sdk model list nor the Copilot SDK carries the field, so those routes
