@@ -444,7 +444,7 @@ ls artifacts/
 (cd artifacts && shasum -a 256 -c SHA256SUMS)   # macOS
 (cd artifacts && sha256sum -c SHA256SUMS)       # Linux</code></pre>
         </div>
-        <p>The archive is named for the platform it was built on: <code>artifacts/cc-dialect_dev_darwin_arm64.zip</code> on an Apple silicon Mac, <code>artifacts/cc-dialect_dev_linux_amd64.tar.gz</code> on x86-64 Linux, alongside <code>SHA256SUMS</code>. Override <code>GOOS</code> and <code>GOARCH</code> to cross-compile. These locally produced assets carry no code signature; on macOS they are neither signed nor notarized.</p>
+        <p>The archive is named for the platform it was built on: <code>artifacts/cc-dialect_dev_darwin_arm64.zip</code> on an Apple silicon Mac, <code>artifacts/cc-dialect_dev_linux_amd64.tar.gz</code> on x86-64 Linux, alongside <code>SHA256SUMS</code>. Override <code>GOOS</code> and <code>GOARCH</code> to cross-compile. Packaging a <code>.tar.gz</code> works from either host; packaging a macOS <code>.zip</code> uses <code>ditto</code> when available and falls back to <code>zip</code>, so building a darwin archive from Linux needs <code>zip</code> installed. These locally produced assets carry no code signature; on macOS they are neither signed nor notarized.</p>
 
         <div class="doc-nav-cards">
           <a href="providers.html" class="doc-nav-card">

@@ -72,12 +72,24 @@ assets: build notices
 	mkdir -p "artifacts/$(ASSET_NAME)"
 	cp dist/cc-dialect LICENSE README.md THIRD_PARTY_NOTICES.md "artifacts/$(ASSET_NAME)/"
 ifeq ($(GOOS),darwin)
-	# ditto (not zip) so the archive carries no resource forks or extended
-	# attributes; Info-ZIP on macOS would store AppleDouble entries instead.
-	cd artifacts && COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --keepParent "$(ASSET_NAME)" "$(ASSET_ARCHIVE)"
+	# The format follows the target, but the tool has to follow the host: ditto
+	# is macOS-only, so keying it off GOOS alone would break cross-packaging a
+	# darwin archive from Linux. Prefer ditto where it exists — on a macOS host
+	# it is what keeps resource forks and extended attributes out of the archive,
+	# which Info-ZIP would store as AppleDouble entries instead. A non-macOS host
+	# has no such metadata to strip, so any zip produces an equivalent archive.
+	cd artifacts && if command -v ditto >/dev/null 2>&1; then \
+		COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --keepParent "$(ASSET_NAME)" "$(ASSET_ARCHIVE)"; \
+	elif command -v zip >/dev/null 2>&1; then \
+		zip -qrX "$(ASSET_ARCHIVE)" "$(ASSET_NAME)"; \
+	else \
+		echo "packaging a macOS archive needs ditto (macOS) or zip; install zip or build on macOS" >&2; \
+		exit 1; \
+	fi
 else
 	# tar, not zip: zip is absent from many minimal Linux images, and tar.gz is
-	# the platform convention anyway.
+	# the platform convention anyway. tar is present on macOS too, so packaging
+	# a Linux archive from either host works.
 	cd artifacts && tar -czf "$(ASSET_ARCHIVE)" "$(ASSET_NAME)"
 endif
 	cd artifacts && if command -v sha256sum >/dev/null 2>&1; then \

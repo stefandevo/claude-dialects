@@ -1479,7 +1479,10 @@ and on an x86-64 Linux host:
 
 `make build` and `make assets` target the host platform by default; override
 `GOOS` and `GOARCH` to cross-compile (for example
-`make assets VERSION=dev GOOS=linux GOARCH=arm64`).
+`make assets VERSION=dev GOOS=linux GOARCH=arm64`). Packaging a `.tar.gz` works
+from either host. Packaging a macOS `.zip` uses `ditto` when it is available and
+falls back to `zip`, so building a darwin archive from Linux needs `zip`
+installed.
 
 Set `VERSION` to any identifier you want in the filename and embedded
 `cc-dialect --version` output. `make package` is an alias for `make assets`.
