@@ -459,31 +459,47 @@ async function chatCompletion(request, response, body, pending) {
     if (!isStreaming || pending.aborted || response.writableEnded) return;
     writeStreamContentDelta(response, { ...streamMeta(), content });
   };
+  const logMarkerSuppression = (stream) => {
+    process.stderr.write(`cursor bridge: suppressed ${stream} imitating the transcript markers\n`);
+  };
+  // Two filters rather than one. The answer and the reasoning are separate
+  // logical streams that each carry their own line boundaries, and only the
+  // answer feeds the billed `text` — sharing a filter would let a marker in the
+  // reasoning suppress the answer, and would release withheld reasoning into
+  // `text`. The reasoning is covered at all because it is displayed to the user
+  // exactly like the answer is, so an imitation there is just as unreadable.
+  const outputFilter = createMarkerFilter(() => logMarkerSuppression("assistant text"));
+  const reasoningFilter = createMarkerFilter(() => logMarkerSuppression("reasoning output"));
+  const streamAnswer = (chunk) => {
+    const visible = outputFilter.push(chunk);
+    if (!visible) return;
+    text += visible;
+    streamContent(visible);
+  };
   const handleDelta = (update) => {
     if (pending.aborted || response.writableEnded) return;
     switch (update.type) {
       case "text-delta":
         if (typeof update.text === "string" && update.text) {
           noteFirstDelta(timing, timing.runStart);
-          text += update.text;
-          streamContent(update.text);
+          streamAnswer(update.text);
         }
         break;
       case "thinking-delta":
         // Visible progress only — do not merge reasoning into billed assistant text.
         if (typeof update.text === "string" && update.text) {
           noteFirstDelta(timing, timing.runStart);
-          streamContent(update.text);
+          streamContent(reasoningFilter.push(update.text));
         }
         break;
       case "summary-started":
         noteFirstDelta(timing, timing.runStart);
-        streamContent("…");
+        streamContent(reasoningFilter.push("…"));
         break;
       case "summary":
         if (typeof update.summary === "string" && update.summary) {
           noteFirstDelta(timing, timing.runStart);
-          streamContent(`${update.summary}\n`);
+          streamContent(reasoningFilter.push(`${update.summary}\n`));
         }
         break;
       case "tool-call-started":
@@ -659,7 +675,11 @@ async function chatCompletion(request, response, body, pending) {
         error.code = result.error?.code || "cursor_sdk_error";
         throw error;
       }
-      if (!text && typeof result.result === "string") text = result.result;
+      // A third path into `text`, taken when the run reported no assistant
+      // blocks at all, so it needs the same filtering the other two get.
+      if (!text && typeof result.result === "string") {
+        text = stripTranscriptMarkers(result.result, () => logMarkerSuppression("assistant text"));
+      }
       usage ||= result.usage;
     }
   } catch (error) {
@@ -691,6 +711,18 @@ async function chatCompletion(request, response, body, pending) {
   // this response, and the close event that follows arrives too late to be the
   // thing that tells us.
   if (pending.aborted || response.writableEnded) return;
+  if (isStreaming) {
+    // Release whatever the filters were still holding when the turn ended: a
+    // trailing partial line that never grew into a marker.
+    streamContent(reasoningFilter.flush());
+    const tail = outputFilter.flush();
+    if (tail) {
+      text += tail;
+      streamContent(tail);
+    }
+  } else {
+    text = stripTranscriptMarkers(text, () => logMarkerSuppression("assistant text"));
+  }
   const runEnd = Date.now();
   const timingParts = [`run end ${runEnd - timing.runStart}ms`];
   if (timing.firstDelta) timingParts.push(`first-delta=${timing.firstDelta - timing.runStart}ms`);
@@ -882,6 +914,7 @@ function harnessInstructions(tools) {
     "Use only the custom tools whose names begin with cc_tool_. Never call Cursor's built-in shell, read, write, edit, search, browser, or other workspace tools.",
     names ? `Custom tool aliases mapped to Claude Code tools: ${names}` : "No Claude Code tools are available for this request.",
     "Call the exact cc_tool_ alias with the arguments required by its custom-tool schema, then stop so Claude Code can execute it.",
+    `Lines beginning with ${TOOL_CALL_MARKER} or ${TOOL_RESULT_MARKER} are transcript framing added by Claude Code to show you the conversation so far. Never write such a line yourself: call the tool instead.`,
   ].join("\n");
 }
 
@@ -912,16 +945,123 @@ function buildTranscript(messages, tools) {
     if (content && message?.role !== "tool") transcript.push(`${role}:\n${content}`);
     for (const call of message?.tool_calls || []) {
       transcript.push(
-        `ASSISTANT TOOL CALL ${toolCallName(call)}:\n${toolCallArguments(call)}`,
+        `${TOOL_CALL_MARKER} ${toolCallName(call)}:\n${toolCallArguments(call)}`,
       );
     }
     if (message?.role === "tool") {
       const name = message.name || toolNames.get(message.tool_call_id) || "unknown";
-      transcript.push(`CLAUDE CODE TOOL RESULT ${name}:\n${content}`);
+      transcript.push(`${TOOL_RESULT_MARKER} ${name}:\n${content}`);
     }
   }
   return transcript.join("\n\n");
 }
+
+// --- transcript marker filter -----------------------------------------------
+// Each bridge is installed as one standalone script in its own runtime
+// directory, so there is nothing to import from: this block is duplicated
+// byte-for-byte in the other bridge, and a Go test extracts it from both to
+// check they have not drifted. Edit both copies together.
+//
+// Neither SDK accepts a structured message array on the send path, so prior
+// turns can only be conveyed as prose. These two labels are how the flattened
+// transcript marks where a past tool call and its result sit — framing, not
+// content. With enough of it in view the model sometimes copies the style into
+// its own reply; the prompt tells it not to, and this filter is the backstop
+// for when it does anyway.
+const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
+const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
+const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
+// An imitation is only recognisable as a whole line: the label opens the line
+// and the tool name closes it with a colon. Matching the entire line rather
+// than a bare substring is what keeps a reply that merely discusses a label —
+// the case when someone points a dialect at this repository — intact. Both
+// markers are letters and spaces only, so interpolating them is safe here.
+const MARKER_LINE = new RegExp(
+  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [^\\n]{1,120}:[ \\t]*$`,
+);
+
+// True while `line` could still grow into a marker line: either it is a partial
+// label, or the label is complete and the tool name is still arriving.
+function couldStartMarker(line) {
+  return MARKER_LABELS.some((label) => label.startsWith(line) || line.startsWith(label));
+}
+
+// Line-boundary buffering rather than whole-line buffering: a marker can only
+// begin at a line start, so as soon as a line's opening characters diverge from
+// both labels the rest of that line streams through a character at a time. Only
+// a line that still looks like a marker is withheld, which keeps ordinary prose
+// at the token granularity the streaming path was built for.
+function createMarkerFilter(onSuppress) {
+  let lineText = "";
+  let held = "";
+  let lineSafe = false;
+  let suppressed = false;
+
+  const suppress = () => {
+    suppressed = true;
+    held = "";
+    lineText = "";
+    onSuppress?.();
+  };
+
+  return {
+    get suppressed() {
+      return suppressed;
+    },
+    push(chunk) {
+      if (suppressed || !chunk) return "";
+      let out = "";
+      let rest = chunk;
+      while (rest) {
+        const index = rest.indexOf("\n");
+        if (index === -1) {
+          lineText += rest;
+          held += rest;
+          if (!lineSafe && couldStartMarker(lineText)) break;
+          lineSafe = true;
+          out += held;
+          held = "";
+          break;
+        }
+        lineText += rest.slice(0, index);
+        held += rest.slice(0, index + 1);
+        rest = rest.slice(index + 1);
+        if (!lineSafe && MARKER_LINE.test(lineText)) {
+          // The turn has started imitating the transcript. Everything after the
+          // marker belongs to the imitation too, so drop the rest of the turn.
+          suppress();
+          return out;
+        }
+        out += held;
+        held = "";
+        lineText = "";
+        lineSafe = false;
+      }
+      return out;
+    },
+    // Releases a withheld trailing line that turned out to be ordinary text, or
+    // suppresses it when the turn ended on a marker with no closing newline.
+    flush() {
+      if (suppressed) return "";
+      if (!lineSafe && MARKER_LINE.test(lineText)) {
+        suppress();
+        return "";
+      }
+      const out = held;
+      held = "";
+      lineText = "";
+      lineSafe = false;
+      return out;
+    },
+  };
+}
+
+function stripTranscriptMarkers(text, onSuppress) {
+  if (!text) return text;
+  const filter = createMarkerFilter(onSuppress);
+  return filter.push(text) + filter.flush();
+}
+// --- end transcript marker filter -------------------------------------------
 
 function normalizeTools(rawTools) {
   const result = [];

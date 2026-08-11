@@ -157,6 +157,7 @@ async function chatCompletion(request, response, body) {
           "You are the model running inside the Claude Code harness.",
           "Claude Code owns all filesystem, terminal, web, MCP, and tool execution.",
           "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop.",
+          `Lines beginning with ${TOOL_CALL_MARKER} or ${TOOL_RESULT_MARKER} are transcript framing added by Claude Code to show you the conversation so far. Never write such a line yourself: call the tool instead.`,
         ].join("\n"),
       },
     });
@@ -173,6 +174,14 @@ async function chatCompletion(request, response, body) {
   }
 
   if (disconnected) return;
+  // The whole reply arrives in one assistant.message event, so both the SSE and
+  // the JSON path can be covered by filtering the buffered text once, here,
+  // before anything is written to the wire.
+  text = stripTranscriptMarkers(text, () => {
+    process.stderr.write(
+      "copilot bridge: suppressed assistant text imitating the transcript markers\n",
+    );
+  });
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
   const usage = estimatedUsage(prompt, text, capturedToolCall);
@@ -367,12 +376,12 @@ function buildPrompt(messages, tools) {
     if (content && message?.role !== "tool") transcript.push(`${role}:\n${content}`);
     for (const call of message?.tool_calls || []) {
       transcript.push(
-        `ASSISTANT TOOL CALL ${call?.function?.name || "unknown"}:\n${call?.function?.arguments || "{}"}`,
+        `${TOOL_CALL_MARKER} ${call?.function?.name || "unknown"}:\n${call?.function?.arguments || "{}"}`,
       );
     }
     if (message?.role === "tool") {
       const name = message.name || toolNames.get(message.tool_call_id) || "unknown";
-      transcript.push(`CLAUDE CODE TOOL RESULT ${name}:\n${content}`);
+      transcript.push(`${TOOL_RESULT_MARKER} ${name}:\n${content}`);
     }
   }
   const names = tools.map((tool) => tool.name).join(", ");
@@ -383,6 +392,113 @@ function buildPrompt(messages, tools) {
     transcript.join("\n\n"),
   ].join("\n");
 }
+
+// --- transcript marker filter -----------------------------------------------
+// Each bridge is installed as one standalone script in its own runtime
+// directory, so there is nothing to import from: this block is duplicated
+// byte-for-byte in the other bridge, and a Go test extracts it from both to
+// check they have not drifted. Edit both copies together.
+//
+// Neither SDK accepts a structured message array on the send path, so prior
+// turns can only be conveyed as prose. These two labels are how the flattened
+// transcript marks where a past tool call and its result sit — framing, not
+// content. With enough of it in view the model sometimes copies the style into
+// its own reply; the prompt tells it not to, and this filter is the backstop
+// for when it does anyway.
+const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
+const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
+const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
+// An imitation is only recognisable as a whole line: the label opens the line
+// and the tool name closes it with a colon. Matching the entire line rather
+// than a bare substring is what keeps a reply that merely discusses a label —
+// the case when someone points a dialect at this repository — intact. Both
+// markers are letters and spaces only, so interpolating them is safe here.
+const MARKER_LINE = new RegExp(
+  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [^\\n]{1,120}:[ \\t]*$`,
+);
+
+// True while `line` could still grow into a marker line: either it is a partial
+// label, or the label is complete and the tool name is still arriving.
+function couldStartMarker(line) {
+  return MARKER_LABELS.some((label) => label.startsWith(line) || line.startsWith(label));
+}
+
+// Line-boundary buffering rather than whole-line buffering: a marker can only
+// begin at a line start, so as soon as a line's opening characters diverge from
+// both labels the rest of that line streams through a character at a time. Only
+// a line that still looks like a marker is withheld, which keeps ordinary prose
+// at the token granularity the streaming path was built for.
+function createMarkerFilter(onSuppress) {
+  let lineText = "";
+  let held = "";
+  let lineSafe = false;
+  let suppressed = false;
+
+  const suppress = () => {
+    suppressed = true;
+    held = "";
+    lineText = "";
+    onSuppress?.();
+  };
+
+  return {
+    get suppressed() {
+      return suppressed;
+    },
+    push(chunk) {
+      if (suppressed || !chunk) return "";
+      let out = "";
+      let rest = chunk;
+      while (rest) {
+        const index = rest.indexOf("\n");
+        if (index === -1) {
+          lineText += rest;
+          held += rest;
+          if (!lineSafe && couldStartMarker(lineText)) break;
+          lineSafe = true;
+          out += held;
+          held = "";
+          break;
+        }
+        lineText += rest.slice(0, index);
+        held += rest.slice(0, index + 1);
+        rest = rest.slice(index + 1);
+        if (!lineSafe && MARKER_LINE.test(lineText)) {
+          // The turn has started imitating the transcript. Everything after the
+          // marker belongs to the imitation too, so drop the rest of the turn.
+          suppress();
+          return out;
+        }
+        out += held;
+        held = "";
+        lineText = "";
+        lineSafe = false;
+      }
+      return out;
+    },
+    // Releases a withheld trailing line that turned out to be ordinary text, or
+    // suppresses it when the turn ended on a marker with no closing newline.
+    flush() {
+      if (suppressed) return "";
+      if (!lineSafe && MARKER_LINE.test(lineText)) {
+        suppress();
+        return "";
+      }
+      const out = held;
+      held = "";
+      lineText = "";
+      lineSafe = false;
+      return out;
+    },
+  };
+}
+
+function stripTranscriptMarkers(text, onSuppress) {
+  if (!text) return text;
+  const filter = createMarkerFilter(onSuppress);
+  return filter.push(text) + filter.flush();
+}
+// --- end transcript marker filter -------------------------------------------
 
 function normalizeTools(rawTools) {
   const result = [];
