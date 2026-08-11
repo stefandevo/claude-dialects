@@ -446,6 +446,10 @@ async function chatCompletion(request, response, body, pending) {
   }
 
   let text = "";
+  // Whether the run produced any assistant text at all. `text` alone cannot
+  // answer that while streaming: the filter may still be holding the only line
+  // there was, or have suppressed it outright.
+  let sawAssistantText = false;
   let usage;
   let agent = turnSession?.agent;
   let agentClosed = turnSession?.agentClosed || false;
@@ -471,6 +475,7 @@ async function chatCompletion(request, response, body, pending) {
   const outputFilter = createMarkerFilter(() => logMarkerSuppression("assistant text"));
   const reasoningFilter = createMarkerFilter(() => logMarkerSuppression("reasoning output"));
   const streamAnswer = (chunk) => {
+    sawAssistantText = true;
     const visible = outputFilter.push(chunk);
     if (!visible) return;
     text += visible;
@@ -676,8 +681,10 @@ async function chatCompletion(request, response, body, pending) {
         throw error;
       }
       // A third path into `text`, taken when the run reported no assistant
-      // blocks at all, so it needs the same filtering the other two get.
-      if (!text && typeof result.result === "string") {
+      // content at all, so it needs the same filtering the other two get. It
+      // must not fire on a streamed reply the filter is still holding or has
+      // suppressed, or the later flush would append the same content twice.
+      if (!text && !sawAssistantText && typeof result.result === "string") {
         text = stripTranscriptMarkers(result.result, () => logMarkerSuppression("assistant text"));
       }
       usage ||= result.usage;
@@ -971,13 +978,17 @@ function buildTranscript(messages, tools) {
 const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
 const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
 const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
-// An imitation is only recognisable as a whole line: the label opens the line
-// and the tool name closes it with a colon. Matching the entire line rather
+// An imitation is only recognisable as a whole line: the label opens the line,
+// one tool name follows, and a colon closes it. Matching the entire line rather
 // than a bare substring is what keeps a reply that merely discusses a label —
-// the case when someone points a dialect at this repository — intact. Both
-// markers are letters and spaces only, so interpolating them is safe here.
+// the case when someone points a dialect at this repository — intact, and
+// holding the name to the shape of an identifier is what stops a sentence that
+// happens to open with a label and end in a colon from matching. A name that
+// somehow fell outside this shape would only mean the backstop misses one
+// imitation, which is the right way for it to fail. Both markers are letters
+// and spaces only, so interpolating them is safe here.
 const MARKER_LINE = new RegExp(
-  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [^\\n]{1,120}:[ \\t]*$`,
+  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
 );
 
 // True while `line` could still grow into a marker line: either it is a partial
