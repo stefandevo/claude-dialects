@@ -408,13 +408,17 @@ function buildPrompt(messages, tools) {
 const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
 const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
 const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
-// An imitation is only recognisable as a whole line: the label opens the line
-// and the tool name closes it with a colon. Matching the entire line rather
+// An imitation is only recognisable as a whole line: the label opens the line,
+// one tool name follows, and a colon closes it. Matching the entire line rather
 // than a bare substring is what keeps a reply that merely discusses a label —
-// the case when someone points a dialect at this repository — intact. Both
-// markers are letters and spaces only, so interpolating them is safe here.
+// the case when someone points a dialect at this repository — intact, and
+// holding the name to the shape of an identifier is what stops a sentence that
+// happens to open with a label and end in a colon from matching. A name that
+// somehow fell outside this shape would only mean the backstop misses one
+// imitation, which is the right way for it to fail. Both markers are letters
+// and spaces only, so interpolating them is safe here.
 const MARKER_LINE = new RegExp(
-  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [^\\n]{1,120}:[ \\t]*$`,
+  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
 );
 
 // True while `line` could still grow into a marker line: either it is a partial

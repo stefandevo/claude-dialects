@@ -184,9 +184,19 @@ check("marker padded with spaces", strip("Sure.\nASSISTANT TOOL CALL Bash:  \nx"
 const discussion = "The ASSISTANT TOOL CALL Bash: label is framing.\n" +
   "ASSISTANT TOOL CALL lines are added by the harness.\n" +
   "CLAUDE CODE TOOL RESULT marks a result, but this line has no colon\n" +
-  "  ASSISTANT TOOL CALL Bash: is indented, so it does not open a line\n";
+  "  ASSISTANT TOOL CALL Bash: is indented, so it does not open a line\n" +
+  "CLAUDE CODE TOOL RESULT Bash: marks a returned result, like this:\n" +
+  "ASSISTANT TOOL CALL Bash: is how a call is framed, for example:\n";
 check("discussing the labels", strip(discussion), discussion);
 check("marker needs a tool name", strip("ASSISTANT TOOL CALL :\n"), "ASSISTANT TOOL CALL :\n");
+// The name has the shape of an identifier, which is what separates a marker
+// from a sentence that opens with a label and happens to end in a colon.
+check(
+  "namespaced tool name",
+  strip("ok\nASSISTANT TOOL CALL mcp__devflow__devflow_start:\n{}\n"),
+  "ok\n",
+);
+check("CRLF marker", strip("Sure.\r\nASSISTANT TOOL CALL Bash:\r\nargs\r\n"), "Sure.\r\n");
 
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
