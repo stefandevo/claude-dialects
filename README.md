@@ -874,8 +874,8 @@ mid-conversation and spawning subagents safe.
 | `deepseek` | 1,000,000 | DeepSeek V4 Pro and V4 Flash |
 | `grok` | 500,000 | Grok 4.5 |
 | `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
-| `kimi` | 262,144 | Kimi K3, K2.7 Code Highspeed, K2.6 |
-| `mixed-frontier` | 262,144 | Kimi K3 |
+| `mixed-frontier` | 372,000 | GPT-5.6 Sol |
+| `kimi` | 262,144 | Kimi K2.7 Code Highspeed and K2.6 |
 | `glm` | 262,144 | GLM-5-Turbo |
 | `grok-build` | 256,000 | Grok Build 0.1 |
 | `copilot-mai` | 256,000 | MAI-Code-1-Flash |
