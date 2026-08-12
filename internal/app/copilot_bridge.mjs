@@ -502,7 +502,10 @@ function createMarkerFilter(onSuppress) {
         if (fenceMatch) {
           const [, delimiter, trailing] = fenceMatch;
           if (!fence) {
-            fence = delimiter;
+            // A backtick fence carrying a backtick in its info string is not an
+            // opener at all. Taking one for a fence would leave every marker
+            // after it exempt from suppression. Tilde fences have no such rule.
+            if (delimiter[0] !== "`" || !trailing.includes("`")) fence = delimiter;
           } else if (
             delimiter[0] === fence[0]
             && delimiter.length >= fence.length

@@ -253,11 +253,19 @@ const indentedFence = "   " + fence + "\nASSISTANT TOOL CALL Read:\n{}\n   " + f
 check("three-space indent still opens a fence", strip(indentedFence), indentedFence);
 const pseudoFence = "    " + fence + "\nindented code\nASSISTANT TOOL CALL Read:\nx\n";
 check("four-space indent is not a fence", strip(pseudoFence), "    " + fence + "\nindented code\n");
+// A backtick fence carrying a backtick in its info string is not an opener, so
+// it must not create a fence state a later marker could hide behind. The rule
+// belongs to backtick fences only.
+const badInfo = fence + "js" + tick + "\nnot fenced\nASSISTANT TOOL CALL Read:\nx\n";
+check("backtick in a backtick info string opens nothing", strip(badInfo), fence + "js" + tick + "\nnot fenced\n");
+const tildeInfo = "~~~js" + tick + "\nASSISTANT TOOL CALL Read:\n{}\n~~~\n";
+check("backtick in a tilde info string still opens a fence", strip(tildeInfo), tildeInfo);
 
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
 const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, explanation,
-  nested, mismatched, infoString, indentedFence, pseudoFence, "no newline in this reply"];
+  nested, mismatched, infoString, indentedFence, pseudoFence, badInfo, tildeInfo,
+  "no newline in this reply"];
 for (const source of cases) {
   const want = strip(source);
   for (let split = 0; split <= source.length; split += 1) {
