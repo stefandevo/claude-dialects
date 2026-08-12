@@ -1002,12 +1002,26 @@ const MARKER_LINE = new RegExp(
 // after it but whitespace. A reply that documents a fenced example wraps it in
 // a longer fence and may carry info strings inside; treating either as a close
 // would expose exactly the example the fence was meant to protect.
-const FENCE_LINE = /^\s*(```+|~~~+)(.*)$/;
+// Indentation stops at three spaces: a fourth makes the line indented code
+// rather than a fence, and reading one as a fence would leave the filter
+// believing it is inside a block Markdown never opened — with every marker
+// after it exempt from suppression.
+const FENCE_LINE = /^ {0,3}(```+|~~~+)(.*)$/;
+
+// What follows a complete label while the line could still become a marker: a
+// tool name still being typed, optionally already closed by its colon. Anything
+// else — a space, a second word, an over-long name — settles the line as
+// ordinary prose, which is what lets it stream on rather than waiting for its
+// newline.
+const MARKER_NAME_PREFIX = /^[A-Za-z0-9_.-]{0,64}(?::[ \t\r]*)?$/;
 
 // True while `line` could still grow into a marker line: either it is a partial
-// label, or the label is complete and the tool name is still arriving.
+// label, or the label is complete and what follows it remains a viable name.
 function couldStartMarker(line) {
-  return MARKER_LABELS.some((label) => label.startsWith(line) || line.startsWith(label));
+  return MARKER_LABELS.some((label) => {
+    if (label.startsWith(line)) return true;
+    return line.startsWith(label) && MARKER_NAME_PREFIX.test(line.slice(label.length));
+  });
 }
 
 // Line-boundary buffering rather than whole-line buffering: a marker can only
@@ -1043,7 +1057,9 @@ function createMarkerFilter(onSuppress) {
         if (index === -1) {
           lineText += rest;
           held += rest;
-          if (!lineSafe && couldStartMarker(lineText)) break;
+          // Inside a fence nothing is suppressed, so withholding a line that
+          // merely looks like a marker would cost latency for no benefit.
+          if (!lineSafe && !fence && couldStartMarker(lineText)) break;
           lineSafe = true;
           out += held;
           held = "";
