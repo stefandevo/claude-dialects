@@ -247,11 +247,17 @@ check(
   strip(fence + "\ncode\n" + fence + "  \nASSISTANT TOOL CALL Read:\nx\n"),
   fence + "\ncode\n" + fence + "  \n",
 );
+// A fence opener tolerates up to three spaces; a fourth makes it indented code,
+// so it must not put the filter into a fence state a marker could hide behind.
+const indentedFence = "   " + fence + "\nASSISTANT TOOL CALL Read:\n{}\n   " + fence + "\n";
+check("three-space indent still opens a fence", strip(indentedFence), indentedFence);
+const pseudoFence = "    " + fence + "\nindented code\nASSISTANT TOOL CALL Read:\nx\n";
+check("four-space indent is not a fence", strip(pseudoFence), "    " + fence + "\nindented code\n");
 
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
 const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, explanation,
-  nested, mismatched, infoString, "no newline in this reply"];
+  nested, mismatched, infoString, indentedFence, pseudoFence, "no newline in this reply"];
 for (const source of cases) {
   const want = strip(source);
   for (let split = 0; split <= source.length; split += 1) {
@@ -285,6 +291,31 @@ check("second token released", granular.push(" world"), " world");
 const ambiguous = createMarkerFilter();
 check("ambiguous opening withheld", ambiguous.push("A"), "");
 check("ambiguous opening released", ambiguous.push("nswer:"), "Answer:");
+
+// A completed label is not permanently ambiguous: the line is withheld only
+// while what follows could still be a tool name, so an explanation opening with
+// the label streams on instead of waiting for its newline.
+const diverged = createMarkerFilter();
+check("viable name withheld", diverged.push("ASSISTANT TOOL CALL Ba"), "");
+check(
+  "released once the name diverges",
+  diverged.push("sh lines are framing"),
+  "ASSISTANT TOOL CALL Bash lines are framing",
+);
+const viable = createMarkerFilter();
+check("name still viable", viable.push("ASSISTANT TOOL CALL Bash"), "");
+check("colon still viable", viable.push(":"), "");
+check("marker completes on the newline", viable.push("\n"), "");
+check("and suppresses", viable.suppressed, true);
+
+// Inside a fence nothing is suppressed, so nothing is withheld either.
+const fenced = createMarkerFilter();
+check("fence opener released", fenced.push(fence + "\n"), fence + "\n");
+check(
+  "marker text streams inside a fence",
+  fenced.push("ASSISTANT TOOL CALL Ba"),
+  "ASSISTANT TOOL CALL Ba",
+);
 
 if (failures.length > 0) {
   console.error(failures.join("\n"));
