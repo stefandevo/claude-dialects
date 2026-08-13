@@ -156,7 +156,9 @@ async function chatCompletion(request, response, body) {
         content: [
           "You are the model running inside the Claude Code harness.",
           "Claude Code owns all filesystem, terminal, web, MCP, and tool execution.",
-          "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop.",
+          "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop that turn.",
+          "Keep going: do not stop after narrating a step or describing what you will do. Only stop once the task is fully done or you need user input; when work remains, call the next appropriate tool instead of ending with a plan.",
+          "Transcript history entries are context only. Never reproduce them as your response; call the tool instead.",
           `Lines beginning with ${TOOL_CALL_MARKER} or ${TOOL_RESULT_MARKER} are transcript framing added by Claude Code to show you the conversation so far. Never write such a line yourself: call the tool instead.`,
         ].join("\n"),
       },
@@ -169,11 +171,28 @@ async function chatCompletion(request, response, body) {
     });
     await session.send({ prompt });
     await turn;
+    if (!capturedToolCall && transcriptSpill(text)) {
+      text = "";
+      const continuation = waitForTurn(session, toolDefinitions, (value) => {
+        text = value;
+      }, (value) => {
+        capturedToolCall = value;
+      });
+      await session.send({
+        prompt: "Continue the task. Do not quote or reproduce transcript history. If work remains, call the next appropriate tool now; otherwise provide the final answer.",
+      });
+      await continuation;
+    }
   } finally {
     await session?.disconnect().catch(() => {});
   }
 
   if (disconnected) return;
+  const transcriptTool = promoteTranscriptToolCall(text, toolDefinitions);
+  if (!capturedToolCall && transcriptTool) {
+    capturedToolCall = transcriptTool.call;
+    text = transcriptTool.text;
+  }
   // The whole reply arrives in one assistant.message event, so both the SSE and
   // the JSON path can be covered by filtering the buffered text once, here,
   // before anything is written to the wire.
@@ -405,9 +424,16 @@ function buildPrompt(messages, tools) {
 // content. With enough of it in view the model sometimes copies the style into
 // its own reply; the prompt tells it not to, and this filter is the backstop
 // for when it does anyway.
-const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
-const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
-const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
+const TOOL_CALL_MARKER = "TOOL HISTORY";
+const TOOL_RESULT_MARKER = "RESULT HISTORY";
+const LEGACY_TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
+const LEGACY_TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
+const TOOL_CALL_MARKERS = [TOOL_CALL_MARKER, LEGACY_TOOL_CALL_MARKER];
+const TOOL_RESULT_MARKERS = [TOOL_RESULT_MARKER, LEGACY_TOOL_RESULT_MARKER];
+const MARKER_LABELS = [
+  ...TOOL_CALL_MARKERS,
+  ...TOOL_RESULT_MARKERS,
+].flatMap((label) => [`${label} `]);
 // An imitation is only recognisable as a whole line: the label opens the line,
 // one tool name follows, and a colon closes it. Matching the entire line rather
 // than a bare substring is what keeps a reply that merely discusses a label —
@@ -418,7 +444,7 @@ const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
 // imitation, which is the right way for it to fail. Both markers are letters
 // and spaces only, so interpolating them is safe here.
 const MARKER_LINE = new RegExp(
-  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
+  `^(?:${[...TOOL_CALL_MARKERS, ...TOOL_RESULT_MARKERS].join("|")}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
 );
 
 // An exact example of the framing is indistinguishable from an imitation of it
@@ -548,6 +574,89 @@ function stripTranscriptMarkers(text, onSuppress) {
   if (!text) return text;
   const filter = createMarkerFilter(onSuppress);
   return filter.push(text) + filter.flush();
+}
+
+function promoteTranscriptToolCall(text, tools) {
+  const lines = String(text || "").split(/\r?\n/);
+  let fence = "";
+  let offset = 0;
+  for (const line of lines) {
+    const newlineLength = offset + line.length >= text.length
+      ? 0
+      : text[offset + line.length] === "\r" && text[offset + line.length + 1] === "\n"
+        ? 2
+        : 1;
+    const fenceMatch = FENCE_LINE.exec(line);
+    if (fenceMatch) {
+      const [, delimiter, trailing] = fenceMatch;
+      if (!fence) {
+        fence = delimiter;
+      } else if (
+        delimiter[0] === fence[0]
+        && delimiter.length >= fence.length
+        && trailing.trim() === ""
+      ) {
+        fence = "";
+      }
+    } else if (!fence) {
+      const marker = new RegExp(
+        `^(?:${TOOL_CALL_MARKERS.join("|")}) ([A-Za-z0-9_.-]{1,64}):[ \\t]*$`,
+      ).exec(line);
+      const tool = marker && findTool(tools, marker[1]);
+      if (tool) {
+        const rawStart = offset + line.length + newlineLength;
+        const raw = text.slice(rawStart).trimStart();
+        const jsonEnd = balancedJSONEnd(raw);
+        if (jsonEnd <= 0) return undefined;
+        try {
+          const args = JSON.parse(raw.slice(0, jsonEnd));
+          if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
+          return {
+            call: {
+              id: `call_${crypto.randomUUID().replaceAll("-", "")}`,
+              name: tool.name,
+              arguments: args,
+            },
+            text: text.slice(0, offset).trimEnd(),
+          };
+        } catch {
+          return undefined;
+        }
+      }
+    }
+    offset += line.length + newlineLength;
+  }
+  return undefined;
+}
+
+function balancedJSONEnd(value) {
+  if (!value.startsWith("{")) return 0;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === "\"") inString = false;
+      continue;
+    }
+    if (character === "\"") inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+  }
+  return 0;
+}
+
+function transcriptSpill(text) {
+  return new RegExp(
+    `(?:^|\\n)(?:USER|ASSISTANT|${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}):|<invoke\\b|<parameter\\b|<\\/invoke>|Bash was interrupted|Interrupted by user`,
+    "i",
+  ).test(String(text || ""));
 }
 // --- end transcript marker filter -------------------------------------------
 

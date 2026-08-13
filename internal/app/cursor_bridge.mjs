@@ -975,9 +975,16 @@ function buildTranscript(messages, tools) {
 // content. With enough of it in view the model sometimes copies the style into
 // its own reply; the prompt tells it not to, and this filter is the backstop
 // for when it does anyway.
-const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
-const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
-const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
+const TOOL_CALL_MARKER = "TOOL HISTORY";
+const TOOL_RESULT_MARKER = "RESULT HISTORY";
+const LEGACY_TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
+const LEGACY_TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
+const TOOL_CALL_MARKERS = [TOOL_CALL_MARKER, LEGACY_TOOL_CALL_MARKER];
+const TOOL_RESULT_MARKERS = [TOOL_RESULT_MARKER, LEGACY_TOOL_RESULT_MARKER];
+const MARKER_LABELS = [
+  ...TOOL_CALL_MARKERS,
+  ...TOOL_RESULT_MARKERS,
+].flatMap((label) => [`${label} `]);
 // An imitation is only recognisable as a whole line: the label opens the line,
 // one tool name follows, and a colon closes it. Matching the entire line rather
 // than a bare substring is what keeps a reply that merely discusses a label —
@@ -988,7 +995,7 @@ const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
 // imitation, which is the right way for it to fail. Both markers are letters
 // and spaces only, so interpolating them is safe here.
 const MARKER_LINE = new RegExp(
-  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
+  `^(?:${[...TOOL_CALL_MARKERS, ...TOOL_RESULT_MARKERS].join("|")}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
 );
 
 // An exact example of the framing is indistinguishable from an imitation of it

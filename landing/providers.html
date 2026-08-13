@@ -361,7 +361,7 @@ cc-dialect shim install cc-copilot
 cc-copilot</code></pre>
         </div>
         <p>Available presets: <code>copilot-auto</code>, <code>copilot-mai</code> (MAI-Code-1-Flash), <code>copilot-codex</code>, <code>copilot-claude</code>, <code>copilot-gemini</code>.</p>
-        <p>Replies are filtered for imitated transcript framing exactly as the Cursor bridge does, with suppressions recorded in <code>copilot-bridge.log</code>. See the Cursor bridge notes for what the filter matches and what it leaves alone.</p>
+        <p>Replies use neutral transcript-history framing and are filtered for imitated boundaries, with suppressions recorded in <code>copilot-bridge.log</code>. Copilot makes one bounded continuation attempt when a text-only reply clearly contains copied transcript or interrupted-tool markup. See the Cursor bridge notes for what the filter matches and what it leaves alone.</p>
       </article>
 
       <article id="claude" class="provider-detail reveal">

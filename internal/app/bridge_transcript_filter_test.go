@@ -29,8 +29,10 @@ func TestBridgeMarkerFiltersAreIdentical(t *testing.T) {
 		t.Fatal("the Copilot and Cursor marker filters have drifted apart")
 	}
 	for _, expected := range []string{
-		`const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";`,
-		`const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";`,
+		`const TOOL_CALL_MARKER = "TOOL HISTORY";`,
+		`const TOOL_RESULT_MARKER = "RESULT HISTORY";`,
+		`const LEGACY_TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";`,
+		`const LEGACY_TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";`,
 		"function createMarkerFilter(onSuppress) {",
 		"function stripTranscriptMarkers(text, onSuppress) {",
 	} {
@@ -53,7 +55,12 @@ func TestBridgeMarkersHaveASingleDefinition(t *testing.T) {
 		{"cursor", cursorBridgeSource},
 	} {
 		text := string(bridge.source)
-		for _, marker := range []string{"ASSISTANT TOOL CALL", "CLAUDE CODE TOOL RESULT"} {
+		for _, marker := range []string{
+			"TOOL HISTORY",
+			"RESULT HISTORY",
+			"ASSISTANT TOOL CALL",
+			"CLAUDE CODE TOOL RESULT",
+		} {
 			if count := strings.Count(text, marker); count != 1 {
 				t.Fatalf("%s bridge spells %q %d times, want 1 (the constant)", bridge.name, marker, count)
 			}

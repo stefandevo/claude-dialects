@@ -952,6 +952,10 @@ func TestEmbeddedCopilotBridgeUsesOfficialSDKAndExternalTools(t *testing.T) {
 		`availableTools: ["custom:*"]`,
 		`event.type === "external_tool.requested"`,
 		`capabilities?.supports?.reasoningEffort`,
+		`When a tool is needed, call it and stop that turn.`,
+		`function promoteTranscriptToolCall`,
+		`function transcriptSpill`,
+		`TOOL HISTORY`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("embedded Copilot bridge does not contain %q", expected)

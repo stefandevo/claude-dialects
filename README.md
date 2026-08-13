@@ -405,15 +405,18 @@ end) is logged to `cursor-bridge.log`. Non-streaming requests stay buffered
 until the run settles.
 
 Both SDK bridges pass the conversation to their model as flattened text, with
-past tool calls and results introduced by `ASSISTANT TOOL CALL <tool>:` and
-`CLAUDE CODE TOOL RESULT <tool>:` label lines. The bridge preamble tells the
-model those labels are framing it must never reproduce, and the bridge also
-filters its replies: a reply line that matches a label exactly — the label, one
-tool name, a closing colon, and nothing else — is dropped along with the rest of
-that reply, and the suppression is recorded in `cursor-bridge.log` or
-`copilot-bridge.log`. Label text inside a fenced code block, indented, or used
+past tool calls and results introduced by `TOOL HISTORY <tool>:` and
+`RESULT HISTORY <tool>:` label lines. The bridge preamble tells the model those
+labels are framing it must never reproduce, and the bridge also filters its
+replies: a reply line that matches a label exactly — the label, one tool name, a
+closing colon, and nothing else — is dropped along with the rest of that reply,
+and the suppression is recorded in `cursor-bridge.log` or
+`copilot-bridge.log`. Legacy marker labels from older in-flight prompts remain
+recognized. Label text inside a fenced code block, indented, or used
 mid-sentence is left alone, so a reply that explains the transcript format is
-not affected. Tool calls themselves are unaffected: they travel as structured
+not affected. Copilot also makes one bounded continuation attempt when a
+text-only reply clearly contains copied transcript boundaries or interrupted
+tool markup. Tool calls themselves are unaffected: they travel as structured
 calls, not as this text.
 
 The bridge also survives faults raised outside a request, such as a broken pipe
