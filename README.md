@@ -213,13 +213,16 @@ so the model still reasons briefly.
 page still reads "The GLM-5.3 API is coming soon", so a pay-as-you-go key may
 still be refused where a Coding Plan key succeeds — that half is untested. If
 yours is refused, `glm-4.7` is the newest model the endpoint serves under its
-own name, and it holds the same 200,000 tokens the preset already declares:
+own name, and it holds the same 200,000 tokens the preset declares. Overriding
+the models changes the route, so a preset's window no longer applies on its own
+and has to be restated — without it the dialect is left uncalibrated:
 
 ```sh
 cc-dialect create cc-glm --preset glm \
   --model glm-4.7 \
   --subagent-model glm-4.7 \
-  --opus-model glm-4.7
+  --opus-model glm-4.7 \
+  --context-window 200000
 ```
 
 There is no point pinning `glm-5.2`. Z.ai resolves retired model IDs forward on
