@@ -180,10 +180,10 @@ cc-codex</code></pre>
           <h2>Z.ai GLM</h2>
           <span class="provider-detail__badge">glm</span>
         </div>
-        <p>GLM uses Z.ai's Anthropic-compatible API and current GLM-5.2 flagship:</p>
+        <p>GLM uses Z.ai's Anthropic-compatible API and current GLM-5.3 flagship:</p>
         <div class="code-block">
           <div class="code-block__header">
-            <span>GLM-5.2 setup</span>
+            <span>GLM-5.3 setup</span>
             <button class="copy-btn" data-copy="glm">Copy</button>
           </div>
           <pre><code id="code-glm">export ZAI_API_KEY="your_zai_api_key"
@@ -191,8 +191,9 @@ cc-dialect create cc-glm --preset glm
 cc-dialect shim install cc-glm
 cc-glm</code></pre>
         </div>
-        <p>Maps <code>opus</code> → <code>glm-5.2</code>, and both <code>sonnet</code> and <code>haiku</code> → <code>glm-5-turbo</code>. GLM-5.2 accepts <code>high</code> or <code>max</code> effort.</p>
-        <p>The <code>haiku</code> tier is deliberately not the cheaper GLM-4.5-Air. A dialect gets one context window for the whole Claude Code process, sized to the smallest model it can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.2's 1M — so pointing one tier at it cut every conversation to an eighth of the main model's capacity, to serve a tier Claude Code sends only short auxiliary work to. GLM-5-Turbo holds 262,144. An existing <code>cc-glm</code> keeps its stored window until you re-run <code>cc-dialect create cc-glm --preset glm</code>.</p>
+        <p>Maps <code>opus</code> → <code>glm-5.3</code>, and both <code>sonnet</code> and <code>haiku</code> → <code>glm-5-turbo</code>. GLM-5.3 runs three effort levels — <code>low</code>, <code>high</code>, and <code>max</code>. Z.ai folds <code>medium</code> into <code>high</code> and <code>xhigh</code> into <code>max</code>, and converts a request to disable thinking into <code>low</code> rather than honoring it.</p>
+        <p>GLM-5.3 reaches every GLM Coding Plan tier, but Z.ai's model page still reads "The GLM-5.3 API is coming soon". A pay-as-you-go key may be rejected on <code>glm-5.3</code> where a Coding Plan key succeeds; pass <code>--model glm-5.2 --opus-model glm-5.2 --subagent-model glm-5.2</code> to pin the previous flagship if yours is.</p>
+        <p>The <code>haiku</code> tier is deliberately not the cheaper GLM-4.5-Air. A dialect gets one context window for the whole Claude Code process, sized to the smallest model it can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.3's 1M — so pointing one tier at it cut every conversation to an eighth of the main model's capacity, to serve a tier Claude Code sends only short auxiliary work to. GLM-5-Turbo holds 200,000. An existing <code>cc-glm</code> keeps its stored window and mapping until you re-run <code>cc-dialect create cc-glm --preset glm</code>.</p>
       </article>
 
       <article id="kimi" class="provider-detail reveal">

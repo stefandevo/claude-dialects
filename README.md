@@ -204,7 +204,7 @@ an overloaded HTTP endpoint available.
 
 ### Z.ai GLM
 
-GLM uses Z.ai's Anthropic-compatible API and current GLM-5.2 flagship:
+GLM uses Z.ai's Anthropic-compatible API and current GLM-5.3 flagship:
 
 ```sh
 export ZAI_API_KEY="your_zai_api_key"
@@ -213,20 +213,37 @@ cc-dialect shim install cc-glm
 cc-glm
 ```
 
-The GLM preset maps `opus` to `glm-5.2` and both `sonnet` and `haiku` to
-`glm-5-turbo`. Its `auto` effort setting leaves GLM-5.2 at the provider default
-(`max`). Inside Claude Code, GLM-5.2 accepts `high` or `max`; the provider maps
-`xhigh` to `max` and maps `low` or `medium` to `high`.
+The GLM preset maps `opus` to `glm-5.3` and both `sonnet` and `haiku` to
+`glm-5-turbo`. Its `auto` effort setting leaves GLM-5.3 at the provider default
+(`max`). GLM-5.3 runs three effort levels — `low`, `high`, and `max` — and Z.ai
+folds Claude Code's scale onto them: `low` stays `low`, `medium` and `high` both
+become `high`, `xhigh` and `max` both become `max`, and an unrecognized value
+falls back to `max`. Thinking cannot be turned off; asking for it disabled is
+converted to `low` rather than honored, so the model still reasons briefly.
+
+GLM-5.3 reaches every GLM Coding Plan tier, but Z.ai's own model page still
+reads "The GLM-5.3 API is coming soon" and its switching guide assumes an active
+Coding Plan subscription. A pay-as-you-go `ZAI_API_KEY` may therefore be
+rejected on `glm-5.3` where a Coding Plan key succeeds. Pin the previous
+flagship if yours is — the lower tiers and the declared window are unchanged, so
+only the three GLM-5.3 fields move:
+
+```sh
+cc-dialect create cc-glm --preset glm \
+  --model glm-5.2 \
+  --subagent-model glm-5.2 \
+  --opus-model glm-5.2
+```
 
 The `haiku` tier is deliberately **not** GLM-4.5-Air, even though it is the
 cheaper model. A dialect gets [one context window for the whole Claude Code
 process](#context-window-and-auto-compaction), sized to the smallest model it
-can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.2's 1M — so
+can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.3's 1M — so
 pointing one tier at it cut the entire session to an eighth of the main model's
 capacity. Claude Code sends the `haiku` tier short auxiliary work (titles,
 summaries, classification) that never approaches either number, and subagents
-already run GLM-5.2, so the cheaper tier was paid for out of every conversation.
-GLM-5-Turbo holds 262,144, which is what the preset now declares. If you would
+already run GLM-5.3, so the cheaper tier was paid for out of every conversation.
+GLM-5-Turbo holds 200,000, which is what the preset now declares. If you would
 rather have the cheaper tier back, restore both the model and the window it
 implies:
 
@@ -236,14 +253,17 @@ cc-dialect create cc-glm --preset glm \
   --context-window 131072
 ```
 
-An existing `cc-glm` keeps its stored 131,072-token window and its
-`glm-4.5-air` mapping. [A recorded window is never raised on your
-behalf](#custom-dialects), because silently widening one is the direction that
-can outrun a provider. Re-run `cc-dialect create cc-glm --preset glm` to adopt
-the new mapping and window together. (A `cc-glm` old enough to predate the
-stored window entirely no longer matches this preset field for field, so it is
-left uncalibrated rather than given a window its GLM-4.5-Air tier cannot hold;
-`doctor` reports it with the same command.)
+An existing `cc-glm` keeps whatever it was created with — a `glm-4.5-air` haiku
+tier and its 131,072-token window, or a `glm-5.2` mapping and the 262,144 this
+preset declared for it. Nothing rewrites a window already on disk: [a recorded
+window is never raised on your behalf](#custom-dialects), because silently
+widening one is the direction that can outrun a provider, and a stored one is
+not narrowed either, because it may have been set deliberately. Re-run
+`cc-dialect create cc-glm --preset glm` to adopt the new mapping and window
+together. (A `cc-glm` old enough to predate the stored window entirely no longer
+matches this preset field for field, so it is left uncalibrated rather than
+given a window its GLM-4.5-Air tier cannot hold; `doctor` reports it with the
+same command.)
 
 ### Moonshot Kimi
 
@@ -890,12 +910,12 @@ mid-conversation and spawning subagents safe.
 | `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
 | `mixed-frontier` | 372,000 | GPT-5.6 Sol |
 | `kimi` | 262,144 | Kimi K2.7 Code Highspeed and K2.6 |
-| `glm` | 262,144 | GLM-5-Turbo |
 | `grok-build` | 256,000 | Grok Build 0.1 |
 | `copilot-mai` | 256,000 | MAI-Code-1-Flash |
 | `minimax` | 204,800 | MiniMax-M2.7 (input and output combined) |
 | `claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
 | `composer` | 200,000 | Grok Composer 2.5 Fast |
+| `glm` | 200,000 | GLM-5-Turbo |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
 | `cursor-grok` | 200,000 | Cursor Grok route |
 | `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |

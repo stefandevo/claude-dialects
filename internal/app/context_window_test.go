@@ -54,7 +54,7 @@ func TestMultiModelPresetsUseTheSmallestSupportedWindow(t *testing.T) {
 	}{
 		{"claude", 200000, "Sonnet 4.6 and Haiku 4.5 cap the 1M Fable 5 main model"},
 		{"mixed-frontier", 372000, "GPT-5.6 Sol caps Fable 5, Kimi K3, and Grok 4.5"},
-		{"glm", 262144, "GLM-5-Turbo on both lower tiers caps GLM-5.2"},
+		{"glm", 200000, "GLM-5-Turbo on both lower tiers caps GLM-5.3"},
 		{"codex-sol", 372000, "every GPT-5.6 Sol/Terra/Luna tier shares one window"},
 	} {
 		if got := presets[testCase.preset].ContextWindow; got != testCase.window {
@@ -138,7 +138,7 @@ func TestApplyContextWindowAddsBothVariablesWhenAbsent(t *testing.T) {
 // The window is the one that session ran against, not whatever the glm preset
 // declares today: this reproduces a recorded incident, so its numbers are fixed
 // by what was observed. The preset has since moved its haiku tier off
-// GLM-4.5-Air and now declares 262,144 — a change to the mapping, not to the
+// GLM-4.5-Air and now declares 200,000 — a change to the mapping, not to the
 // reconciliation this asserts, which holds for any declared window.
 func TestDeclaredWindowReconcilesTheStatuslineWithTheCompactionCountdown(t *testing.T) {
 	const claudeCodeDefaultWindow = 200000

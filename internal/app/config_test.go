@@ -115,7 +115,7 @@ func TestWriteProxyConfigRoutesLatestGLMModels(t *testing.T) {
 	text := string(data)
 	for _, expected := range []string{
 		`base-url: "https://api.z.ai/api/anthropic"`,
-		`name: "glm-5.2"`,
+		`name: "glm-5.3"`,
 		`name: "glm-5-turbo"`,
 	} {
 		if !strings.Contains(text, expected) {
@@ -354,10 +354,10 @@ func TestGeminiPresetUsesAntigravityModelAliases(t *testing.T) {
 
 func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
 	glm := presets["glm"]
-	if glm.Model != "glm-5.2" || glm.SubagentModel != "glm-5.2" || glm.OpusModel != "glm-5.2" {
-		t.Fatalf("GLM preset does not use GLM-5.2 for main, subagent, and opus: %#v", glm)
+	if glm.Model != "glm-5.3" || glm.SubagentModel != "glm-5.3" || glm.OpusModel != "glm-5.3" {
+		t.Fatalf("GLM preset does not use GLM-5.3 for main, subagent, and opus: %#v", glm)
 	}
-	// Both lower tiers hold 262,144 tokens. GLM-4.5-Air is cheaper still, but it
+	// Both lower tiers hold 200,000 tokens. GLM-4.5-Air is cheaper still, but it
 	// holds 131,072, and one model below the rest sets the whole process-level
 	// window — an 8x cut against the main model to serve the tier Claude Code
 	// only sends short auxiliary work to.
@@ -713,7 +713,7 @@ func TestExpectedAuthProvidersDerivesFromModelMapping(t *testing.T) {
 	if got := expectedAuthProviders(bridge); len(got) != 0 {
 		t.Fatalf("expectedAuthProviders(copilot bridge) = %v, want empty", got)
 	}
-	upstream := Dialect{Model: "glm-5.2", OpusModel: "glm-5.2", BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY"}
+	upstream := Dialect{Model: "glm-5.3", OpusModel: "glm-5.3", BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY"}
 	if got := expectedAuthProviders(upstream); len(got) != 0 {
 		t.Fatalf("expectedAuthProviders(glm upstream) = %v, want empty", got)
 	}
