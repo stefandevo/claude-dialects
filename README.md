@@ -217,9 +217,9 @@ The GLM preset maps `opus` to `glm-5.3` and both `sonnet` and `haiku` to
 `glm-5-turbo`. Its `auto` effort setting leaves GLM-5.3 at the provider default
 (`max`). GLM-5.3 runs three effort levels — `low`, `high`, and `max` — and Z.ai
 folds Claude Code's scale onto them: `low` stays `low`, `medium` and `high` both
-become `high`, `xhigh` and `max` both become `max`, and an unrecognized value
-falls back to `max`. Thinking cannot be turned off; asking for it disabled is
-converted to `low` rather than honored, so the model still reasons briefly.
+become `high`, and `xhigh` and `max` both become `max`. Thinking cannot be
+turned off; asking for it disabled is converted to `low` rather than honored,
+so the model still reasons briefly.
 
 `glm-5.3` answered on a live GLM Coding Plan key on 2026-08-15. Z.ai's model
 page still reads "The GLM-5.3 API is coming soon", so a pay-as-you-go key may
@@ -235,13 +235,12 @@ cc-dialect create cc-glm --preset glm \
 ```
 
 There is no point pinning `glm-5.2`. Z.ai resolves retired model IDs forward on
-this endpoint: a request for `glm-5.2` is answered by `glm-5.3`, and one for
-`glm-4.5-air` by `glm-4.7` (both verified 2026-08-15). Only an ID the endpoint
-does not recognize at all is rejected, with `400 modelCode: does not exist`. A
-stale model name therefore never announces itself — it quietly serves something
-newer.
+this endpoint, so a request for `glm-5.2` is answered by `glm-5.3` (verified
+2026-08-15); only an ID it does not recognize at all is rejected, with
+`400 modelCode: does not exist`. A stale model name therefore never announces
+itself — it quietly serves something newer.
 
-The `haiku` tier is deliberately **not** GLM-4.5-Air, even though it is the
+The `haiku` tier is deliberately **not** GLM-4.5-Air, even though it was the
 cheaper model. A dialect gets [one context window for the whole Claude Code
 process](#context-window-and-auto-compaction), sized to the smallest model it
 can select, and GLM-4.5-Air holds 131,072 tokens against GLM-5.3's 1M — so
@@ -252,11 +251,11 @@ already run GLM-5.3, so the cheaper tier was paid for out of every conversation.
 GLM-5-Turbo holds 200,000, which is what the preset now declares.
 
 Z.ai has since settled that trade on its own: the endpoint no longer serves
-GLM-4.5-Air under its own name, and answers a request for it with `glm-4.7`,
-which holds the same 200,000 as GLM-5-Turbo. Overriding the haiku tier back to
-`glm-4.5-air` with a 131,072-token window therefore buys the narrower window
-without the cheaper model it names, so this section no longer offers it as a
-way back.
+GLM-4.5-Air under its own name, and answers a request for it with `glm-4.7`
+(verified 2026-08-15), which holds the same 200,000 as GLM-5-Turbo. Overriding
+the haiku tier back to `glm-4.5-air` with a 131,072-token window therefore buys
+the narrower window without the cheaper model it names, so this section no
+longer offers it as a way back.
 
 An existing `cc-glm` keeps whatever it was created with — a `glm-4.5-air` haiku
 tier and its 131,072-token window, or a `glm-5.2` mapping and the 262,144 this
