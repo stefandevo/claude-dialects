@@ -130,8 +130,11 @@ func presetDriftChanges(dialect, preset Dialect) []string {
 		}
 	}
 	if dialect.ContextWindow != preset.ContextWindow {
-		changes = append(changes, fmt.Sprintf("window %d → %d",
-			dialect.ContextWindow, preset.ContextWindow))
+		from := fmt.Sprintf("%d", dialect.ContextWindow)
+		if dialect.ContextWindow == 0 {
+			from = "none"
+		}
+		changes = append(changes, fmt.Sprintf("window %s → %d", from, preset.ContextWindow))
 	}
 	return changes
 }

@@ -155,6 +155,7 @@ func TestPresetDriftDoesNotReportARouteExactMatchUnderAStaleLabel(t *testing.T) 
 func TestPresetDriftHedgesAnUnstampedDivergedRoute(t *testing.T) {
 	diverged := presets["kimi"]
 	diverged.HaikuModel = "kimi-k2.5"
+	diverged.ContextWindow = 0
 	diverged.Preset = "kimi"
 
 	lines := presetDriftDiagnostics("cc-kimi", diverged)
@@ -164,6 +165,8 @@ func TestPresetDriftHedgesAnUnstampedDivergedRoute(t *testing.T) {
 	for _, expected := range []string{
 		"○ cc-kimi differs from the current kimi preset",
 		"haiku kimi-k2.5 → kimi-k2.6",
+		// Zero means unknown, not a capacity of zero tokens.
+		"window none → 262144",
 		"older preset",
 		"your own customization",
 		"(run: cc-dialect create cc-kimi --preset kimi)",
