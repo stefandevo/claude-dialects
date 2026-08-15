@@ -128,7 +128,7 @@ var presetContextWindows = map[string]contextWindowSource{
 	},
 	"glm": {
 		Window: 200000, Verified: "2026-08-15",
-		Basis: "GLM-5-Turbo at 200000 on both lower tiers caps GLM-5.3 (1M); Z.ai's documented 200K is decimal, as its own 1M guidance declares 1000000 (Z.ai model documentation)",
+		Basis: "GLM-5-Turbo (sonnet) and GLM-4.7 (haiku) both at 200000 cap GLM-5.3 (1M); Z.ai's documented 200K is decimal, as its own 1M guidance declares 1000000 (Z.ai model documentation)",
 	},
 	"grok": {
 		Window: 500000, Verified: "2026-08-11",

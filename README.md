@@ -252,19 +252,26 @@ that doesn't need agent capabilities. GLM-4.5-Air held only 131,072 and is no
 longer served under its own name (Z.ai resolves it to `glm-4.7`, verified
 2026-08-15), so it is not an option either way.
 
-An existing `cc-glm` keeps whatever it was created with — a `glm-4.5-air` haiku
-tier and its 131,072-token window, or a `glm-5-turbo` haiku tier from the
-previous preset. Nothing rewrites a window already on disk: [a recorded
-window is never raised on your behalf](#custom-dialects), because silently
-widening one is the direction that can outrun a provider, and a stored one is
-not narrowed either, because it may have been set deliberately. Since the
-endpoint resolves old model IDs forward, such a dialect is already being
-answered by the current models — so what re-running
-`cc-dialect create cc-glm --preset glm` actually changes is the declared window,
-the half Claude Code cannot learn from the provider. (A `cc-glm` old enough to
-predate the stored window entirely no longer matches this preset field for
-field, so it is left uncalibrated rather than given a window it cannot hold;
-`doctor` reports it with the same command.)
+An existing `cc-glm` keeps whatever it was created with. Nothing rewrites a
+window already on disk: [a recorded window is never raised on your
+behalf](#custom-dialects), because silently widening one is the direction that
+can outrun a provider, and a stored one is not narrowed either, because it
+may have been set deliberately.
+
+A dialect old enough to carry a `glm-4.5-air` haiku tier and a 131,072-token
+window is already being answered by `glm-4.7` (Z.ai resolves the retired ID
+forward), so re-running `cc-dialect create cc-glm --preset glm` lifts the
+window to 200,000 — the half Claude Code cannot learn from the provider.
+(A `cc-glm` that predates the stored window entirely no longer matches this
+preset field for field, so it is left uncalibrated rather than given a window
+its old tier cannot hold; `doctor` reports it with the same command.)
+
+A dialect created against the previous preset (both lower tiers on
+`glm-5-turbo`, window already 200,000) is not harmed by the mismatch: Turbo
+is still the sonnet model, and the endpoint has no opinions about what a
+dialect's internal haiku slot should be. Re-running `cc-dialect create cc-glm
+--preset glm` updates the haiku route to `glm-4.7` without touching the
+window.
 
 ### Moonshot Kimi
 
@@ -916,7 +923,7 @@ mid-conversation and spawning subagents safe.
 | `minimax` | 204,800 | MiniMax-M2.7 (input and output combined) |
 | `claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
 | `composer` | 200,000 | Grok Composer 2.5 Fast |
-| `glm` | 200,000 | GLM-5-Turbo |
+| `glm` | 200,000 | GLM-5-Turbo (sonnet), GLM-4.7 (haiku) |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
 | `cursor-grok` | 200,000 | Cursor Grok route |
 | `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |
