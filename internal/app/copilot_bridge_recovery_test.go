@@ -116,6 +116,40 @@ func TestCopilotBridgeDoesNotRetryFencedTranscriptExamples(t *testing.T) {
 	fixture.requireLog(t, "create:0", "send:0", "unsubscribe:0", "disconnect:0")
 }
 
+func TestCopilotBridgeDoesNotRetryUnfencedTranscriptExamples(t *testing.T) {
+	for name, content := range map[string]string{
+		"role headings": "An unfenced conversation example follows:\nUSER:\nhello\nASSISTANT:\nhi",
+		"tool markup":   "An unfenced tool example follows:\n<invoke name=\"Read\">\n<parameter name=\"path\">README.md</parameter>\n</invoke>",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := startCopilotRecoveryFixture(t, copilotRecoveryFixture{
+				scenario: "answer",
+				content:  content,
+			})
+			completion := fixture.completion(t)
+			if completion.FinishReason != "stop" || completion.Text != content {
+				t.Fatalf("completion = %#v, want the unfenced example unchanged", completion)
+			}
+			fixture.requireLog(t, "create:0", "send:0", "unsubscribe:0", "disconnect:0")
+		})
+	}
+}
+
+func TestCopilotBridgeContinuesCombinedTranscriptSpill(t *testing.T) {
+	fixture := startCopilotRecoveryFixture(t, copilotRecoveryFixture{
+		scenario: "spill-once",
+		content:  "Continuing.\n<invoke name=\"Read\">\n<parameter name=\"path\">README.md</parameter>\n</invoke>\n\nUSER:\nPlease continue.",
+	})
+	completion := fixture.completion(t)
+	if completion.FinishReason != "tool_calls" || completion.ToolName != "Bash" {
+		t.Fatalf("completion = %#v, want a Bash tool call after combined transcript spill", completion)
+	}
+	fixture.requireLog(t,
+		"create:0", "send:0", "unsubscribe:0", "disconnect:0",
+		"create:1", "send:1", "abort:1", "unsubscribe:1", "disconnect:1",
+	)
+}
+
 func TestCopilotBridgeAccumulatesAssistantMessageChunks(t *testing.T) {
 	fixture := startCopilotRecoveryFixture(t, copilotRecoveryFixture{
 		scenario: "answer",
