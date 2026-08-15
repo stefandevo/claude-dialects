@@ -205,6 +205,27 @@ func TestPresetDriftHedgesAWindowBehindAMatchedPresetWithoutAStamp(t *testing.T)
 	}
 }
 
+// The command guard must validate against the preset the command names, not
+// the stored label: a label left behind by another provider resolves the
+// hidden bridge and auth provider to the wrong preset and would veto a remedy
+// whose target reproduces the dialect's own fields exactly.
+func TestPresetDriftOffersTheMatchedPresetCommandUnderAForeignLabel(t *testing.T) {
+	foreign := presets["cursor-mix"]
+	foreign.ContextWindow = 131072
+	foreign.Preset = "codex"
+
+	lines := presetDriftDiagnostics("cc-codex", foreign)
+	if len(lines) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "(run: cc-dialect create cc-codex --preset cursor-mix") {
+		t.Errorf("diagnostic %q refused the matched preset's command", lines[0])
+	}
+	if strings.Contains(lines[0], "would drop") {
+		t.Errorf("diagnostic %q claims create would drop settings its target reproduces", lines[0])
+	}
+}
+
 // Dialects created before fingerprints existed cannot be told apart from
 // hand-customized ones, so the report says both possibilities instead of
 // asserting an upgrade the binary cannot prove.

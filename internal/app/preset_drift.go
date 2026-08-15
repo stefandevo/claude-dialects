@@ -190,12 +190,19 @@ func presetDriftValue(value string) string {
 // otherwise adopting the models would silently change behavior. Those fields
 // carry no route, which is why they neither clear the stamp nor enter it.
 //
-// A dialect whose state create cannot restate — ExtraEnv, or a bridge or OAuth
-// route the stored preset does not supply — gets no command at all, matching
-// what contextWindowFixCommand refuses for the same dialects: a printed
-// command that would break the dialect is worse than none.
+// A dialect whose state the target preset cannot restate — ExtraEnv, which no
+// flag carries, or a bridge or auth provider the preset does not supply —
+// gets no command at all, matching what contextWindowFixCommand refuses for
+// the same dialects: a printed command that would break the dialect is worse
+// than none. The comparison runs against the preset the command names, not
+// the stored label: the exact-route report adopts the preset the dialect
+// actually runs, and a stale foreign label's hidden fields would otherwise
+// veto a command whose target reproduces the dialect's own.
 func presetDriftCommand(name string, dialect, preset Dialect, presetName string) string {
-	if !roundTripsThroughMutations(dialect) {
+	if len(dialect.ExtraEnv) > 0 {
+		return ""
+	}
+	if dialect.Bridge != preset.Bridge || dialect.AuthProvider != preset.AuthProvider {
 		return ""
 	}
 	command := "cc-dialect create " + shellArg(name) + " --preset " + shellArg(presetName)
