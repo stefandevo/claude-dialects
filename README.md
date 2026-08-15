@@ -221,19 +221,25 @@ become `high`, `xhigh` and `max` both become `max`, and an unrecognized value
 falls back to `max`. Thinking cannot be turned off; asking for it disabled is
 converted to `low` rather than honored, so the model still reasons briefly.
 
-GLM-5.3 reaches every GLM Coding Plan tier, but Z.ai's own model page still
-reads "The GLM-5.3 API is coming soon" and its switching guide assumes an active
-Coding Plan subscription. A pay-as-you-go `ZAI_API_KEY` may therefore be
-rejected on `glm-5.3` where a Coding Plan key succeeds. Pin the previous
-flagship if yours is — the lower tiers and the declared window are unchanged, so
-only the three GLM-5.3 fields move:
+`glm-5.3` answered on a live GLM Coding Plan key on 2026-08-15. Z.ai's model
+page still reads "The GLM-5.3 API is coming soon", so a pay-as-you-go key may
+still be refused where a Coding Plan key succeeds — that half is untested. If
+yours is refused, `glm-4.7` is the newest model the endpoint serves under its
+own name, and it holds the same 200,000 tokens the preset already declares:
 
 ```sh
 cc-dialect create cc-glm --preset glm \
-  --model glm-5.2 \
-  --subagent-model glm-5.2 \
-  --opus-model glm-5.2
+  --model glm-4.7 \
+  --subagent-model glm-4.7 \
+  --opus-model glm-4.7
 ```
+
+There is no point pinning `glm-5.2`. Z.ai resolves retired model IDs forward on
+this endpoint: a request for `glm-5.2` is answered by `glm-5.3`, and one for
+`glm-4.5-air` by `glm-4.7` (both verified 2026-08-15). Only an ID the endpoint
+does not recognize at all is rejected, with `400 modelCode: does not exist`. A
+stale model name therefore never announces itself — it quietly serves something
+newer.
 
 The `haiku` tier is deliberately **not** GLM-4.5-Air, even though it is the
 cheaper model. A dialect gets [one context window for the whole Claude Code
@@ -243,27 +249,28 @@ pointing one tier at it cut the entire session to an eighth of the main model's
 capacity. Claude Code sends the `haiku` tier short auxiliary work (titles,
 summaries, classification) that never approaches either number, and subagents
 already run GLM-5.3, so the cheaper tier was paid for out of every conversation.
-GLM-5-Turbo holds 200,000, which is what the preset now declares. If you would
-rather have the cheaper tier back, restore both the model and the window it
-implies:
+GLM-5-Turbo holds 200,000, which is what the preset now declares.
 
-```sh
-cc-dialect create cc-glm --preset glm \
-  --haiku-model glm-4.5-air \
-  --context-window 131072
-```
+Z.ai has since settled that trade on its own: the endpoint no longer serves
+GLM-4.5-Air under its own name, and answers a request for it with `glm-4.7`,
+which holds the same 200,000 as GLM-5-Turbo. Overriding the haiku tier back to
+`glm-4.5-air` with a 131,072-token window therefore buys the narrower window
+without the cheaper model it names, so this section no longer offers it as a
+way back.
 
 An existing `cc-glm` keeps whatever it was created with — a `glm-4.5-air` haiku
 tier and its 131,072-token window, or a `glm-5.2` mapping and the 262,144 this
 preset declared for it. Nothing rewrites a window already on disk: [a recorded
 window is never raised on your behalf](#custom-dialects), because silently
 widening one is the direction that can outrun a provider, and a stored one is
-not narrowed either, because it may have been set deliberately. Re-run
-`cc-dialect create cc-glm --preset glm` to adopt the new mapping and window
-together. (A `cc-glm` old enough to predate the stored window entirely no longer
-matches this preset field for field, so it is left uncalibrated rather than
-given a window its GLM-4.5-Air tier cannot hold; `doctor` reports it with the
-same command.)
+not narrowed either, because it may have been set deliberately. Since the
+endpoint resolves both of those model IDs forward, such a dialect is already
+being answered by the current models — so what re-running
+`cc-dialect create cc-glm --preset glm` actually changes is the declared window,
+the half Claude Code cannot learn from the provider. (A `cc-glm` old enough to
+predate the stored window entirely no longer matches this preset field for
+field, so it is left uncalibrated rather than given a window its GLM-4.5-Air
+tier cannot hold; `doctor` reports it with the same command.)
 
 ### Moonshot Kimi
 
