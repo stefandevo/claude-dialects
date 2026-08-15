@@ -447,17 +447,19 @@ proxy path, and per-request timing (run start, first delta, first tool call, run
 end) is logged to `cursor-bridge.log`. Non-streaming requests stay buffered
 until the run settles.
 
-Both SDK bridges pass the conversation to their model as flattened text, with
-past tool calls and results introduced by `ASSISTANT TOOL CALL <tool>:` and
-`CLAUDE CODE TOOL RESULT <tool>:` label lines. The bridge preamble tells the
-model those labels are framing it must never reproduce, and the bridge also
-filters its replies: a reply line that matches a label exactly — the label, one
-tool name, a closing colon, and nothing else — is dropped along with the rest of
-that reply, and the suppression is recorded in `cursor-bridge.log` or
-`copilot-bridge.log`. Label text inside a fenced code block, indented, or used
-mid-sentence is left alone, so a reply that explains the transcript format is
-not affected. Tool calls themselves are unaffected: they travel as structured
-calls, not as this text.
+Both SDK bridges pass the conversation to their model as flattened text. Past
+tool calls and results use the neutral `TOOL HISTORY <tool>:` and
+`RESULT HISTORY <tool>:` label lines. The bridge preamble tells the model those
+labels are framing it must never reproduce, and the bridge also filters its
+replies: a reply line that matches a label exactly — the label, one tool name, a
+closing colon, and nothing else — is dropped along with the rest of that reply,
+and the suppression is recorded in `cursor-bridge.log` or
+`copilot-bridge.log`. The filter still recognizes the former
+`ASSISTANT TOOL CALL` and `CLAUDE CODE TOOL RESULT` labels so a reply generated
+from an older prompt is covered during an upgrade. Label text inside a fenced
+code block, indented, or used mid-sentence is left alone, so a reply that
+explains the transcript format is not affected. Tool calls themselves are
+unaffected: they travel as structured calls, not as this text.
 
 The bridge also survives faults raised outside a request, such as a broken pipe
 inside the SDK. It logs them to `cursor-bridge.log`, fails the requests that
@@ -564,7 +566,19 @@ account login can come from Copilot's system credential, `COPILOT_GITHUB_TOKEN`,
 
 Replies are filtered for imitated transcript framing exactly as the Cursor
 bridge does, with suppressions recorded in `copilot-bridge.log`. See the Cursor
-bridge notes above for what the filter matches and what it leaves alone.
+bridge notes above for the current and legacy labels and for what the filter
+leaves alone.
+
+The Copilot bridge also makes one bounded recovery attempt when a turn clearly
+produces no usable work. A text-only reply that copies unfenced conversation
+roles, invoke/parameter markup, an interrupted-tool tail, or a transcript label
+is discarded and the full prompt is resent in one fresh SDK session. A turn
+that starts but produces neither text nor a tool call before its five-minute
+attempt timeout gets the same single retry. Ordinary final answers, fenced
+examples, partial output, tool calls, SDK errors, and requests whose client has
+disconnected are never retried. The two-attempt limit keeps the timeout path
+within the previous ten-minute worst case; a recovery still resends the full
+long-context prompt and consumes the corresponding Copilot allowance.
 
 Reasoning effort is forwarded only when the live model metadata advertises it.
 MAI-Code-1-Flash currently uses its adaptive provider behavior and does not
@@ -572,12 +586,14 @@ advertise configurable reasoning levels.
 
 `@github/copilot-sdk` is pinned for reproducible installation. Re-run
 `cc-dialect copilot install` after updating `cc-dialect` when the pinned SDK
-version changes. It remains a separately installed GitHub dependency under
-GitHub's terms. Copilot prompts consume the account's normal Copilot usage
-allowance. To apply a new `cc-dialect` build to an existing Copilot dialect,
-re-run `cc-dialect create <name> --preset <preset>` — creating an existing name
-is an upsert that preserves authentication, isolated state, and shims, so removing
-and recreating the dialect is never the right response to an update.
+version changes: the launcher rejects a mismatched installed version rather
+than starting against it. The SDK remains a separately installed GitHub
+dependency under GitHub's terms. Copilot prompts consume the account's normal
+Copilot usage allowance. To apply a new `cc-dialect` build to an existing
+Copilot dialect, re-run `cc-dialect create <name> --preset <preset>` — creating
+an existing name is an upsert that preserves authentication, isolated state,
+and shims, so removing and recreating the dialect is never the right response
+to an update.
 
 ### Anthropic Claude
 

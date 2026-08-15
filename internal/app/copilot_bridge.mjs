@@ -13,6 +13,12 @@ const bridgeKey = process.env.COPILOT_DIALECT_BRIDGE_KEY || "";
 const stateDir = path.resolve(options.state || process.env.COPILOT_DIALECT_HOME || process.cwd());
 let modelCatalogCache;
 let modelCatalogExpiresAt = 0;
+const maxTurnAttempts = 2;
+const turnTimeoutMs = positiveMilliseconds(
+  process.env.COPILOT_BRIDGE_TIMEOUT_MS,
+  5 * 60 * 1000,
+);
+const cleanupTimeoutMs = Math.min(turnTimeoutMs, 1000);
 
 // Module-private marker for errors this bridge creates for the client. A Symbol
 // can never be forged by a third-party SDK/HTTP error (unlike the public
@@ -121,7 +127,7 @@ async function chatCompletion(request, response, body) {
   const modelSelection = await selectModel(requestedModel, body);
   const toolDefinitions = normalizeTools(body.tools);
   const prompt = buildPrompt(body.messages, toolDefinitions);
-  let session;
+  let activeSession;
   let text = "";
   let capturedToolCall;
   let disconnected = false;
@@ -129,59 +135,70 @@ async function chatCompletion(request, response, body) {
   response.once("close", () => {
     if (!response.writableEnded) {
       disconnected = true;
-      session?.abort().catch(() => {});
+      activeSession?.abort().catch(() => {});
     }
   });
 
-  try {
-    session = await client.createSession({
-      clientName: "claude-dialects",
-      model: modelSelection.model,
-      ...(modelSelection.reasoningEffort
-        ? { reasoningEffort: modelSelection.reasoningEffort }
-        : {}),
-      tools: toolDefinitions.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        skipPermission: true,
-        defer: "never",
-      })),
-      availableTools: ["custom:*"],
-      enableConfigDiscovery: false,
-      infiniteSessions: { enabled: false },
-      memory: { enabled: false },
-      systemMessage: {
-        mode: "replace",
-        content: [
-          "You are the model running inside the Claude Code harness.",
-          "Claude Code owns all filesystem, terminal, web, MCP, and tool execution.",
-          "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop.",
-          `Lines beginning with ${TOOL_CALL_MARKER} or ${TOOL_RESULT_MARKER} are transcript framing added by Claude Code to show you the conversation so far. Never write such a line yourself: call the tool instead.`,
-        ].join("\n"),
-      },
-    });
+  for (let attempt = 0; attempt < maxTurnAttempts; attempt += 1) {
+    try {
+      const result = await runCopilotTurn({
+        modelSelection,
+        toolDefinitions,
+        prompt,
+        isDisconnected: () => disconnected,
+        setActiveSession: (session) => {
+          activeSession = session;
+        },
+      });
+      activeSession = undefined;
+      if (disconnected) return;
 
-    const turn = waitForTurn(session, toolDefinitions, (value) => {
-      text = value;
-    }, (value) => {
-      capturedToolCall = value;
-    });
-    await session.send({ prompt });
-    await turn;
-  } finally {
-    await session?.disconnect().catch(() => {});
+      let markerSuppressed = false;
+      const filteredText = stripTranscriptMarkers(result.text, () => {
+        markerSuppressed = true;
+        process.stderr.write(
+          "copilot bridge: suppressed assistant text imitating the transcript markers\n",
+        );
+      });
+      const spill = !result.toolCall
+        ? transcriptSpillReason(result.text, markerSuppressed)
+        : "";
+      if (spill && attempt + 1 < maxTurnAttempts) {
+        process.stderr.write(
+          `copilot bridge: retrying turn after ${spill} (attempt ${attempt + 1}/${maxTurnAttempts})\n`,
+        );
+        continue;
+      }
+      if (spill) {
+        process.stderr.write(
+          `copilot bridge: transcript spill persisted after ${maxTurnAttempts} attempts\n`,
+        );
+      }
+      text = filteredText;
+      capturedToolCall = result.toolCall;
+      break;
+    } catch (error) {
+      activeSession = undefined;
+      if (disconnected) return;
+      const retryableTimeout = error?.code === "copilot_timeout"
+        && !error?.producedText
+        && !error?.producedToolCall;
+      if (retryableTimeout && attempt + 1 < maxTurnAttempts) {
+        process.stderr.write(
+          `copilot bridge: retrying empty timed-out turn (attempt ${attempt + 1}/${maxTurnAttempts})\n`,
+        );
+        continue;
+      }
+      if (retryableTimeout) {
+        process.stderr.write(
+          `copilot bridge: empty turn timed out after ${maxTurnAttempts} attempts\n`,
+        );
+      }
+      throw error;
+    }
   }
 
   if (disconnected) return;
-  // The whole reply arrives in one assistant.message event, so both the SSE and
-  // the JSON path can be covered by filtering the buffered text once, here,
-  // before anything is written to the wire.
-  text = stripTranscriptMarkers(text, () => {
-    process.stderr.write(
-      "copilot bridge: suppressed assistant text imitating the transcript markers\n",
-    );
-  });
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
   const usage = estimatedUsage(prompt, text, capturedToolCall);
@@ -272,45 +289,163 @@ async function chatCompletion(request, response, body) {
   });
 }
 
-function waitForTurn(session, tools, setText, setToolCall) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      error ? reject(error) : resolve();
-    };
-    const timeout = setTimeout(() => {
-      session.abort().catch(() => {});
+async function createCopilotSession(modelSelection, toolDefinitions) {
+  return client.createSession({
+    clientName: "claude-dialects",
+    model: modelSelection.model,
+    ...(modelSelection.reasoningEffort
+      ? { reasoningEffort: modelSelection.reasoningEffort }
+      : {}),
+    tools: toolDefinitions.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      skipPermission: true,
+      defer: "never",
+    })),
+    availableTools: ["custom:*"],
+    enableConfigDiscovery: false,
+    infiniteSessions: { enabled: false },
+    memory: { enabled: false },
+    systemMessage: {
+      mode: "replace",
+      content: [
+        "You are the model running inside the Claude Code harness.",
+        "Claude Code owns all filesystem, terminal, web, MCP, and tool execution.",
+        "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop.",
+        `Lines beginning with ${TOOL_CALL_MARKER} or ${TOOL_RESULT_MARKER} are transcript framing added by Claude Code to show you the conversation so far. Never write such a line yourself: call the tool instead.`,
+      ].join("\n"),
+    },
+  });
+}
+
+async function runCopilotTurn({
+  modelSelection,
+  toolDefinitions,
+  prompt,
+  isDisconnected,
+  setActiveSession,
+}) {
+  let abandoned = false;
+  let session;
+  let turn;
+  let timeout;
+  let timedOutError;
+
+  const work = (async () => {
+    if (isDisconnected()) throw disconnectedError();
+    const created = await createCopilotSession(modelSelection, toolDefinitions);
+    if (abandoned || isDisconnected()) {
+      await cleanupSession(created);
+      throw timedOutError || disconnectedError();
+    }
+    session = created;
+    setActiveSession(session);
+    turn = waitForTurn(session, toolDefinitions);
+    if (isDisconnected()) throw disconnectedError();
+    await session.send({ prompt });
+    return await turn.promise;
+  })();
+
+  const timed = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      abandoned = true;
+      const snapshot = turn?.snapshot() || { text: "", toolCall: undefined };
       const error = new Error("GitHub Copilot SDK request timed out");
       error.code = "copilot_timeout";
-      finish(error);
-    }, 10 * 60 * 1000);
-
-    session.on((event) => {
-      if (event.type === "assistant.message" && typeof event.data?.content === "string") {
-        setText(event.data.content);
-      } else if (event.type === "external_tool.requested") {
-        const tool = findTool(tools, event.data?.toolName);
-        if (!tool) return;
-        setToolCall({
-          id: event.data.toolCallId || `call_${crypto.randomUUID().replaceAll("-", "")}`,
-          name: tool.name,
-          arguments: event.data.arguments && typeof event.data.arguments === "object"
-            ? event.data.arguments
-            : {},
-        });
-        session.abort().catch(() => {}).finally(() => finish());
-      } else if (event.type === "session.idle") {
-        finish();
-      } else if (event.type === "session.error") {
-        const error = new Error(event.data?.message || "GitHub Copilot SDK session failed");
-        error.code = "copilot_session_error";
-        finish(error);
-      }
-    });
+      error.producedText = Boolean(snapshot.text);
+      error.producedToolCall = Boolean(snapshot.toolCall);
+      timedOutError = error;
+      session?.abort().catch(() => {});
+      turn?.cancel(error);
+      reject(error);
+    }, turnTimeoutMs);
   });
+
+  try {
+    return await Promise.race([work, timed]);
+  } finally {
+    abandoned = true;
+    clearTimeout(timeout);
+    turn?.cancel();
+    await cleanupSession(session);
+    setActiveSession(undefined);
+  }
+}
+
+function waitForTurn(session, tools) {
+  let settled = false;
+  let text = "";
+  let toolCall;
+  let unsubscribe = () => {};
+  let resolveTurn;
+  let rejectTurn;
+  const promise = new Promise((resolve, reject) => {
+    resolveTurn = resolve;
+    rejectTurn = reject;
+  });
+  const finish = (error) => {
+    if (settled) return;
+    settled = true;
+    unsubscribe();
+    error ? rejectTurn(error) : resolveTurn({ text, toolCall });
+  };
+
+  const subscription = session.on((event) => {
+    if (event.type === "assistant.message" && typeof event.data?.content === "string") {
+      text += event.data.content;
+    } else if (event.type === "external_tool.requested") {
+      const tool = findTool(tools, event.data?.toolName);
+      if (!tool) return;
+      toolCall = {
+        id: event.data.toolCallId || `call_${crypto.randomUUID().replaceAll("-", "")}`,
+        name: tool.name,
+        arguments: event.data.arguments && typeof event.data.arguments === "object"
+          ? event.data.arguments
+          : {},
+      };
+      session.abort().catch(() => {}).finally(() => finish());
+    } else if (event.type === "session.idle") {
+      finish();
+    } else if (event.type === "session.error") {
+      const error = new Error(event.data?.message || "GitHub Copilot SDK session failed");
+      error.code = "copilot_session_error";
+      finish(error);
+    }
+  });
+  unsubscribe = typeof subscription === "function" ? subscription : (() => {});
+  if (settled) unsubscribe();
+
+  return {
+    promise,
+    snapshot: () => ({ text, toolCall }),
+    cancel: (error) => finish(error),
+  };
+}
+
+async function cleanupSession(session) {
+  if (!session) return;
+  await settleWithin(session.disconnect().catch(() => {}), cleanupTimeoutMs);
+}
+
+async function settleWithin(promise, timeout) {
+  let timer;
+  try {
+    await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, timeout);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function disconnectedError() {
+  const error = new Error("Client disconnected from the Copilot bridge");
+  error.code = "copilot_disconnected";
+  return error;
 }
 
 async function listCopilotModels() {
@@ -393,6 +528,50 @@ function buildPrompt(messages, tools) {
   ].join("\n");
 }
 
+function transcriptSpillReason(text, markerSuppressed) {
+  if (markerSuppressed) return "transcript-marker imitation";
+  let fence = "";
+  const roles = new Set();
+  let roleLines = 0;
+  let invoke = false;
+  let parameter = false;
+  let interrupted = false;
+
+  for (const line of String(text || "").split("\n")) {
+    const fenceMatch = FENCE_LINE.exec(line);
+    if (fenceMatch) {
+      const [, delimiter, trailing] = fenceMatch;
+      if (!fence) {
+        if (delimiter[0] !== "`" || !trailing.includes("`")) fence = delimiter;
+      } else if (
+        delimiter[0] === fence[0]
+        && delimiter.length >= fence.length
+        && trailing.trim() === ""
+      ) {
+        fence = "";
+      }
+      continue;
+    }
+    if (fence) continue;
+
+    const role = /^ {0,3}(USER|ASSISTANT|SYSTEM):[ \t\r]*$/.exec(line);
+    if (role) {
+      roles.add(role[1]);
+      roleLines += 1;
+    }
+    invoke ||= /^ {0,3}<invoke(?:\s|>)/i.test(line);
+    parameter ||= /^ {0,3}<parameter(?:\s|>)/i.test(line);
+    interrupted ||= /\bInterrupted by user\b|\b[A-Za-z0-9_.-]+ was interrupted\b/i.test(line);
+  }
+
+  if (invoke && parameter) return "unfenced invoke/parameter transcript markup";
+  if (roles.has("USER") && (roles.has("ASSISTANT") || roleLines >= 2)) {
+    return "unfenced conversation-role transcript sections";
+  }
+  if (roles.has("USER") && interrupted) return "interrupted-tool transcript tail";
+  return "";
+}
+
 // --- transcript marker filter -----------------------------------------------
 // Each bridge is installed as one standalone script in its own runtime
 // directory, so there is nothing to import from: this block is duplicated
@@ -400,14 +579,22 @@ function buildPrompt(messages, tools) {
 // check they have not drifted. Edit both copies together.
 //
 // Neither SDK accepts a structured message array on the send path, so prior
-// turns can only be conveyed as prose. These two labels are how the flattened
-// transcript marks where a past tool call and its result sit — framing, not
-// content. With enough of it in view the model sometimes copies the style into
-// its own reply; the prompt tells it not to, and this filter is the backstop
-// for when it does anyway.
-const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
-const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
-const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
+// turns can only be conveyed as prose. The current labels mark where a past
+// tool call and its result sit; the legacy labels remain filter-only so a turn
+// generated from an older prompt is still recognised. With enough framing in
+// view the model sometimes copies the style into its own reply; the prompt tells
+// it not to, and this filter is the backstop for when it does anyway.
+const TOOL_CALL_MARKER = "TOOL HISTORY";
+const TOOL_RESULT_MARKER = "RESULT HISTORY";
+const LEGACY_TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
+const LEGACY_TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
+const TRANSCRIPT_MARKERS = [
+  TOOL_CALL_MARKER,
+  TOOL_RESULT_MARKER,
+  LEGACY_TOOL_CALL_MARKER,
+  LEGACY_TOOL_RESULT_MARKER,
+];
+const MARKER_LABELS = TRANSCRIPT_MARKERS.map((marker) => `${marker} `);
 // An imitation is only recognisable as a whole line: the label opens the line,
 // one tool name follows, and a colon closes it. Matching the entire line rather
 // than a bare substring is what keeps a reply that merely discusses a label —
@@ -418,7 +605,7 @@ const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
 // imitation, which is the right way for it to fail. Both markers are letters
 // and spaces only, so interpolating them is safe here.
 const MARKER_LINE = new RegExp(
-  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
+  `^(?:${TRANSCRIPT_MARKERS.join("|")}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
 );
 
 // An exact example of the framing is indistinguishable from an imitation of it
@@ -642,6 +829,11 @@ function json(response, status, value) {
 
 function writeSSE(response, value) {
   response.write(`data: ${JSON.stringify(value)}\n\n`);
+}
+
+function positiveMilliseconds(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function parseArgs(args) {
