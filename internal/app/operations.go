@@ -465,19 +465,22 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	if !validContextWindow(dialect.ContextWindow) {
 		dialect.ContextWindow = 0
 	}
-	// The fingerprint is stamped from the preset itself rather than from this
-	// resolved dialect, so a window carried over from a previous creation by
-	// inheritedContextWindow does not register as a revision of its own. Any
-	// per-field flag that overrides what the preset supplied clears it: the
-	// stamp must mean "this dialect is the preset as it was", because that is
-	// the only thing that later separates a preset revision reported by doctor
-	// from a customization of the user's own. Behavior settings carry no route,
-	// so they neither clear the stamp nor enter it — the drift remedy restates
-	// them as flags instead.
-	if input.Preset != "" && input.Model == "" && input.SubagentModel == "" &&
-		input.OpusModel == "" && input.SonnetModel == "" && input.HaikuModel == "" &&
-		input.BaseURL == "" && input.AuthTokenEnv == "" && input.ContextWindow == 0 {
-		dialect.PresetFingerprint = presetFingerprint(presets[input.Preset])
+	// The fingerprint is stamped by value: whenever the resolved route and
+	// window equal the preset exactly, the dialect is that preset as it stands
+	// — whether the values came from the preset itself or from a caller that
+	// had already resolved them, as the dashboard does when it submits every
+	// field. Anything else resolves away from the preset and leaves the stamp
+	// unset, which is also what keeps a window carried over from an earlier
+	// creation by inheritedContextWindow from registering as a revision the
+	// dialect never adopted. The stamp must mean "this dialect is the preset",
+	// because that is the only thing that later separates a preset revision
+	// reported by doctor from a customization of the user's own. Behavior
+	// settings carry no route, so they neither clear the stamp nor enter it —
+	// the drift remedy restates them as flags instead.
+	if input.Preset != "" {
+		if fingerprint := presetFingerprint(presets[input.Preset]); fingerprint == presetFingerprint(dialect) {
+			dialect.PresetFingerprint = fingerprint
+		}
 	}
 	dialect.Effort = input.Effort
 	dialect.ToolSearch = input.ToolSearch

@@ -34,11 +34,12 @@ type NativeLauncher struct {
 type Dialect struct {
 	Preset string `json:"preset,omitempty"`
 	// PresetFingerprint records the exact revision of the preset this dialect
-	// was created from — the route below plus the reviewed context window,
-	// hashed by presetFingerprint. It is stamped only when nothing overrode
-	// what the preset supplied, so it means "this dialect is the preset as it
-	// was", and a mismatch against today's preset means the preset moved
-	// rather than the dialect being customized. See preset_drift.go.
+	// stands on — the route below plus the reviewed context window, hashed by
+	// presetFingerprint. It is stamped whenever a create or update resolves to
+	// that preset exactly, including a submission that restates the resolved
+	// fields, so it means "this dialect is the preset as it is", and a mismatch
+	// against today's preset means the preset moved rather than the dialect
+	// being customized. See preset_drift.go.
 	PresetFingerprint string `json:"presetFingerprint,omitempty"`
 	Model             string `json:"model"`
 	SubagentModel     string `json:"subagentModel,omitempty"`

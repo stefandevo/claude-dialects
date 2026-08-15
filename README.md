@@ -268,7 +268,8 @@ widening one is the direction that can outrun a provider, and a stored one is
 not narrowed either, because it may have been set deliberately. `doctor`
 reports such a dialect through [preset drift](#custom-dialects), naming the
 tiers and window the preset has since changed, with
-`cc-dialect create cc-glm --preset glm` as the command that adopts the current
+`cc-dialect create cc-glm --preset glm` — restating the revised window through
+`--context-window` — as the command that adopts the current
 preset. Since the endpoint resolves both of those model IDs forward, such a
 dialect is already being answered by the current models — so what that command
 actually changes is the declared window, the half Claude Code cannot learn
@@ -1010,11 +1011,16 @@ models it was created with, so it keeps them after the preset moves on — but
 (`presetFingerprint` in `config.json`), and `doctor` compares that stamp
 against today's preset to report the drift. A dialect untouched since creation
 is reported with every field that changed and the `create` command that adopts
-the current preset; one that cannot be told apart from a hand edit — created
-before the stamp existed, or edited since — is reported as possibly either,
-and a dialect that is field-for-field identical to some current preset is
-never reported, whatever its label says. `doctor --fix` never rewrites a model
-or window on your behalf; adoption is always the printed command, run by you.
+the current preset, restating a window the revision moved with
+`--context-window` — a same-route `create` keeps the stored window otherwise;
+one that cannot be told apart from a hand edit — created before the stamp
+existed, or edited since — is reported as possibly either; and a dialect that
+is field-for-field identical to some current preset is never reported as
+drift, whatever its label says — doctor notes only that its label names
+another preset. A dialect whose route matches another preset exactly but whose
+window is behind that preset is reported as drift against the preset it
+actually runs. `doctor --fix` never rewrites a model or window on your behalf;
+adoption is always the printed command, run by you.
 
 ### Check the calibration
 
@@ -1029,9 +1035,10 @@ dropping `CLAUDE_CODE_AUTO_COMPACT_WINDOW` delays compaction, while dropping
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` falls back to Claude Code's 200,000-token
 default, which skews the reported percentage and compacts any larger declared
 window early. It also reports preset drift — a dialect still running the
-models or window of a preset revision it was created from, after
-`cc-dialect upgrade` shipped a newer one — naming the fields that changed and
-the `create` command that adopts the current preset. Adding `--fix` records
+models or window of a preset revision it was created from, or a window behind
+the preset its route exactly matches, after `cc-dialect upgrade` shipped a
+newer one — naming the fields that changed and the `create` command that
+adopts the current preset. Adding `--fix` records
 migrated windows in `config.json`, together with the preset name an exact
 route match resolved for a dialect that stored none. Existing labels are
 preserved, a custom route or any route that matches no preset exactly stays

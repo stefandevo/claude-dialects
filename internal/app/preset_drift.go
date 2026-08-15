@@ -24,8 +24,11 @@ import (
 //     that is the one case reported as drift, with a command.
 //   - A route that exactly matches some other preset is current under a stale
 //     label (the label predates the preset it really is); it is noted as
-//     information, never handed a route command, because `create --preset`
-//     with the stored label would replace a route the dialect already has.
+//     information, never handed the stored label's command, because `create
+//     --preset` with that label would replace a route the dialect already has.
+//     The matched preset's window is compared too: a route match whose window
+//     is behind is the same window-only revision, judged against the preset
+//     the dialect actually runs rather than hidden behind the note.
 //   - Everything else — no stamp, or a stamp the dialect has since moved off
 //     of — cannot be judged, so it is reported as a possibility rather than a
 //     finding, and only offered a command when the dialect round-trips
@@ -73,8 +76,32 @@ func presetDriftDiagnostics(name string, dialect Dialect) []string {
 		return nil
 	}
 	if matched := presetByContextRoute(dialect); matched != "" {
-		return []string{fmt.Sprintf("○ %s already matches the current %s preset but is labeled %s",
-			name, matched, label)}
+		routePreset := presets[matched]
+		if dialect.ContextWindow == routePreset.ContextWindow {
+			return []string{fmt.Sprintf("○ %s already matches the current %s preset but is labeled %s",
+				name, matched, label)}
+		}
+		// presetByContextRoute compares routes, so a window left behind by a
+		// revision of the matched preset would otherwise hide behind a note
+		// claiming a match the capacity does not share. The matched preset is
+		// the one the dialect actually runs, so its window is the comparison
+		// that means anything here. The route fields cannot differ from it, so
+		// the changes below name the window alone.
+		changes := strings.Join(presetDriftChanges(dialect, routePreset), ", ")
+		if untouched {
+			line := fmt.Sprintf("✗ %s matches the current %s route but its window is from an older revision (%s)",
+				name, matched, changes)
+			if command := presetDriftCommand(name, dialect, routePreset, matched); command != "" {
+				return []string{line + " (run: " + command + ")"}
+			}
+			return []string{line + "; this dialect holds settings that cc-dialect create would drop"}
+		}
+		line := fmt.Sprintf("○ %s matches the current %s route but is labeled %s and its window differs (%s); this may be an older preset revision or your own customization",
+			name, matched, label, changes)
+		if command := presetDriftCommand(name, dialect, routePreset, matched); command != "" {
+			return []string{line + " (run: " + command + ")"}
+		}
+		return []string{line + ", and it holds settings that cc-dialect create would drop"}
 	}
 	if untouched {
 		return []string{presetDriftLine(name, dialect, preset)}
@@ -88,7 +115,7 @@ func presetDriftDiagnostics(name string, dialect Dialect) []string {
 func presetDriftLine(name string, dialect, preset Dialect) string {
 	line := fmt.Sprintf("✗ %s was created from an older %s preset (%s)",
 		name, dialect.Preset, strings.Join(presetDriftChanges(dialect, preset), ", "))
-	if command := presetDriftCommand(name, dialect); command != "" {
+	if command := presetDriftCommand(name, dialect, preset, dialect.Preset); command != "" {
 		return line + " (run: " + command + ")"
 	}
 	return line + "; this dialect holds settings that cc-dialect create would drop"
@@ -102,7 +129,7 @@ func presetDriftLine(name string, dialect, preset Dialect) string {
 func presetDriftHedgeLine(name string, dialect, preset Dialect) string {
 	line := fmt.Sprintf("○ %s differs from the current %s preset (%s); this may be an older preset revision or your own customization",
 		name, dialect.Preset, strings.Join(presetDriftChanges(dialect, preset), ", "))
-	if command := presetDriftCommand(name, dialect); command != "" {
+	if command := presetDriftCommand(name, dialect, preset, dialect.Preset); command != "" {
 		return line + " (run: " + command + ")"
 	}
 	return line + ", and it holds settings that cc-dialect create would drop"
@@ -148,10 +175,15 @@ func presetDriftValue(value string) string {
 	return value
 }
 
-// presetDriftCommand renders the upsert that adopts the current preset. The
-// stamp guarantees the dialect had no route overrides, so `--preset` alone
-// restores the whole revised route; the window comes with it, because the
-// route change means the stored one no longer describes the new models.
+// presetDriftCommand renders the upsert that adopts the current preset — the
+// one whose route the report measured the dialect against, which for a stale
+// label is the preset it actually runs rather than the stored label's. The
+// stamp guarantees the dialect still runs that route unchanged, so `--preset`
+// alone restores the whole revised route. A window the preset has since
+// revised is restated explicitly with `--context-window`: inheritedContextWindow
+// deliberately keeps a stored window while the route is unchanged, so the
+// preset flag by itself would re-stamp the dialect as current while leaving
+// the old capacity behind — the exact drift this report exists to surface.
 //
 // create resets effort, tool search, concurrency, and effort level to the
 // preset's values, so any the dialect changed is restated as a flag —
@@ -162,12 +194,14 @@ func presetDriftValue(value string) string {
 // route the stored preset does not supply — gets no command at all, matching
 // what contextWindowFixCommand refuses for the same dialects: a printed
 // command that would break the dialect is worse than none.
-func presetDriftCommand(name string, dialect Dialect) string {
+func presetDriftCommand(name string, dialect, preset Dialect, presetName string) string {
 	if !roundTripsThroughMutations(dialect) {
 		return ""
 	}
-	preset := presets[dialect.Preset]
-	command := "cc-dialect create " + shellArg(name) + " --preset " + shellArg(dialect.Preset)
+	command := "cc-dialect create " + shellArg(name) + " --preset " + shellArg(presetName)
+	if dialect.ContextWindow != preset.ContextWindow {
+		command += fmt.Sprintf(" --context-window %d", preset.ContextWindow)
+	}
 	if dialect.EffortLevel != "" && dialect.EffortLevel != preset.EffortLevel {
 		command += " --effort-level " + shellArg(dialect.EffortLevel)
 	}

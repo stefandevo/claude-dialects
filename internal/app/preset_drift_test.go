@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -62,7 +64,7 @@ func TestPresetDriftReportsAStaleStampedPreset(t *testing.T) {
 		"model glm-5.2 → glm-5.3",
 		"haiku glm-4.5-air → glm-5-turbo",
 		"window 131072 → 200000",
-		"(run: cc-dialect create cc-glm --preset glm)",
+		"(run: cc-dialect create cc-glm --preset glm --context-window 200000)",
 	} {
 		if !strings.Contains(lines[0], expected) {
 			t.Errorf("diagnostic %q does not contain %q", lines[0], expected)
@@ -103,6 +105,12 @@ func TestPresetDriftReportsAWindowOnlyRevision(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "window 131072 → 200000") {
 		t.Errorf("diagnostic %q lost the window change", lines[0])
+	}
+	// The route is unchanged, so create would keep the stored window — the
+	// command has to state the revised one or it would re-stamp the dialect
+	// as current while the old capacity stays.
+	if !strings.Contains(lines[0], "--context-window 200000") {
+		t.Errorf("command in %q does not adopt the revised window", lines[0])
 	}
 	if strings.Contains(lines[0], "model ") {
 		t.Errorf("diagnostic %q names models that did not change", lines[0])
@@ -149,6 +157,54 @@ func TestPresetDriftDoesNotReportARouteExactMatchUnderAStaleLabel(t *testing.T) 
 	}
 }
 
+// A dialect whose route matches another preset exactly but whose window is
+// behind that preset is the same window-only revision seen through the preset
+// the dialect actually runs — the route match must not hide it behind the
+// stale-label note.
+func TestPresetDriftReportsAWindowBehindAMatchedPreset(t *testing.T) {
+	behind := presets["cursor-mix"]
+	behind.ContextWindow = 131072
+	behind.Preset = "cursor-composer"
+	behind.PresetFingerprint = presetFingerprint(behind)
+
+	lines := presetDriftDiagnostics("cc-cursor-mix", behind)
+	if len(lines) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
+	}
+	for _, expected := range []string{
+		"✗ cc-cursor-mix matches the current cursor-mix route",
+		fmt.Sprintf("window 131072 → %d", presets["cursor-mix"].ContextWindow),
+		"(run: cc-dialect create cc-cursor-mix --preset cursor-mix",
+		fmt.Sprintf("--context-window %d", presets["cursor-mix"].ContextWindow),
+	} {
+		if !strings.Contains(lines[0], expected) {
+			t.Errorf("diagnostic %q does not contain %q", lines[0], expected)
+		}
+	}
+	if strings.Contains(lines[0], "--preset cursor-composer") {
+		t.Errorf("diagnostic %q offered the stale label's command", lines[0])
+	}
+}
+
+// Without the stamp, the same dialect cannot be told from one whose window
+// was set by hand, so the report says both possibilities instead of
+// asserting a revision.
+func TestPresetDriftHedgesAWindowBehindAMatchedPresetWithoutAStamp(t *testing.T) {
+	behind := presets["cursor-mix"]
+	behind.ContextWindow = 131072
+	behind.Preset = "cursor-composer"
+
+	lines := presetDriftDiagnostics("cc-cursor-mix", behind)
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "○ ") {
+		t.Fatalf("an unstamped window difference was reported as proven drift: %v", lines)
+	}
+	for _, expected := range []string{"cursor-mix", "cursor-composer", "your own customization"} {
+		if !strings.Contains(lines[0], expected) {
+			t.Errorf("diagnostic %q does not mention %q", lines[0], expected)
+		}
+	}
+}
+
 // Dialects created before fingerprints existed cannot be told apart from
 // hand-customized ones, so the report says both possibilities instead of
 // asserting an upgrade the binary cannot prove.
@@ -169,7 +225,7 @@ func TestPresetDriftHedgesAnUnstampedDivergedRoute(t *testing.T) {
 		"window none → 262144",
 		"older preset",
 		"your own customization",
-		"(run: cc-dialect create cc-kimi --preset kimi)",
+		"(run: cc-dialect create cc-kimi --preset kimi --context-window 262144)",
 	} {
 		if !strings.Contains(lines[0], expected) {
 			t.Errorf("diagnostic %q does not contain %q", lines[0], expected)
@@ -245,7 +301,7 @@ func TestPresetDriftCommandRestatesNonRouteSettings(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
 	}
-	for _, expected := range []string{"--effort=false", "--tool-search=true", "--concurrency 5", "--effort-level high"} {
+	for _, expected := range []string{"--context-window 200000", "--effort=false", "--tool-search=true", "--concurrency 5", "--effort-level high"} {
 		if !strings.Contains(lines[0], expected) {
 			t.Errorf("command in %q lost %q", lines[0], expected)
 		}
@@ -290,6 +346,118 @@ func TestDoctorReportsPresetDriftWithoutFixingIt(t *testing.T) {
 	if kept.Model != "glm-5.2" || kept.ContextWindow != 131072 || kept.PresetFingerprint != stale.PresetFingerprint {
 		t.Fatalf("doctor --fix rewrote the dialect: %#v", kept)
 	}
+}
+
+// The window-only remedy has to survive being run, not just being read: the
+// route is unchanged, so create keeps the stored window unless the command
+// states the revised one — and a command that omitted it would re-stamp the
+// dialect as current while the old capacity stayed, silencing doctor with the
+// drift intact. This test executes what doctor prints.
+func TestPresetDriftRemedyAdoptsAWindowOnlyRevision(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	stale := presets["glm"]
+	stale.ContextWindow = 131072
+	stale.Preset = "glm"
+	stale.PresetFingerprint = presetFingerprint(stale)
+	stale.Port = 43170
+	stale.APIKey = "private"
+	if err := saveConfig(&Config{
+		Version: configVersion, BasePort: 43170,
+		Dialects:        map[string]Dialect{"cc-glm": stale},
+		NativeLaunchers: map[string]NativeLauncher{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := presetDriftDiagnostics("cc-glm", stale)
+	if len(lines) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
+	}
+	service := newAppService()
+	service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
+	// create on an existing name upserts — the CLI routes both through
+	// UpsertDialect, which is what lets the printed remedy adopt the preset
+	// without dropping the dialect's port or credentials.
+	if _, err := service.UpsertDialect(createInputFromCommand(t, lines[0]), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := after.Dialects["cc-glm"]
+	if kept.ContextWindow != presets["glm"].ContextWindow {
+		t.Errorf("remedy left the window at %d, want %d", kept.ContextWindow, presets["glm"].ContextWindow)
+	}
+	if got, want := kept.PresetFingerprint, presetFingerprint(presets["glm"]); got != want {
+		t.Errorf("remedy stamped %q, want the current preset %q", got, want)
+	}
+	if kept.Port != 43170 || kept.APIKey != "private" {
+		t.Errorf("remedy lost the dialect's port or key: %d %q", kept.Port, kept.APIKey)
+	}
+	if remaining := presetDriftDiagnostics("cc-glm", kept); len(remaining) != 0 {
+		t.Errorf("dialect still reports drift after the remedy: %v", remaining)
+	}
+	report := captureStdout(t, func() error { return doctor(nil, "test") })
+	for _, phrase := range []string{"older glm preset", "differs from the current", "matches the current"} {
+		if strings.Contains(report, phrase) {
+			t.Errorf("doctor still reports drift after the remedy:\n%s", report)
+		}
+	}
+}
+
+// createInputFromCommand turns the command doctor prints into the input it
+// names, so a test can run the remedy a user would copy. It handles only the
+// flags the command grammar uses today; anything else is a failure rather
+// than a silent omission.
+func createInputFromCommand(t *testing.T, line string) DialectInput {
+	t.Helper()
+	start := strings.Index(line, "(run: ")
+	if start < 0 {
+		t.Fatalf("diagnostic %q offers no command", line)
+	}
+	command := strings.TrimSuffix(line[start+len("(run: "):], ")")
+	fields := strings.Fields(command)
+	if len(fields) < 3 || fields[0] != "cc-dialect" || fields[1] != "create" {
+		t.Fatalf("command %q is not a create", command)
+	}
+	input := DialectInput{Name: fields[2]}
+	for i := 3; i < len(fields); i++ {
+		value := ""
+		if i+1 < len(fields) {
+			value = fields[i+1]
+		}
+		switch fields[i] {
+		case "--preset":
+			input.Preset = value
+			i++
+		case "--context-window", "--concurrency":
+			number, err := strconv.Atoi(value)
+			if err != nil {
+				t.Fatalf("command %q has a non-numeric %s %q", command, fields[i], value)
+			}
+			if fields[i] == "--context-window" {
+				input.ContextWindow = number
+			} else {
+				input.Concurrency = number
+			}
+			i++
+		case "--effort-level":
+			input.EffortLevel = value
+			i++
+		case "--effort=false":
+			input.Effort = false
+		case "--effort=true":
+			input.Effort = true
+		case "--tool-search=true":
+			input.ToolSearch = true
+		default:
+			t.Fatalf("command %q uses a flag the test cannot execute: %s", command, fields[i])
+		}
+	}
+	return input
 }
 
 // The stamp is written when a dialect is created from a preset and cleared the
@@ -364,5 +532,61 @@ func TestPrepareDialectStampsAndClearsThePresetFingerprint(t *testing.T) {
 	}
 	if cfg.Dialects["cc-test"].PresetFingerprint != "" {
 		t.Fatal("an explicit --context-window kept the preset fingerprint")
+	}
+}
+
+// The dashboard resolves a chosen preset into every field and submits the
+// result, so a stamp keyed on "no per-field input was given" would never fire
+// there — and a behavior-only edit through the same form would strip the
+// stamp from a dialect that still runs the preset. Stamping by value covers
+// both: what matters is that the resolved dialect is the preset, not which
+// caller supplied the numbers.
+func TestPrepareDialectStampsARestatedPresetRoute(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("DIALECT_HOME", home)
+	base := availablePortRange(t, 3)
+	if err := saveConfig(&Config{Version: configVersion, BasePort: base, Dialects: map[string]Dialect{}, NativeLaunchers: map[string]NativeLauncher{}}); err != nil {
+		t.Fatal(err)
+	}
+	service := newAppService()
+	service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
+
+	preset := presets["codex"]
+	restated := DialectInput{
+		Name: "cc-test", Preset: "codex",
+		Model: preset.Model, SubagentModel: preset.SubagentModel,
+		OpusModel: preset.OpusModel, SonnetModel: preset.SonnetModel,
+		HaikuModel: preset.HaikuModel, BaseURL: preset.BaseURL,
+		AuthTokenEnv: preset.AuthTokenEnv, ContextWindow: preset.ContextWindow,
+		Effort: true,
+	}
+	if _, err := service.CreateDialect(restated, ""); err != nil {
+		t.Fatal(err)
+	}
+	stamp := func() string {
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg.Dialects["cc-test"].PresetFingerprint
+	}
+	if got, want := stamp(), presetFingerprint(presets["codex"]); got != want {
+		t.Fatalf("restated fingerprint = %q, want the stamped preset %q", got, want)
+	}
+
+	restated.EffortLevel = "high"
+	if _, err := service.UpdateDialect(restated, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stamp(), presetFingerprint(presets["codex"]); got != want {
+		t.Fatalf("a behavior-only resubmission lost the stamp: got %q, want %q", got, want)
+	}
+
+	restated.Model = "gpt-5.6-turbo"
+	if _, err := service.UpdateDialect(restated, ""); err != nil {
+		t.Fatal(err)
+	}
+	if stamp() != "" {
+		t.Fatal("a divergent resubmission kept the preset fingerprint")
 	}
 }
