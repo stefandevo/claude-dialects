@@ -19,6 +19,15 @@ or other user-level Claude Code settings stay inside the active dialect.
 
 > Current targets: macOS and Linux, on amd64 and arm64.
 
+> [!NOTE]
+> Linux support is new and not yet fully verified in day-to-day use. CI builds
+> and runs the full test suite natively on Ubuntu (amd64); `linux/arm64` is
+> cross-compiled and vetted but never executed by a runner. Provider OAuth
+> flows, the Cursor and GitHub Copilot bridges, and packaging a macOS archive
+> from a Linux host have not been exercised on Linux. macOS is unaffected.
+> Please report anything that misbehaves in a
+> [new issue](https://github.com/stefandevo/claude-dialects/issues/new/choose).
+
 > [!IMPORTANT]
 > This is an independent, unofficial project. It is not affiliated with or
 > endorsed by Anthropic, OpenAI, Google, Moonshot AI, Z.ai, xAI, Cursor,

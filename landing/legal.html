@@ -107,6 +107,12 @@
             Windows builds are not supported at this time. Do not expect this project to run correctly on other
             platforms without additional porting work.
           </p>
+          <p>
+            Linux support is new and not yet fully verified in day-to-day use. CI builds and runs the full test
+            suite natively on Ubuntu (amd64), and <code>linux/arm64</code> is cross-compiled and vetted but never
+            executed by a runner. Provider OAuth flows and the Cursor and GitHub Copilot bridges have not been
+            exercised on Linux. macOS behaviour is unaffected.
+          </p>
         </div>
         <p>Additional requirements:</p>
         <ul>
