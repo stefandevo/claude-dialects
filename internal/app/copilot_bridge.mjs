@@ -564,11 +564,16 @@ function transcriptSpillReason(text, markerSuppressed) {
     interrupted ||= /\bInterrupted by user\b|\b[A-Za-z0-9_.-]+ was interrupted\b/i.test(line);
   }
 
-  if (invoke && parameter) return "unfenced invoke/parameter transcript markup";
-  if (roles.has("USER") && (roles.has("ASSISTANT") || roleLines >= 2)) {
-    return "unfenced conversation-role transcript sections";
-  }
   if (roles.has("USER") && interrupted) return "interrupted-tool transcript tail";
+  const roleTranscript = roles.has("USER")
+    && (roles.has("ASSISTANT") || roleLines >= 2);
+  const toolTranscript = invoke && parameter;
+  if (toolTranscript && roles.size > 0) {
+    return "unfenced tool markup with conversation-role transcript sections";
+  }
+  if (roleTranscript && (invoke || parameter)) {
+    return "unfenced conversation roles with tool transcript markup";
+  }
   return "";
 }
 

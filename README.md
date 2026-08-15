@@ -570,15 +570,17 @@ bridge notes above for the current and legacy labels and for what the filter
 leaves alone.
 
 The Copilot bridge also makes one bounded recovery attempt when a turn clearly
-produces no usable work. A text-only reply that copies unfenced conversation
-roles, invoke/parameter markup, an interrupted-tool tail, or a transcript label
-is discarded and the full prompt is resent in one fresh SDK session. A turn
-that starts but produces neither text nor a tool call before its five-minute
-attempt timeout gets the same single retry. Ordinary final answers, fenced
-examples, partial output, tool calls, SDK errors, and requests whose client has
-disconnected are never retried. The two-attempt limit keeps the timeout path
-within the previous ten-minute worst case; a recovery still resends the full
-long-context prompt and consumes the corresponding Copilot allowance.
+produces no usable work. A text-only reply is retried only when it copies
+corroborating unfenced transcript signals — such as conversation roles plus
+invoke/parameter markup, or a `USER:` section plus an interrupted-tool tail —
+or an exact transcript label. A lone role-heading or tool-markup example remains
+ordinary output. A turn that starts but produces neither text nor a tool call
+before its five-minute attempt timeout gets the same single retry. Ordinary
+final answers, fenced examples, partial output, tool calls, SDK errors, and
+requests whose client has disconnected are never retried. The two-attempt limit
+keeps the timeout path within the previous ten-minute worst case; a recovery
+still resends the full long-context prompt and consumes the corresponding
+Copilot allowance.
 
 Reasoning effort is forwarded only when the live model metadata advertises it.
 MAI-Code-1-Flash currently uses its adaptive provider behavior and does not
