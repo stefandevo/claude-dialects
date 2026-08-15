@@ -67,7 +67,7 @@ or other user-level Claude Code settings stay inside the active dialect.
 Requirements:
 
 - macOS or Linux, on amd64 or arm64
-- Go 1.26.5 or newer
+- Go 1.26.6 or newer
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) available as
   `claude`
 - optionally, Node.js 22.13 or newer and npm for Cursor and GitHub Copilot SDK dialects

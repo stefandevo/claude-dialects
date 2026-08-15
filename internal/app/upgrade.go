@@ -122,7 +122,7 @@ func upgradeBuildTools(lookPath func(string) (string, error)) (gitPath, goPath s
 		missing = append(missing, "git")
 	}
 	if goErr != nil {
-		missing = append(missing, "go (Go 1.26.5 or newer)")
+		missing = append(missing, "go (Go 1.26.6 or newer)")
 	}
 	if len(missing) > 0 {
 		return "", "", fmt.Errorf("upgrade requires %s in PATH; install the missing tools and re-run cc-dialect upgrade, or %s",
