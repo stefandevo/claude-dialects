@@ -157,6 +157,7 @@ async function chatCompletion(request, response, body) {
           "You are the model running inside the Claude Code harness.",
           "Claude Code owns all filesystem, terminal, web, MCP, and tool execution.",
           "Use only the custom tools supplied by Claude Code. When a tool is needed, call it and stop.",
+          `Lines beginning with ${TOOL_CALL_MARKER} or ${TOOL_RESULT_MARKER} are transcript framing added by Claude Code to show you the conversation so far. Never write such a line yourself: call the tool instead.`,
         ].join("\n"),
       },
     });
@@ -173,6 +174,14 @@ async function chatCompletion(request, response, body) {
   }
 
   if (disconnected) return;
+  // The whole reply arrives in one assistant.message event, so both the SSE and
+  // the JSON path can be covered by filtering the buffered text once, here,
+  // before anything is written to the wire.
+  text = stripTranscriptMarkers(text, () => {
+    process.stderr.write(
+      "copilot bridge: suppressed assistant text imitating the transcript markers\n",
+    );
+  });
   const id = `chatcmpl_${crypto.randomUUID().replaceAll("-", "")}`;
   const created = Math.floor(Date.now() / 1000);
   const usage = estimatedUsage(prompt, text, capturedToolCall);
@@ -367,12 +376,12 @@ function buildPrompt(messages, tools) {
     if (content && message?.role !== "tool") transcript.push(`${role}:\n${content}`);
     for (const call of message?.tool_calls || []) {
       transcript.push(
-        `ASSISTANT TOOL CALL ${call?.function?.name || "unknown"}:\n${call?.function?.arguments || "{}"}`,
+        `${TOOL_CALL_MARKER} ${call?.function?.name || "unknown"}:\n${call?.function?.arguments || "{}"}`,
       );
     }
     if (message?.role === "tool") {
       const name = message.name || toolNames.get(message.tool_call_id) || "unknown";
-      transcript.push(`CLAUDE CODE TOOL RESULT ${name}:\n${content}`);
+      transcript.push(`${TOOL_RESULT_MARKER} ${name}:\n${content}`);
     }
   }
   const names = tools.map((tool) => tool.name).join(", ");
@@ -383,6 +392,164 @@ function buildPrompt(messages, tools) {
     transcript.join("\n\n"),
   ].join("\n");
 }
+
+// --- transcript marker filter -----------------------------------------------
+// Each bridge is installed as one standalone script in its own runtime
+// directory, so there is nothing to import from: this block is duplicated
+// byte-for-byte in the other bridge, and a Go test extracts it from both to
+// check they have not drifted. Edit both copies together.
+//
+// Neither SDK accepts a structured message array on the send path, so prior
+// turns can only be conveyed as prose. These two labels are how the flattened
+// transcript marks where a past tool call and its result sit — framing, not
+// content. With enough of it in view the model sometimes copies the style into
+// its own reply; the prompt tells it not to, and this filter is the backstop
+// for when it does anyway.
+const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";
+const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";
+const MARKER_LABELS = [`${TOOL_CALL_MARKER} `, `${TOOL_RESULT_MARKER} `];
+// An imitation is only recognisable as a whole line: the label opens the line,
+// one tool name follows, and a colon closes it. Matching the entire line rather
+// than a bare substring is what keeps a reply that merely discusses a label —
+// the case when someone points a dialect at this repository — intact, and
+// holding the name to the shape of an identifier is what stops a sentence that
+// happens to open with a label and end in a colon from matching. A name that
+// somehow fell outside this shape would only mean the backstop misses one
+// imitation, which is the right way for it to fail. Both markers are letters
+// and spaces only, so interpolating them is safe here.
+const MARKER_LINE = new RegExp(
+  `^(?:${TOOL_CALL_MARKER}|${TOOL_RESULT_MARKER}) [A-Za-z0-9_.-]{1,64}:[ \\t\\r]*$`,
+);
+
+// An exact example of the framing is indistinguishable from an imitation of it
+// by shape alone, and a reply explaining the transcript format puts that
+// example in a fenced block. What was actually reported is unfenced framing, so
+// a marker inside a fence is left alone: an explanation survives whole, and the
+// backstop still covers the case it exists for.
+//
+// The delimiter run and what follows it are both captured because a fence
+// closes only on its own character, at its own length or longer, with nothing
+// after it but whitespace. A reply that documents a fenced example wraps it in
+// a longer fence and may carry info strings inside; treating either as a close
+// would expose exactly the example the fence was meant to protect.
+// Indentation stops at three spaces: a fourth makes the line indented code
+// rather than a fence, and reading one as a fence would leave the filter
+// believing it is inside a block Markdown never opened — with every marker
+// after it exempt from suppression.
+const FENCE_LINE = /^ {0,3}(```+|~~~+)(.*)$/;
+
+// What follows a complete label while the line could still become a marker: a
+// tool name still being typed, optionally already closed by its colon. Anything
+// else — a space, a second word, an over-long name — settles the line as
+// ordinary prose, which is what lets it stream on rather than waiting for its
+// newline.
+const MARKER_NAME_PREFIX = /^[A-Za-z0-9_.-]{0,64}(?::[ \t\r]*)?$/;
+
+// True while `line` could still grow into a marker line: either it is a partial
+// label, or the label is complete and what follows it remains a viable name.
+function couldStartMarker(line) {
+  return MARKER_LABELS.some((label) => {
+    if (label.startsWith(line)) return true;
+    return line.startsWith(label) && MARKER_NAME_PREFIX.test(line.slice(label.length));
+  });
+}
+
+// Line-boundary buffering rather than whole-line buffering: a marker can only
+// begin at a line start, so as soon as a line's opening characters diverge from
+// both labels the rest of that line streams through a character at a time. Only
+// a line that still looks like a marker is withheld, which keeps ordinary prose
+// at the token granularity the streaming path was built for.
+function createMarkerFilter(onSuppress) {
+  let lineText = "";
+  let held = "";
+  let lineSafe = false;
+  // The delimiter run of the open fence, or "" when outside one.
+  let fence = "";
+  let suppressed = false;
+
+  const suppress = () => {
+    suppressed = true;
+    held = "";
+    lineText = "";
+    onSuppress?.();
+  };
+
+  return {
+    get suppressed() {
+      return suppressed;
+    },
+    push(chunk) {
+      if (suppressed || !chunk) return "";
+      let out = "";
+      let rest = chunk;
+      while (rest) {
+        const index = rest.indexOf("\n");
+        if (index === -1) {
+          lineText += rest;
+          held += rest;
+          // Inside a fence nothing is suppressed, so withholding a line that
+          // merely looks like a marker would cost latency for no benefit.
+          if (!lineSafe && !fence && couldStartMarker(lineText)) break;
+          lineSafe = true;
+          out += held;
+          held = "";
+          break;
+        }
+        lineText += rest.slice(0, index);
+        held += rest.slice(0, index + 1);
+        rest = rest.slice(index + 1);
+        const fenceMatch = FENCE_LINE.exec(lineText);
+        if (fenceMatch) {
+          const [, delimiter, trailing] = fenceMatch;
+          if (!fence) {
+            // A backtick fence carrying a backtick in its info string is not an
+            // opener at all. Taking one for a fence would leave every marker
+            // after it exempt from suppression. Tilde fences have no such rule.
+            if (delimiter[0] !== "`" || !trailing.includes("`")) fence = delimiter;
+          } else if (
+            delimiter[0] === fence[0]
+            && delimiter.length >= fence.length
+            && trailing.trim() === ""
+          ) {
+            fence = "";
+          }
+          // Anything else is content inside the open fence, not its close.
+        } else if (!fence && !lineSafe && MARKER_LINE.test(lineText)) {
+          // The turn has started imitating the transcript. Everything after the
+          // marker belongs to the imitation too, so drop the rest of the turn.
+          suppress();
+          return out;
+        }
+        out += held;
+        held = "";
+        lineText = "";
+        lineSafe = false;
+      }
+      return out;
+    },
+    // Releases a withheld trailing line that turned out to be ordinary text, or
+    // suppresses it when the turn ended on a marker with no closing newline.
+    flush() {
+      if (suppressed) return "";
+      if (!fence && !lineSafe && MARKER_LINE.test(lineText)) {
+        suppress();
+        return "";
+      }
+      const out = held;
+      held = "";
+      lineText = "";
+      lineSafe = false;
+      return out;
+    },
+  };
+}
+
+function stripTranscriptMarkers(text, onSuppress) {
+  if (!text) return text;
+  const filter = createMarkerFilter(onSuppress);
+  return filter.push(text) + filter.flush();
+}
+// --- end transcript marker filter -------------------------------------------
 
 function normalizeTools(rawTools) {
   const result = [];

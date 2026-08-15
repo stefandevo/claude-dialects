@@ -74,9 +74,27 @@ type contextWindowSource struct {
 // init below stamps these onto the presets themselves, so every existing reader
 // of the presets map picks the value up without a second table to keep in sync.
 //
-// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.102
+// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.122
 // model registry (internal/registry/models/models.json), which is authoritative
 // for the OAuth-backed routes because it is the same catalog the proxy serves.
+// Recalibrating means re-reading that file at the version go.mod pins now, not
+// diffing against the version named here: a stamp left behind hides every change
+// made since. Each of a preset's models is looked up on its own, under the
+// registry key providerForModel maps that model to — per model rather than per
+// preset, which is what lets mixed-frontier's four models resolve under four
+// different keys and a preset with no AuthProvider resolve at all. The codex
+// provider spans the codex-free/team/plus/pro keys, one per account tier. The
+// window field then varies by key rather than by model: the Google-native keys
+// (gemini, vertex, aistudio, gemini-cli) spell it inputTokenLimit, while every
+// other key, antigravity included, spells it context_length.
+//
+// Two stamped IDs are not registry IDs and have to be normalized before that
+// lookup. codex selects gpt-5.6, a family name carried as the version field of
+// the gpt-5.6-sol/terra/luna entries rather than as any entry's id; claude
+// selects claude-haiku-4-5, the undated form of claude-haiku-4-5-20251001. The
+// other fourteen match an id verbatim, so a lookup that quietly prefix-matches
+// will paper over exactly these two and hide it if either family's tiers stop
+// agreeing.
 //
 // Cursor and GitHub publish no per-route context window, and neither the
 // @cursor/sdk model list nor the Copilot SDK carries the field, so those routes
@@ -85,43 +103,43 @@ type contextWindowSource struct {
 // the vendor offers, so its fallback covers the smallest of them.
 var presetContextWindows = map[string]contextWindowSource{
 	"codex-sol": {
-		Window: 372000, Verified: "2026-07-27",
+		Window: 372000, Verified: "2026-08-11",
 		Basis: "GPT-5.6 Sol, Terra, and Luna all 372000 (CLIProxyAPI registry)",
 	},
 	"codex": {
-		Window: 372000, Verified: "2026-07-27",
+		Window: 372000, Verified: "2026-08-11",
 		Basis: "GPT-5.6 tiers Sol, Terra, and Luna all 372000 (CLIProxyAPI registry)",
 	},
 	"kimi": {
-		Window: 262144, Verified: "2026-07-27",
-		Basis: "Kimi K3, K2.7 Code Highspeed, and K2.6 all 262144 (CLIProxyAPI registry)",
+		Window: 262144, Verified: "2026-08-11",
+		Basis: "K2.7 Code Highspeed and K2.6 at 262144 cap the 1048576 Kimi K3 main model (CLIProxyAPI registry)",
 	},
 	"gemini": {
-		Window: 1048576, Verified: "2026-07-27",
+		Window: 1048576, Verified: "2026-08-11",
 		Basis: "Gemini Pro Agent and the 3.5 Flash routes all 1048576 (CLIProxyAPI registry)",
 	},
 	"claude": {
-		Window: 200000, Verified: "2026-07-27",
+		Window: 200000, Verified: "2026-08-11",
 		Basis: "Sonnet 4.6 and Haiku 4.5 at 200000 cap the 1M Fable 5 main model (CLIProxyAPI registry)",
 	},
 	"mixed-frontier": {
-		Window: 262144, Verified: "2026-07-27",
-		Basis: "Kimi K3 at 262144 caps Fable 5 (1M), GPT-5.6 Sol (372000), and Grok 4.5 (500000) (CLIProxyAPI registry)",
+		Window: 372000, Verified: "2026-08-11",
+		Basis: "GPT-5.6 Sol at 372000 caps Fable 5 (1M), Kimi K3 (1048576), and Grok 4.5 (500000) (CLIProxyAPI registry)",
 	},
 	"glm": {
 		Window: 262144, Verified: "2026-07-27",
 		Basis: "GLM-5-Turbo at 262144 on both lower tiers caps GLM-5.2 (1M) (Z.ai model documentation)",
 	},
 	"grok": {
-		Window: 500000, Verified: "2026-07-27",
+		Window: 500000, Verified: "2026-08-11",
 		Basis: "Grok 4.5 (CLIProxyAPI registry)",
 	},
 	"grok-build": {
-		Window: 256000, Verified: "2026-07-27",
+		Window: 256000, Verified: "2026-08-11",
 		Basis: "Grok Build 0.1 (CLIProxyAPI registry)",
 	},
 	"composer": {
-		Window: 200000, Verified: "2026-07-27",
+		Window: 200000, Verified: "2026-08-11",
 		Basis: "Grok Composer 2.5 Fast as exposed by xAI (CLIProxyAPI registry)",
 	},
 	"minimax": {

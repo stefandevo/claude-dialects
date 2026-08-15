@@ -407,6 +407,18 @@ proxy path, and per-request timing (run start, first delta, first tool call, run
 end) is logged to `cursor-bridge.log`. Non-streaming requests stay buffered
 until the run settles.
 
+Both SDK bridges pass the conversation to their model as flattened text, with
+past tool calls and results introduced by `ASSISTANT TOOL CALL <tool>:` and
+`CLAUDE CODE TOOL RESULT <tool>:` label lines. The bridge preamble tells the
+model those labels are framing it must never reproduce, and the bridge also
+filters its replies: a reply line that matches a label exactly — the label, one
+tool name, a closing colon, and nothing else — is dropped along with the rest of
+that reply, and the suppression is recorded in `cursor-bridge.log` or
+`copilot-bridge.log`. Label text inside a fenced code block, indented, or used
+mid-sentence is left alone, so a reply that explains the transcript format is
+not affected. Tool calls themselves are unaffected: they travel as structured
+calls, not as this text.
+
 The bridge also survives faults raised outside a request, such as a broken pipe
 inside the SDK. It logs them to `cursor-bridge.log`, fails the requests that
 were in flight, and keeps serving instead of terminating. If the bridge does die
@@ -509,6 +521,10 @@ Tool calls are returned to Claude Code for its normal permission and execution
 flow. Each dialect has a private bridge port and `COPILOT_HOME`; the GitHub
 account login can come from Copilot's system credential, `COPILOT_GITHUB_TOKEN`,
 `GH_TOKEN`, or `GITHUB_TOKEN`.
+
+Replies are filtered for imitated transcript framing exactly as the Cursor
+bridge does, with suppressions recorded in `copilot-bridge.log`. See the Cursor
+bridge notes above for what the filter matches and what it leaves alone.
 
 Reasoning effort is forwarded only when the live model metadata advertises it.
 MAI-Code-1-Flash currently uses its adaptive provider behavior and does not
@@ -863,8 +879,8 @@ mid-conversation and spawning subagents safe.
 | `deepseek` | 1,000,000 | DeepSeek V4 Pro and V4 Flash |
 | `grok` | 500,000 | Grok 4.5 |
 | `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
-| `kimi` | 262,144 | Kimi K3, K2.7 Code Highspeed, K2.6 |
-| `mixed-frontier` | 262,144 | Kimi K3 |
+| `mixed-frontier` | 372,000 | GPT-5.6 Sol |
+| `kimi` | 262,144 | Kimi K2.7 Code Highspeed and K2.6 |
 | `glm` | 262,144 | GLM-5-Turbo |
 | `grok-build` | 256,000 | Grok Build 0.1 |
 | `copilot-mai` | 256,000 | MAI-Code-1-Flash |
