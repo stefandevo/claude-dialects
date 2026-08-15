@@ -100,8 +100,8 @@ var presets = map[string]Dialect{
 	// short auxiliary work to. GLM has by far the widest tier spread of any preset
 	// here, which is what makes the trade worth naming.
 	"glm": {
-		Model: "glm-5.2", SubagentModel: "glm-5.2",
-		OpusModel: "glm-5.2", SonnetModel: "glm-5-turbo", HaikuModel: "glm-5-turbo",
+		Model: "glm-5.3", SubagentModel: "glm-5.3",
+		OpusModel: "glm-5.3", SonnetModel: "glm-5-turbo", HaikuModel: "glm-5-turbo",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
 	},
