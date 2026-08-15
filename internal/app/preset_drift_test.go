@@ -62,7 +62,7 @@ func TestPresetDriftReportsAStaleStampedPreset(t *testing.T) {
 	for _, expected := range []string{
 		"✗ cc-glm was created from an older glm preset",
 		"model glm-5.2 → glm-5.3",
-		"haiku glm-4.5-air → glm-5-turbo",
+		"haiku glm-4.5-air → glm-4.7",
 		"window 131072 → 200000",
 		"(run: cc-dialect create cc-glm --preset glm --context-window 200000)",
 	} {

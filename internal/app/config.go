@@ -101,15 +101,15 @@ var presets = map[string]Dialect{
 		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.5",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
-	// The haiku tier is GLM-5-Turbo rather than the cheaper GLM-4.5-Air. Claude
-	// Code takes one context window per process, sized to the smallest model the
-	// dialect can select, so GLM-4.5-Air's 131,072 tokens capped a session whose
-	// main model holds 1M — and it did so to protect a tier Claude Code sends only
-	// short auxiliary work to. GLM has by far the widest tier spread of any preset
-	// here, which is what makes the trade worth naming.
+	// The haiku tier is GLM-4.7 rather than GLM-5-Turbo. Both hold 200,000
+	// tokens so the window-spread argument that once ruled out the cheaper
+	// option no longer applies, and GLM-4.7 costs half as much per token — a
+	// straight saving for the classification and summarisation Claude Code
+	// sends to the haiku tier. GLM-4.5-Air (the original cheaper option) held
+	// only 131,072 and is no longer served under its own name anyway.
 	"glm": {
 		Model: "glm-5.3", SubagentModel: "glm-5.3",
-		OpusModel: "glm-5.3", SonnetModel: "glm-5-turbo", HaikuModel: "glm-5-turbo",
+		OpusModel: "glm-5.3", SonnetModel: "glm-5-turbo", HaikuModel: "glm-4.7",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
 	},
