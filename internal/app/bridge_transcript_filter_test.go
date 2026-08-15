@@ -29,8 +29,10 @@ func TestBridgeMarkerFiltersAreIdentical(t *testing.T) {
 		t.Fatal("the Copilot and Cursor marker filters have drifted apart")
 	}
 	for _, expected := range []string{
-		`const TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";`,
-		`const TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";`,
+		`const TOOL_CALL_MARKER = "TOOL HISTORY";`,
+		`const TOOL_RESULT_MARKER = "RESULT HISTORY";`,
+		`const LEGACY_TOOL_CALL_MARKER = "ASSISTANT TOOL CALL";`,
+		`const LEGACY_TOOL_RESULT_MARKER = "CLAUDE CODE TOOL RESULT";`,
 		"function createMarkerFilter(onSuppress) {",
 		"function stripTranscriptMarkers(text, onSuppress) {",
 	} {
@@ -53,7 +55,7 @@ func TestBridgeMarkersHaveASingleDefinition(t *testing.T) {
 		{"cursor", cursorBridgeSource},
 	} {
 		text := string(bridge.source)
-		for _, marker := range []string{"ASSISTANT TOOL CALL", "CLAUDE CODE TOOL RESULT"} {
+		for _, marker := range []string{"TOOL HISTORY", "RESULT HISTORY", "ASSISTANT TOOL CALL", "CLAUDE CODE TOOL RESULT"} {
 			if count := strings.Count(text, marker); count != 1 {
 				t.Fatalf("%s bridge spells %q %d times, want 1 (the constant)", bridge.name, marker, count)
 			}
@@ -69,17 +71,16 @@ func TestBridgeMarkersHaveASingleDefinition(t *testing.T) {
 	}
 }
 
-// Copilot buffers a whole turn into one assistant.message event, so filtering
-// the completed text covers the SSE and the JSON path at once. Cursor streams,
-// so its answer deltas go through the filter on the way to the wire, its
-// reasoning goes through a second one, and the non-streaming paths are filtered
-// whole.
+// Copilot accumulates the turn's assistant.message chunks, so filtering the
+// completed text covers the SSE and the JSON path at once. Cursor streams, so
+// its answer deltas go through the filter on the way to the wire, its reasoning
+// goes through a second one, and the non-streaming paths are filtered whole.
 func TestBridgesApplyTheMarkerFilter(t *testing.T) {
 	copilot := string(copilotBridgeSource)
-	if !strings.Contains(copilot, "text = stripTranscriptMarkers(text, () => {") {
+	if !strings.Contains(copilot, "const filteredText = stripTranscriptMarkers(result.text, () => {") {
 		t.Fatal("Copilot bridge does not filter the assistant text before building its response")
 	}
-	if strings.Index(copilot, "stripTranscriptMarkers(text") > strings.Index(copilot, "if (body.stream) {") {
+	if strings.Index(copilot, "stripTranscriptMarkers(result.text") > strings.Index(copilot, "if (body.stream) {") {
 		t.Fatal("Copilot bridge filters after the streaming branch, so streamed text bypasses it")
 	}
 
@@ -169,11 +170,15 @@ const prose = "Here is the answer.\nIt spans two lines.\n";
 check("prose survives", strip(prose), prose);
 check("empty input", strip(""), "");
 
-const imitatedCall = "Reading the file.\nASSISTANT TOOL CALL Read:\n{\"path\":\"a\"}\ntrailing\n";
-check("imitated tool call", strip(imitatedCall), "Reading the file.\n");
-const imitatedResult = "Done.\nCLAUDE CODE TOOL RESULT Bash:\nok\n";
-check("imitated tool result", strip(imitatedResult), "Done.\n");
-const leadingMarker = "ASSISTANT TOOL CALL Bash:\nls\n";
+const imitatedCall = "Reading the file.\nTOOL HISTORY Read:\n{\"path\":\"a\"}\ntrailing\n";
+check("imitated neutral tool call", strip(imitatedCall), "Reading the file.\n");
+const imitatedResult = "Done.\nRESULT HISTORY Bash:\nok\n";
+check("imitated neutral tool result", strip(imitatedResult), "Done.\n");
+const legacyCall = "Reading the file.\nASSISTANT TOOL CALL Read:\n{\"path\":\"a\"}\ntrailing\n";
+check("imitated legacy tool call", strip(legacyCall), "Reading the file.\n");
+const legacyResult = "Done.\nCLAUDE CODE TOOL RESULT Bash:\nok\n";
+check("imitated legacy tool result", strip(legacyResult), "Done.\n");
+const leadingMarker = "TOOL HISTORY Bash:\nls\n";
 check("marker opens the reply", strip(leadingMarker), "");
 check("marker without a closing newline", strip("Sure.\nASSISTANT TOOL CALL Bash:"), "Sure.\n");
 check("marker padded with spaces", strip("Sure.\nASSISTANT TOOL CALL Bash:  \nx"), "Sure.\n");
@@ -181,9 +186,11 @@ check("marker padded with spaces", strip("Sure.\nASSISTANT TOOL CALL Bash:  \nx"
 // Someone pointing a dialect at this repository gets replies that legitimately
 // discuss the labels. Anchoring at a line start and requiring the full
 // "MARKER <tool>:" shape is what keeps those answers whole.
-const discussion = "The ASSISTANT TOOL CALL Bash: label is framing.\n" +
-  "ASSISTANT TOOL CALL lines are added by the harness.\n" +
-  "CLAUDE CODE TOOL RESULT marks a result, but this line has no colon\n" +
+const discussion = "The TOOL HISTORY Bash: label is framing.\n" +
+  "TOOL HISTORY lines are added by the harness.\n" +
+  "RESULT HISTORY marks a result, but this line has no colon\n" +
+  "The ASSISTANT TOOL CALL Bash: label is legacy framing.\n" +
+  "CLAUDE CODE TOOL RESULT lines remain recognized for old prompts.\n" +
   "  ASSISTANT TOOL CALL Bash: is indented, so it does not open a line\n" +
   "CLAUDE CODE TOOL RESULT Bash: marks a returned result, like this:\n" +
   "ASSISTANT TOOL CALL Bash: is how a call is framed, for example:\n";
@@ -263,8 +270,9 @@ check("backtick in a tilde info string still opens a fence", strip(tildeInfo), t
 
 // Streaming must reach the same answer as the buffered path no matter where the
 // chunk boundaries fall, including inside a marker.
-const cases = [prose, discussion, imitatedCall, imitatedResult, leadingMarker, explanation,
-  nested, mismatched, infoString, indentedFence, pseudoFence, badInfo, tildeInfo,
+const cases = [prose, discussion, imitatedCall, imitatedResult, legacyCall, legacyResult,
+  leadingMarker, explanation, nested, mismatched, infoString, indentedFence, pseudoFence,
+  badInfo, tildeInfo,
   "no newline in this reply"];
 for (const source of cases) {
   const want = strip(source);
