@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -43,10 +42,8 @@ type dashboardDependencies struct {
 
 func defaultDashboardDependencies() dashboardDependencies {
 	return dashboardDependencies{
-		listen: net.Listen,
-		openURL: func(rawURL string) error {
-			return exec.Command("open", rawURL).Start()
-		},
+		listen:  net.Listen,
+		openURL: openBrowser,
 		newHTTPServer: func(handler http.Handler) dashboardHTTPServer {
 			return &http.Server{
 				Handler:           handler,

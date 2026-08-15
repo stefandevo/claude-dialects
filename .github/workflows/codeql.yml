@@ -21,9 +21,21 @@ concurrency:
 
 jobs:
   analyze:
-    name: Analyze (go)
-    runs-on: macos-15
+    name: Analyze (go, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each run needs its own category: results uploaded under the same
+        # category supersede each other, so a shared one would leave the two
+        # OSes overwriting each other's alerts. macOS keeps the original
+        # category so its existing alerts stay attached.
+        include:
+          - os: macos-15
+            category: /language:go
+          - os: ubuntu-24.04
+            category: /language:go/os:linux
 
     steps:
       - name: Check out source
@@ -41,13 +53,13 @@ jobs:
           languages: go
           build-mode: manual
 
-      - name: Build macOS binary
+      - name: Build binary
         run: make build VERSION=codeql
 
       - name: Analyze
         uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
-          category: /language:go
+          category: ${{ matrix.category }}
 
   analyze-javascript:
     name: Analyze (javascript-typescript)

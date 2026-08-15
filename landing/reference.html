@@ -138,6 +138,10 @@ cc-dialect shim install cc-my-model</code></pre>
           <div class="callout__title">⚠ Updating presets</div>
           <p>Updating <code>cc-dialect</code> does not silently change existing dialects. Re-run <code>cc-dialect create cc-kimi --preset kimi</code> to apply the latest preset while preserving port, credentials, and history. Start a new conversation after changing the underlying model.</p>
         </div>
+        <div class="callout callout--info">
+          <div class="callout__title">ℹ Command name collisions</div>
+          <p>A shell alias using the generated command name takes precedence over the installed executable. Zsh and Bash are both checked, starting with your <code>$SHELL</code>. Both <code>cc-dialect shim install</code> and <code>cc-dialect doctor</code> detect these collisions and name the shell that defines the alias, along with that shell's startup file (<code>~/.zshrc</code> for Zsh, <code>~/.bashrc</code> for Bash) as the place to start looking — the definition may live in a file that startup file sources, in a framework such as oh-my-zsh, or in system-wide configuration, which a shell does not report. Once removed, run <code>unalias &lt;name&gt;</code> in terminals that were already open. The same applies to existing executables: <code>cc-dialect create</code> recommends an unambiguous alternative, and shim installation refuses an ambiguous name and lists the conflicting paths.</p>
+        </div>
       </section>
 
       <section id="context-window" class="doc-section reveal">
@@ -235,7 +239,7 @@ cc-dialect web --no-browser
 cc-dialect web --listen 127.0.0.1:8765
 cc-dialect web --listen '[::1]:8765'</code></pre>
         </div>
-        <p>Without flags, the command binds an available ephemeral port on <code>127.0.0.1</code>, prints the URL, opens the default browser, and remains in the foreground until Ctrl-C. <code>--no-browser</code> suppresses only browser launch. <code>--listen</code> accepts a numeric loopback IP and port; <code>localhost</code>, wildcard and LAN addresses, remote access, and reverse proxies are unsupported.</p>
+        <p>Without flags, the command binds an available ephemeral port on <code>127.0.0.1</code>, prints the URL, opens the default browser, and remains in the foreground until Ctrl-C. <code>--no-browser</code> suppresses only browser launch. The browser is opened with <code>open</code> on macOS and <code>xdg-open</code> on Linux; headless Linux hosts often lack <code>xdg-open</code>, so install <code>xdg-utils</code> or use <code>--no-browser</code> and open the printed URL yourself. <code>--listen</code> accepts a numeric loopback IP and port; <code>localhost</code>, wildcard and LAN addresses, remote access, and reverse proxies are unsupported.</p>
         <p>The dashboard shows safe views of presets, preset-backed and custom dialects, runtime health, tracked native launchers, and Cursor readiness. It can create or update dialects — including their <a href="#context-window">context window</a> — start/stop/restart runtimes, manage tracked native launchers, and install or refresh the pinned Cursor runtime. A successful Cursor runtime update stops running Cursor dialects so stale bridges cannot continue; start them again explicitly.</p>
         <p>Dialect edits validate first, stop the old runtime, save the replacement, and leave it stopped. Private local API keys, isolated auth and Claude Code state, history, shims, and stable ports are preserved where applicable. Edits replace only public dashboard fields, so use the CLI for custom configurations that rely on unexposed extra environment values, bridge/auth fields, or URL userinfo, query strings, or fragments.</p>
         <div class="callout callout--info">
@@ -307,7 +311,7 @@ cld</code></pre>
 
       <section id="files" class="doc-section reveal">
         <h2>File layout</h2>
-        <p>State lives under <code>~/Library/Application Support/claude-dialects</code> on macOS (or <code>DIALECT_HOME</code> when set). The CLI opens <code>instances/&lt;dialect&gt;/</code> as a root and resolves every path relative to it, so a symlink inside cannot reach outside the tree or into a sibling dialect. Both <code>instances/</code> and each dialect directory must be real directories, and an operation is refused before anything is written if either has been replaced by a symlink. Removal is the deliberate exception: <code>cc-dialect remove</code> unlinks a symlinked dialect directory and commits the configuration change, so a tampered dialect can still be cleaned up, and the link's target is left untouched. Dialect names remain restricted to <code>[a-z0-9_-]</code>.</p>
+        <p>State lives under the platform's user configuration directory — <code>~/Library/Application Support/claude-dialects</code> on macOS, <code>${XDG_CONFIG_HOME:-~/.config}/claude-dialects</code> on Linux — or under <code>DIALECT_HOME</code> when that is set. The CLI opens <code>instances/&lt;dialect&gt;/</code> as a root and resolves every path relative to it, so a symlink inside cannot reach outside the tree or into a sibling dialect. Both <code>instances/</code> and each dialect directory must be real directories, and an operation is refused before anything is written if either has been replaced by a symlink. Removal is the deliberate exception: <code>cc-dialect remove</code> unlinks a symlinked dialect directory and commits the configuration change, so a tampered dialect can still be cleaned up, and the link's target is left untouched. Dialect names remain restricted to <code>[a-z0-9_-]</code>.</p>
         <div class="code-block">
           <pre><code>config.json          # dialects + tracked native-launcher registry
 .state.lock          # owner-only cross-process mutation lock
@@ -421,14 +425,15 @@ defaults/
         <p>To fully uninstall after removing all dialects:</p>
         <div class="code-block">
           <pre><code>rm ~/.local/bin/cc-dialect
-rm -rf "$HOME/Library/Application Support/claude-dialects"</code></pre>
+rm -rf "$HOME/Library/Application Support/claude-dialects"   # macOS
+rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/claude-dialects"   # Linux</code></pre>
         </div>
       </section>
 
       <section id="build" class="doc-section reveal">
         <h2>Build local assets</h2>
         <p>The compiled dashboard in <code>internal/app/dashboard/dist/</code> is committed and embedded into the one Go binary. Node.js is not required for dashboard runtime or a normal <code>make build</code>/<code>make install</code>; contributors rebuilding the frontend need npm with Node.js 22.22.2+ or 24.15.0+ and must commit the refreshed <code>dist/</code>.</p>
-        <p>Create a shareable macOS archive instead of installing directly:</p>
+        <p>Create a shareable archive for the host platform instead of installing directly:</p>
         <div class="code-block">
           <div class="code-block__header">
             <span>Package for sharing</span>
@@ -436,9 +441,10 @@ rm -rf "$HOME/Library/Application Support/claude-dialects"</code></pre>
           </div>
           <pre><code id="code-build">make assets VERSION=dev
 ls artifacts/
-(cd artifacts && shasum -a 256 -c SHA256SUMS)</code></pre>
+(cd artifacts && shasum -a 256 -c SHA256SUMS)   # macOS
+(cd artifacts && sha256sum -c SHA256SUMS)       # Linux</code></pre>
         </div>
-        <p>Generates <code>artifacts/cc-dialect_dev_darwin_arm64.zip</code> and <code>SHA256SUMS</code>. These locally produced assets are not signed or notarized.</p>
+        <p>The archive is named for the platform it was built on: <code>artifacts/cc-dialect_dev_darwin_arm64.zip</code> on an Apple silicon Mac, <code>artifacts/cc-dialect_dev_linux_amd64.tar.gz</code> on x86-64 Linux, alongside <code>SHA256SUMS</code>. Override <code>GOOS</code> and <code>GOARCH</code> to cross-compile. Packaging a <code>.tar.gz</code> works from either host; packaging a macOS <code>.zip</code> uses <code>ditto</code> when available and falls back to <code>zip</code>, so building a darwin archive from Linux needs <code>zip</code> installed. These locally produced assets carry no code signature; on macOS they are neither signed nor notarized.</p>
 
         <div class="doc-nav-cards">
           <a href="providers.html" class="doc-nav-card">
@@ -463,7 +469,7 @@ ls artifacts/
 
   <footer class="footer">
     <div class="footer__platform">
-      <span class="footer__badge">macOS only</span>
+      <span class="footer__badge">macOS &amp; Linux</span>
       <span class="footer__badge footer__badge--muted">Build from source</span>
     </div>
     <p class="footer__disclaimer">

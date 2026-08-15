@@ -77,8 +77,8 @@
         <h2>Requirements</h2>
         <p>Claude Dialects builds a single static executable from source. Before you begin, make sure you have:</p>
         <ul>
-          <li><strong>macOS</strong> — current target platform</li>
-          <li><strong>Go 1.26.5 or newer</strong> — to build from source</li>
+          <li><strong>macOS or Linux</strong>, on amd64 or arm64 — the current target platforms</li>
+          <li><strong>Go 1.26.6 or newer</strong> — to build from source</li>
           <li><strong>Claude Code</strong> — available as <code>claude</code> on your PATH</li>
           <li><strong>Node.js 22.13+ and npm</strong> (optional) — required only for Cursor and GitHub Copilot SDK dialects</li>
         </ul>
@@ -95,8 +95,9 @@
           </p>
         </div>
         <div class="callout callout--warning">
-          <div class="callout__title">macOS only</div>
-          <p>Linux and Windows builds are not supported. Everyone builds <code>cc-dialect</code> from source — there are no prebuilt releases.</p>
+          <div class="callout__title">macOS &amp; Linux only</div>
+          <p>Windows builds are not supported. Everyone builds <code>cc-dialect</code> from source — there are no prebuilt releases.</p>
+          <p>Linux support is new and not yet fully verified in day-to-day use. CI builds and runs the full test suite natively on Ubuntu (amd64); <code>linux/arm64</code> is cross-compiled and vetted but never executed by a runner. Provider OAuth flows and the Cursor and GitHub Copilot bridges have not been exercised on Linux. macOS is unaffected — please <a href="https://github.com/stefandevo/claude-dialects/issues/new/choose" target="_blank" rel="noopener">open an issue</a> for anything that misbehaves.</p>
         </div>
       </section>
 
@@ -113,8 +114,9 @@ cd claude-dialects
 make install
 export PATH="$HOME/.local/bin:$PATH"
 
-# Persist PATH across terminal restarts
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc</code></pre>
+# Persist PATH — Zsh (macOS default) or Bash (most Linux distributions)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc</code></pre>
         </div>
         <p>This produces one static executable at <code>~/.local/bin/cc-dialect</code>. There are no prebuilt binaries or GitHub releases — everyone builds from the checked-out source.</p>
         <p>To update later, run <code>cc-dialect upgrade</code> — it fetches the latest source into a temporary directory, rebuilds, atomically replaces the installed binary, and finishes with <code>cc-dialect doctor --fix</code> to restart stale proxies and bridge runtimes. It needs the same git and Go toolchain as the install; the original clone is not required.</p>
@@ -235,7 +237,7 @@ cc-codex-work    # embedded proxy :43170
 cc-kimi-work     # embedded proxy :43171</code></pre>
         </div>
         <p>Ports are actively checked and allocated per dialect starting at <code>:43170</code>. A port already bound by any process is skipped during creation and rejected again at startup.</p>
-        <p>Every dialect also gets a generated statusline that names the dialect — e.g. <code>cc-codex · GPT-5.6 Sol · effort:auto · ctx 42%</code> — with the name colored per provider route, so parallel terminals are easy to tell apart. <code>cc-dialect create</code> writes <code>instances/&lt;name&gt;/statusline.sh</code> and wires it into the dialect's isolated <code>claude/settings.json</code>; older dialects are backfilled the next time they run. The script uses <code>jq</code> (preinstalled on recent macOS) and stays empty when it is missing. To customize, point the <code>statusLine</code> key in that <code>settings.json</code> at your own script — a user-set <code>statusLine</code> is never overwritten. To remove it, delete the <code>statusLine</code> key; it is never re-added once the generated script exists.</p>
+        <p>Every dialect also gets a generated statusline that names the dialect — e.g. <code>cc-codex · GPT-5.6 Sol · effort:auto · ctx 42%</code> — with the name colored per provider route, so parallel terminals are easy to tell apart. <code>cc-dialect create</code> writes <code>instances/&lt;name&gt;/statusline.sh</code> and wires it into the dialect's isolated <code>claude/settings.json</code>; older dialects are backfilled the next time they run. The script uses <code>jq</code> — preinstalled on recent macOS, usually an explicit install on Linux — and stays empty when it is missing. To customize, point the <code>statusLine</code> key in that <code>settings.json</code> at your own script — a user-set <code>statusLine</code> is never overwritten. To remove it, delete the <code>statusLine</code> key; it is never re-added once the generated script exists.</p>
         <p>Because that <code>settings.json</code> is isolated, an opt-out in your global <code>~/.claude</code> never reaches a dialect — so every dialect is also seeded with <code>"attribution": {"commit": "", "pr": ""}</code>, which keeps the <code>Co-Authored-By: Claude</code> trailer out of commits and the attribution block out of pull request bodies. It is only written when the dialect has no attribution preference of its own, so a value you set is never overwritten; to bring the trailer back, set an explicit value rather than deleting the key. Existing dialects are updated the next time they run, or all at once with <code>cc-dialect doctor --fix</code>, which <code>cc-dialect upgrade</code> invokes for you.</p>
       </section>
 
@@ -308,7 +310,7 @@ cc-dialect web --listen 127.0.0.1:8765</code></pre>
 
   <footer class="footer">
     <div class="footer__platform">
-      <span class="footer__badge">macOS only</span>
+      <span class="footer__badge">macOS &amp; Linux</span>
       <span class="footer__badge footer__badge--muted">Build from source</span>
     </div>
     <p class="footer__disclaimer">

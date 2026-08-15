@@ -101,15 +101,22 @@
       <section id="platform" class="doc-section reveal">
         <h2>Platform requirements</h2>
         <div class="callout callout--warning">
-          <div class="callout__title">macOS only</div>
+          <div class="callout__title">macOS &amp; Linux only</div>
           <p>
-            The current target platform is <strong>macOS</strong>. Linux and Windows builds are not supported at this time.
-            Do not expect this project to run correctly on other platforms without additional porting work.
+            The current target platforms are <strong>macOS</strong> and <strong>Linux</strong>, on amd64 and arm64.
+            Windows builds are not supported at this time. Do not expect this project to run correctly on other
+            platforms without additional porting work.
+          </p>
+          <p>
+            Linux support is new and not yet fully verified in day-to-day use. CI builds and runs the full test
+            suite natively on Ubuntu (amd64), and <code>linux/arm64</code> is cross-compiled and vetted but never
+            executed by a runner. Provider OAuth flows and the Cursor and GitHub Copilot bridges have not been
+            exercised on Linux. macOS behaviour is unaffected.
           </p>
         </div>
         <p>Additional requirements:</p>
         <ul>
-          <li>Go 1.26.5 or newer — build the <code>cc-dialect</code> executable from source</li>
+          <li>Go 1.26.6 or newer — build the <code>cc-dialect</code> executable from source</li>
           <li>Claude Code available as <code>claude</code> on your PATH</li>
           <li>Node.js 22.13+ and npm (optional) — only for Cursor and GitHub Copilot SDK dialects</li>
           <li>Node.js 22.22.2+ or 24.15.0+ and npm — contributor requirement when rebuilding or verifying dashboard source</li>
@@ -294,7 +301,7 @@
 
   <footer class="footer">
     <div class="footer__platform">
-      <span class="footer__badge">macOS only</span>
+      <span class="footer__badge">macOS &amp; Linux</span>
       <span class="footer__badge footer__badge--muted">Build from source</span>
     </div>
     <p class="footer__disclaimer">

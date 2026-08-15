@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -78,8 +79,7 @@ func upgrade(ref string) error {
 	// the VERSION=dev default so the next upgrade can short-circuit.
 	built := filepath.Join(tempDir, "cc-dialect")
 	fmt.Printf("Building cc-dialect %s...\n", targetVersion)
-	buildEnv := []string{"CGO_ENABLED=0", "GOOS=darwin", "GOARCH=arm64"}
-	if err = runUpgradeStep(logPath, sourceDir, buildEnv, goPath,
+	if err = runUpgradeStep(logPath, sourceDir, upgradeBuildEnvironment(), goPath,
 		"build", "-trimpath", "-ldflags=-s -w -X main.version="+targetVersion, "-o", built, "."); err != nil {
 		keepTemp = true
 		return fmt.Errorf("build failed, nothing was changed: %w\nthe full build log is at %s", err, logPath)
@@ -104,6 +104,14 @@ func upgrade(ref string) error {
 	return nil
 }
 
+// upgradeBuildEnvironment pins the build to the platform this binary is already
+// running on. Targeting runtime.GOOS/GOARCH rather than a fixed pair is what
+// lets the same upgrade path work on macOS and Linux; a hard-coded target would
+// silently cross-compile a binary the host cannot execute.
+func upgradeBuildEnvironment() []string {
+	return []string{"CGO_ENABLED=0", "GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH}
+}
+
 // upgradeBuildTools verifies the tools upgrade shells out to are available
 // before anything is fetched. lookPath is a parameter so tests can stub it.
 func upgradeBuildTools(lookPath func(string) (string, error)) (gitPath, goPath string, err error) {
@@ -114,7 +122,7 @@ func upgradeBuildTools(lookPath func(string) (string, error)) (gitPath, goPath s
 		missing = append(missing, "git")
 	}
 	if goErr != nil {
-		missing = append(missing, "go (Go 1.26.5 or newer)")
+		missing = append(missing, "go (Go 1.26.6 or newer)")
 	}
 	if len(missing) > 0 {
 		return "", "", fmt.Errorf("upgrade requires %s in PATH; install the missing tools and re-run cc-dialect upgrade, or %s",

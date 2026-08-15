@@ -22,7 +22,8 @@ disclosure.
 
 ## Security boundary
 
-Claude Dialects is intended for one trusted user on a local macOS machine.
+Claude Dialects is intended for one trusted user on a local macOS or Linux
+machine.
 Embedded proxy instances and provider bridges bind to `127.0.0.1`, and
 configuration and provider credentials are stored in owner-only local files.
 Exposing a proxy or bridge port to another machine, sharing an instance

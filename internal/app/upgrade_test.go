@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -216,5 +218,14 @@ func TestUpgradeSourceVersion(t *testing.T) {
 	}
 	if version != "v1.2.3" {
 		t.Fatalf("expected tag version v1.2.3, got %q", version)
+	}
+}
+
+func TestUpgradeBuildEnvironmentTargetsTheHost(t *testing.T) {
+	env := upgradeBuildEnvironment()
+	for _, want := range []string{"CGO_ENABLED=0", "GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH} {
+		if !slices.Contains(env, want) {
+			t.Fatalf("build environment %v is missing %q", env, want)
+		}
 	}
 }

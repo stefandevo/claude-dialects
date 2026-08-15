@@ -53,9 +53,10 @@ body:
   - type: dropdown
     id: platform
     attributes:
-      label: Hardware
+      label: Operating system
       options:
         - macOS
+        - Linux
         - Other (unsupported)
     validations:
       required: true
