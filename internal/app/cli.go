@@ -1162,6 +1162,9 @@ func doctor(args []string, version string) error {
 		for _, problem := range contextWindowDiagnostics(name, dialect) {
 			fmt.Println(problem)
 		}
+		for _, problem := range presetDriftDiagnostics(name, dialect) {
+			fmt.Println(problem)
+		}
 		if problem := attributionDiagnostic(name); problem != "" {
 			fmt.Println(problem)
 			needsAttributionSeed = append(needsAttributionSeed, name)

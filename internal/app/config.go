@@ -32,16 +32,24 @@ type NativeLauncher struct {
 }
 
 type Dialect struct {
-	Preset        string `json:"preset,omitempty"`
-	Model         string `json:"model"`
-	SubagentModel string `json:"subagentModel,omitempty"`
-	Effort        bool   `json:"effort"`
-	Concurrency   int    `json:"concurrency"`
-	ToolSearch    bool   `json:"toolSearch"`
-	OpusModel     string `json:"opusModel,omitempty"`
-	SonnetModel   string `json:"sonnetModel,omitempty"`
-	HaikuModel    string `json:"haikuModel,omitempty"`
-	EffortLevel   string `json:"effortLevel,omitempty"`
+	Preset string `json:"preset,omitempty"`
+	// PresetFingerprint records the exact revision of the preset this dialect
+	// stands on — the route below plus the reviewed context window, hashed by
+	// presetFingerprint. It is stamped whenever a create or update resolves to
+	// that preset exactly, including a submission that restates the resolved
+	// fields, so it means "this dialect is the preset as it is", and a mismatch
+	// against today's preset means the preset moved rather than the dialect
+	// being customized. See preset_drift.go.
+	PresetFingerprint string `json:"presetFingerprint,omitempty"`
+	Model             string `json:"model"`
+	SubagentModel     string `json:"subagentModel,omitempty"`
+	Effort            bool   `json:"effort"`
+	Concurrency       int    `json:"concurrency"`
+	ToolSearch        bool   `json:"toolSearch"`
+	OpusModel         string `json:"opusModel,omitempty"`
+	SonnetModel       string `json:"sonnetModel,omitempty"`
+	HaikuModel        string `json:"haikuModel,omitempty"`
+	EffortLevel       string `json:"effortLevel,omitempty"`
 	// ContextWindow is the smallest context window supported by any model this
 	// dialect can select, in tokens. It calibrates Claude Code auto-compaction
 	// for provider model IDs Claude Code cannot recognize. Zero means unknown or
@@ -446,6 +454,34 @@ func sharesContextRoute(dialect, other Dialect) bool {
 		dialect.BaseURL == other.BaseURL &&
 		dialect.AuthTokenEnv == other.AuthTokenEnv &&
 		len(dialect.ExtraEnv) == 0 && len(other.ExtraEnv) == 0
+}
+
+// presetFingerprint identifies the exact revision of a preset: the route
+// sharesContextRoute compares — models, tiers, and upstream — plus the
+// reviewed context window, because a preset revision may move either without
+// the other. The value is stored on a dialect at create time (see
+// prepareDialect) and compared against today's preset by preset_drift.go,
+// which is what lets a report say "the preset moved" instead of guessing.
+//
+// It deliberately covers nothing but that route and window. Effort, tool
+// search, concurrency, and effort level are per-dialect behavior rather than
+// part of the route, so changing them leaves the stamp standing and the drift
+// remedy restates them as flags instead of treating them as divergence.
+// ExtraEnv is likewise excluded: it overrides the launch environment without
+// touching the stored route the stamp describes.
+func presetFingerprint(dialect Dialect) string {
+	digest := sha256.New()
+	// The NUL separator keeps a revision like ("ab", "c") distinct from
+	// ("a", "bc"); model IDs and URLs may contain any other byte.
+	for _, value := range []string{
+		dialect.Model, dialect.SubagentModel, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel,
+		dialect.AuthProvider, dialect.Bridge, dialect.BaseURL, dialect.AuthTokenEnv,
+	} {
+		digest.Write([]byte(value))
+		digest.Write([]byte{0})
+	}
+	fmt.Fprintf(digest, "%d", dialect.ContextWindow)
+	return hex.EncodeToString(digest.Sum(nil))[:16]
 }
 
 // presetByContextRoute names the preset a dialect is field-for-field identical

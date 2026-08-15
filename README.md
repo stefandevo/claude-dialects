@@ -271,7 +271,10 @@ A dialect created against the previous preset (both lower tiers on
 is still the sonnet model, and the endpoint has no opinions about what a
 dialect's internal haiku slot should be. Re-running `cc-dialect create cc-glm
 --preset glm` updates the haiku route to `glm-4.7` without touching the
-window.
+window. `doctor` reports both through [preset drift](#custom-dialects),
+naming the tiers and window the preset has since changed, with the `create`
+command that adopts the current preset — restating a moved window through
+`--context-window`.
 
 ### Moonshot Kimi
 
@@ -1000,6 +1003,23 @@ window explicitly when you want it:
 cc-dialect create cc-codex --preset codex-sol --context-window 372000
 ```
 
+The same applies to preset revisions that change models. A dialect stores the
+models it was created with, so it keeps them after the preset moves on — but
+`create` stamps the exact preset revision behind the dialect
+(`presetFingerprint` in `config.json`), and `doctor` compares that stamp
+against today's preset to report the drift. A dialect untouched since creation
+is reported with every field that changed and the `create` command that adopts
+the current preset, restating a window the revision moved with
+`--context-window` — a same-route `create` keeps the stored window otherwise;
+one that cannot be told apart from a hand edit — created before the stamp
+existed, or edited since — is reported as possibly either; and a dialect that
+is field-for-field identical to some current preset is never reported as
+drift, whatever its label says — doctor notes only that its label names
+another preset. A dialect whose route matches another preset exactly but whose
+window is behind that preset is reported as drift against the preset it
+actually runs. `doctor --fix` never rewrites a model or window on your behalf;
+adoption is always the printed command, run by you.
+
 ### Check the calibration
 
 ```sh
@@ -1012,10 +1032,17 @@ longer references either capacity variable — one line per variable, because
 dropping `CLAUDE_CODE_AUTO_COMPACT_WINDOW` delays compaction, while dropping
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` falls back to Claude Code's 200,000-token
 default, which skews the reported percentage and compacts any larger declared
-window early. Adding `--fix` records migrated windows in `config.json`, together
-with the preset name an exact route match resolved for a dialect that stored
-none. Existing labels are preserved, and a custom route or any route that
-matches no preset exactly stays reported until you set a window yourself.
+window early. It also reports preset drift — a dialect still running the
+models or window of a preset revision it was created from, or a window behind
+the preset its route exactly matches, after `cc-dialect upgrade` shipped a
+newer one — naming the fields that changed and the `create` command that
+adopts the current preset. Adding `--fix` records
+migrated windows in `config.json`, together with the preset name an exact
+route match resolved for a dialect that stored none. Existing labels are
+preserved, a custom route or any route that matches no preset exactly stays
+reported until you set a window yourself, and drift is never applied by
+`--fix`: rewriting a model or a window is always the printed command, run by
+you.
 
 Each dialect's embedded proxy also records the latest request's input usage to
 `instances/<name>/context.json` and warns once per 80%, 90%, and 95% threshold.
