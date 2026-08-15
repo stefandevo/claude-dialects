@@ -86,7 +86,7 @@ func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
           "subagentModel": "glm-5.3",
           "opusModel": "glm-5.3",
           "sonnetModel": "glm-5-turbo",
-          "haikuModel": "glm-5-turbo",
+          "haikuModel": "glm-4.7",
           "baseUrl": "https://api.z.ai/api/anthropic",
           "authTokenEnv": "ZAI_API_KEY",
           "effort": true,
