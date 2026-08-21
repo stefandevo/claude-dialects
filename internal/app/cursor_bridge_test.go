@@ -313,6 +313,53 @@ func TestEmbeddedCursorBridgeStreamsIncrementally(t *testing.T) {
 	}
 }
 
+// Reasoning must not travel as `delta.content`. On the wire that field is
+// byte-for-byte the answer, so Claude Code records the thinking as assistant
+// content and replays it on every later turn — and `buildTranscript` then feeds
+// it back to Cursor as a prior assistant reply. `delta.reasoning_content` is the
+// channel the pinned CLIProxyAPI already translates into Anthropic `thinking`
+// blocks, and which `contentText` ignores on the way back in.
+func TestEmbeddedCursorBridgeStreamsReasoningOffTheAnswerChannel(t *testing.T) {
+	text := string(cursorBridgeSource)
+	// The field name itself is asserted on the wire by
+	// TestCursorBridgeSendsReasoningAndAnswerOnSeparateSSEFields; here it is
+	// enough that the reasoning writer is a separate one from the content
+	// writer, so the handlers below cannot quietly share the answer channel.
+	if !strings.Contains(text, "function writeStreamReasoningDelta(") {
+		t.Fatal("embedded Cursor bridge has no writer for the reasoning channel")
+	}
+	start := strings.Index(text, `case "thinking-delta":`)
+	end := strings.Index(text, `case "tool-call-started":`)
+	if start < 0 || end < 0 || end < start {
+		t.Fatal("embedded Cursor bridge is missing the reasoning delta handlers")
+	}
+	// thinking-delta, summary-started and summary, in one arm of the switch.
+	arm := text[start:end]
+	if strings.Contains(arm, "streamContent(") {
+		t.Fatal("embedded Cursor bridge streams reasoning as delta.content")
+	}
+	for _, expected := range []string{
+		"streamReasoning(reasoningFilter.push(update.text));",
+		`streamReasoning(reasoningFilter.push("…"));`,
+		"streamReasoning(reasoningFilter.push(`${update.summary}\\n`));",
+	} {
+		if !strings.Contains(arm, expected) {
+			t.Fatalf("embedded Cursor bridge reasoning handlers do not contain %q", expected)
+		}
+	}
+	// The filter holds a trailing partial line until the turn ends; its flush
+	// carries the same content and has to leave on the same channel.
+	if !strings.Contains(text, "streamReasoning(reasoningFilter.flush());") {
+		t.Fatal("embedded Cursor bridge flushes withheld reasoning onto the answer channel")
+	}
+	// `text` feeds the billed non-streaming body and the fallback token
+	// estimate, and `sawAssistantText` gates the third path into it. Reasoning
+	// must touch neither, or a reasoning-only turn double-appends.
+	if strings.Contains(arm, "sawAssistantText") || strings.Contains(arm, "text +=") {
+		t.Fatal("embedded Cursor bridge merges reasoning into the billed assistant text")
+	}
+}
+
 // One Claude Code turn may require several HTTP requests (one per tool call).
 // The bridge keeps the Cursor agent alive across those steps when the incoming
 // transcript extends the cached prefix by assistant(tool_calls) + tool result

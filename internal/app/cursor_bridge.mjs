@@ -171,6 +171,23 @@ function writeStreamContentDelta(response, { id, created, model, content }) {
   });
 }
 
+// Reasoning leaves on its own wire field. `delta.content` is the answer, and
+// nothing downstream can tell the two apart once they share it: CLIProxyAPI
+// renders content as assistant text, Claude Code records that as conversation
+// and replays it on every later turn, and buildTranscript then hands it back to
+// Cursor as a prior assistant reply. `reasoning_content` is translated into
+// Anthropic thinking blocks instead, and contentText ignores it on the way in.
+function writeStreamReasoningDelta(response, { id, created, model, content }) {
+  if (!content) return;
+  writeSSE(response, {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model,
+    choices: [{ index: 0, delta: { reasoning_content: content }, finish_reason: null }],
+  });
+}
+
 function failStreamingResponse(response, error) {
   process.stderr.write(`cursor bridge stream error: ${describeError(error)}\n`);
   if (response.writableEnded) return;
@@ -463,6 +480,10 @@ async function chatCompletion(request, response, body, pending) {
     if (!isStreaming || pending.aborted || response.writableEnded) return;
     writeStreamContentDelta(response, { ...streamMeta(), content });
   };
+  const streamReasoning = (content) => {
+    if (!isStreaming || pending.aborted || response.writableEnded) return;
+    writeStreamReasoningDelta(response, { ...streamMeta(), content });
+  };
   const logMarkerSuppression = (stream) => {
     process.stderr.write(`cursor bridge: suppressed ${stream} imitating the transcript markers\n`);
   };
@@ -491,20 +512,21 @@ async function chatCompletion(request, response, body, pending) {
         }
         break;
       case "thinking-delta":
-        // Visible progress only — do not merge reasoning into billed assistant text.
+        // Visible progress only — never the answer channel, and never merged
+        // into the billed assistant text.
         if (typeof update.text === "string" && update.text) {
           noteFirstDelta(timing, timing.runStart);
-          streamContent(reasoningFilter.push(update.text));
+          streamReasoning(reasoningFilter.push(update.text));
         }
         break;
       case "summary-started":
         noteFirstDelta(timing, timing.runStart);
-        streamContent(reasoningFilter.push("…"));
+        streamReasoning(reasoningFilter.push("…"));
         break;
       case "summary":
         if (typeof update.summary === "string" && update.summary) {
           noteFirstDelta(timing, timing.runStart);
-          streamContent(reasoningFilter.push(`${update.summary}\n`));
+          streamReasoning(reasoningFilter.push(`${update.summary}\n`));
         }
         break;
       case "tool-call-started":
@@ -721,7 +743,7 @@ async function chatCompletion(request, response, body, pending) {
   if (isStreaming) {
     // Release whatever the filters were still holding when the turn ended: a
     // trailing partial line that never grew into a marker.
-    streamContent(reasoningFilter.flush());
+    streamReasoning(reasoningFilter.flush());
     const tail = outputFilter.flush();
     if (tail) {
       text += tail;
