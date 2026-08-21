@@ -382,8 +382,8 @@ Available Cursor presets are:
 
 - `cursor-composer` — Composer 2.5 with Fast and Standard menu mappings
 - `cursor-composer-fast` — explicitly forces Composer 2.5 Fast
-- `cursor-grok` — Cursor Grok 4.5
-- `cursor-mix` — Composer 2.5, Grok 4.5, and Kimi K3 across the Opus, Sonnet, and Haiku tiers
+- `cursor-grok` — Cursor Grok 4.6
+- `cursor-mix` — Composer 2.5, Grok 4.6, and Kimi K3 across the Opus, Sonnet, and Haiku tiers
 - `cursor-auto` — Cursor's `auto` selection
 
 The bridge discovers the live model catalog from Cursor, supplies the catalog's
@@ -479,7 +479,7 @@ re-run `cc-dialect create <name> --preset <preset>` — creating an existing nam
 is an upsert that preserves authentication, isolated state, and shims, so removing
 and recreating the dialect is never the right response to an update.
 
-Cursor Grok 4.5 is a different route from the direct xAI preset:
+Cursor Grok 4.6 is a different route from the direct xAI preset:
 
 ```sh
 cc-dialect create cc-cursor-grok --preset cursor-grok
@@ -487,9 +487,9 @@ cc-dialect shim install cc-cursor-grok
 cc-cursor-grok
 ```
 
-`cursor-grok` uses the `grok-4.5` model in Cursor's first-party model pool
+`cursor-grok` uses the `grok-4.6` model in Cursor's first-party model pool
 through the Cursor SDK and `CURSOR_API_KEY`. The plain `grok` preset instead
-uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.5 effort
+uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.6 effort
 settings through its live SDK catalog when supported, so the bridge maps
 Claude Code's `/effort` choice onto the advertised variant.
 
@@ -502,7 +502,7 @@ cc-dialect shim install cc-cursor-mix
 cc-cursor-mix
 ```
 
-Composer 2.5 is the default session model and `/model opus`, Grok 4.5 is
+Composer 2.5 is the default session model and `/model opus`, Grok 4.6 is
 `/model sonnet`, and Kimi K3 is `/model haiku` — all served through the
 Cursor SDK and `CURSOR_API_KEY`, with no OAuth splitting. Like the other
 Cursor routes, Cursor publishes no per-model context window for this mix, so
@@ -1616,7 +1616,7 @@ Claude Dialects is available under the [MIT License](LICENSE).
 - [Cursor SDK announcement and local-agent example](https://cursor.com/changelog/sdk-release)
 - [Cursor SDK custom tools and stores](https://cursor.com/changelog/sdk-updates-jun-2026)
 - [Cursor Composer 2.5 variants and pricing](https://cursor.com/changelog/composer-2-5)
-- [Cursor Grok 4.5 SDK availability](https://cursor.com/blog/grok-4-5)
+- [Cursor Grok 4.6 SDK availability](https://cursor.com/docs/models/grok-4-6)
 - [Official GitHub Copilot SDK](https://github.com/github/copilot-sdk)
 - [GitHub Copilot SDK authentication](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate)
 - [GitHub Copilot CLI model identifiers](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
