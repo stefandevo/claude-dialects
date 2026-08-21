@@ -96,7 +96,7 @@ func TestCreateDialectAdoptsWindowFromTheExactResolvedRoute(t *testing.T) {
 
 	result, err := service.CreateDialect(DialectInput{
 		Name: "cc-cursor-mix", Preset: "cursor-composer",
-		OpusModel: "composer-2.5", SonnetModel: "grok-4.5", HaikuModel: "kimi-k3",
+		OpusModel: "composer-2.5", SonnetModel: "grok-4.6", HaikuModel: "kimi-k3",
 	}, "")
 	if err != nil {
 		t.Fatal(err)

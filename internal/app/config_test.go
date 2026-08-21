@@ -422,7 +422,7 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 		"cursor-composer":      "composer-2.5",
 		"cursor-composer-fast": "composer-2.5-fast",
 		"cursor-auto":          "auto",
-		"cursor-grok":          "grok-4.5",
+		"cursor-grok":          "grok-4.6",
 		"cursor-mix":           "composer-2.5",
 	}
 	for name, model := range tests {
@@ -444,6 +444,10 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 		t.Fatalf("Cursor Composer preset does not expose Fast and Standard variants: %#v", composer)
 	}
 	cursorGrok := presets["cursor-grok"]
+	if cursorGrok.Model != "grok-4.6" || cursorGrok.SubagentModel != "grok-4.6" ||
+		cursorGrok.OpusModel != "grok-4.6" || cursorGrok.SonnetModel != "grok-4.6" || cursorGrok.HaikuModel != "grok-4.6" {
+		t.Fatalf("cursor-grok preset does not consistently use grok-4.6: %#v", cursorGrok)
+	}
 	if got := presetForDialect(cursorGrok); got != "cursor-grok" {
 		t.Fatalf("Cursor Grok preset detection = %q, want cursor-grok", got)
 	}
@@ -457,8 +461,8 @@ func TestCursorMixPresetCombinesComposerGrokAndKimi(t *testing.T) {
 	if mix.Model != "composer-2.5" || mix.SubagentModel != "composer-2.5" {
 		t.Fatalf("cursor-mix does not use Composer 2.5 for main and subagent: %#v", mix)
 	}
-	if mix.OpusModel != "composer-2.5" || mix.SonnetModel != "grok-4.5" || mix.HaikuModel != "kimi-k3" {
-		t.Fatalf("cursor-mix tier mapping = opus %q / sonnet %q / haiku %q, want composer-2.5 / grok-4.5 / kimi-k3: %#v",
+	if mix.OpusModel != "composer-2.5" || mix.SonnetModel != "grok-4.6" || mix.HaikuModel != "kimi-k3" {
+		t.Fatalf("cursor-mix tier mapping = opus %q / sonnet %q / haiku %q, want composer-2.5 / grok-4.6 / kimi-k3: %#v",
 			mix.OpusModel, mix.SonnetModel, mix.HaikuModel, mix)
 	}
 	if mix.Bridge != "cursor" || mix.AuthTokenEnv != "CURSOR_API_KEY" {
@@ -615,6 +619,17 @@ func TestPresetForDialectSupportsStoredAndLegacyConfigurations(t *testing.T) {
 		if got := presetForDialect(legacy); got != "grok" {
 			t.Errorf("legacy xAI preset for %q = %q, want grok", legacy.Model, got)
 		}
+	}
+	legacyCursorGrok := Dialect{Model: "grok-4.5", Bridge: "cursor"}
+	if got := presetForDialect(legacyCursorGrok); got != "cursor-grok" {
+		t.Errorf("legacy Cursor Grok preset = %q, want cursor-grok", got)
+	}
+	legacyCursorMix := Dialect{
+		Model: "composer-2.5", OpusModel: "composer-2.5",
+		SonnetModel: "grok-4.5", HaikuModel: "kimi-k3", Bridge: "cursor",
+	}
+	if got := presetForDialect(legacyCursorMix); got != "cursor-mix" {
+		t.Errorf("legacy Cursor mix preset = %q, want cursor-mix", got)
 	}
 	legacyMiniMax := Dialect{
 		Model: "MiniMax-M2.7", BaseURL: "https://api.minimax.io/anthropic",

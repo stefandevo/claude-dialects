@@ -155,11 +155,11 @@ var presetContextWindows = map[string]contextWindowSource{
 		Basis: "conservative fallback: Cursor auto may select any offered model, including 128000-token routes",
 	},
 	"cursor-grok": {
-		Window: 200000, Verified: "2026-07-27",
-		Basis: "conservative fallback: served through the Cursor route, whose window is not published and need not match xAI's direct Grok 4.5 window",
+		Window: 200000, Verified: "2026-08-21",
+		Basis: "conservative fallback: served through the Cursor route, whose window is not published and need not match xAI's direct Grok 4.6 window",
 	},
 	"cursor-mix": {
-		Window: 200000, Verified: "2026-07-30",
+		Window: 200000, Verified: "2026-08-21",
 		Basis: "conservative fallback: Composer, Grok, and Kimi models served through the Cursor route, whose window is not published and need not match any direct provider window",
 	},
 	"copilot-auto": {

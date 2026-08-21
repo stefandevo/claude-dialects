@@ -512,7 +512,7 @@ func TestPersistContextWindowBackfillCalibratesExactRouteWithoutChangingDiverged
           "model": "composer-2.5",
           "subagentModel": "composer-2.5",
           "opusModel": "composer-2.5",
-          "sonnetModel": "grok-4.5",
+          "sonnetModel": "grok-4.6",
           "haikuModel": "kimi-k3",
           "bridge": "cursor",
           "authTokenEnv": "CURSOR_API_KEY",

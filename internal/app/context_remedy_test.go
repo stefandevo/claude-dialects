@@ -84,7 +84,7 @@ func TestContextWindowFixCommandKeepsTheDivergedPresetLabel(t *testing.T) {
 
 	command := contextWindowFixCommand("cc-cursor-mix", dialect)
 	want := "cc-dialect create cc-cursor-mix --preset cursor-composer --opus-model composer-2.5 " +
-		"--sonnet-model grok-4.5 --haiku-model kimi-k3 --context-window TOKENS"
+		"--sonnet-model grok-4.6 --haiku-model kimi-k3 --context-window TOKENS"
 	if command != want {
 		t.Fatalf("command = %q, want %q", command, want)
 	}

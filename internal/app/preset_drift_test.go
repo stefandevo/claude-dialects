@@ -361,6 +361,86 @@ func TestPresetDriftMigratesRetiredXAIPresetsToGrok(t *testing.T) {
 	}
 }
 
+func TestPresetDriftRemediesCursorGrok46Routes(t *testing.T) {
+	for _, testCase := range []struct {
+		preset      string
+		changedTier string
+	}{
+		{preset: "cursor-grok", changedTier: "model grok-4.5 → grok-4.6"},
+		{preset: "cursor-mix", changedTier: "sonnet grok-4.5 → grok-4.6"},
+	} {
+		t.Run(testCase.preset, func(t *testing.T) {
+			current := presets[testCase.preset]
+			stale := current
+			if testCase.preset == "cursor-grok" {
+				stale.Model = "grok-4.5"
+				stale.SubagentModel = "grok-4.5"
+				stale.OpusModel = "grok-4.5"
+				stale.SonnetModel = "grok-4.5"
+				stale.HaikuModel = "grok-4.5"
+			} else {
+				stale.SonnetModel = "grok-4.5"
+			}
+			stale.Preset = testCase.preset
+			stale.Port = 43170
+			stale.BridgePort = 43171
+			stale.APIKey = "private"
+			stale.PresetFingerprint = presetFingerprint(stale)
+
+			name := "cc-" + testCase.preset
+			lines := presetDriftDiagnostics(name, stale)
+			if len(lines) != 1 {
+				t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
+			}
+			for _, expected := range []string{
+				"✗ " + name + " was created from an older " + testCase.preset + " preset",
+				testCase.changedTier,
+				"(run: cc-dialect create " + name + " --preset " + testCase.preset + ")",
+			} {
+				if !strings.Contains(lines[0], expected) {
+					t.Errorf("diagnostic %q does not contain %q", lines[0], expected)
+				}
+			}
+
+			t.Setenv("DIALECT_HOME", t.TempDir())
+			if err := saveConfig(&Config{
+				Version: configVersion, BasePort: 43170,
+				Dialects:        map[string]Dialect{name: stale},
+				NativeLaunchers: map[string]NativeLauncher{},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			service := newAppService()
+			service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
+			if _, err := service.UpsertDialect(createInputFromCommand(t, lines[0]), ""); err != nil {
+				t.Fatal(err)
+			}
+
+			after, err := loadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			kept := after.Dialects[name]
+			if kept.Preset != testCase.preset || kept.ContextWindow != current.ContextWindow {
+				t.Errorf("remedy kept preset/window %q/%d, want %s/%d", kept.Preset, kept.ContextWindow, testCase.preset, current.ContextWindow)
+			}
+			if kept.Model != current.Model || kept.SubagentModel != current.SubagentModel ||
+				kept.OpusModel != current.OpusModel || kept.SonnetModel != current.SonnetModel || kept.HaikuModel != current.HaikuModel {
+				t.Errorf("remedy route = %#v, want current %s route %#v", kept, testCase.preset, current)
+			}
+			if got, want := kept.PresetFingerprint, presetFingerprint(current); got != want {
+				t.Errorf("remedy stamped %q, want current %s preset %q", got, testCase.preset, want)
+			}
+			if kept.Port != stale.Port || kept.BridgePort != stale.BridgePort || kept.APIKey != stale.APIKey {
+				t.Errorf("remedy lost the dialect's ports or key: %d/%d %q", kept.Port, kept.BridgePort, kept.APIKey)
+			}
+			if remaining := presetDriftDiagnostics(name, kept); len(remaining) != 0 {
+				t.Errorf("dialect still reports drift after the remedy: %v", remaining)
+			}
+		})
+	}
+}
+
 // Dialects created before fingerprints existed cannot be told apart from
 // hand-customized ones, so the report says both possibilities instead of
 // asserting an upgrade the binary cannot prove.

@@ -150,14 +150,14 @@ var presets = map[string]Dialect{
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"cursor-grok": {
-		Model: "grok-4.5", SubagentModel: "grok-4.5",
-		OpusModel: "grok-4.5", SonnetModel: "grok-4.5", HaikuModel: "grok-4.5",
+		Model: "grok-4.6", SubagentModel: "grok-4.6",
+		OpusModel: "grok-4.6", SonnetModel: "grok-4.6", HaikuModel: "grok-4.6",
 		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"cursor-mix": {
 		Model: "composer-2.5", SubagentModel: "composer-2.5",
-		OpusModel: "composer-2.5", SonnetModel: "grok-4.5", HaikuModel: "kimi-k3",
+		OpusModel: "composer-2.5", SonnetModel: "grok-4.6", HaikuModel: "kimi-k3",
 		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
@@ -955,7 +955,7 @@ func presetForDialect(dialect Dialect) string {
 		// cursor-composer — so the primary model cannot tell the two apart. Its
 		// distinct Opus/Sonnet/Haiku tier mapping is what identifies it.
 		if dialect.OpusModel == "composer-2.5" &&
-			dialect.SonnetModel == "grok-4.5" &&
+			(dialect.SonnetModel == "grok-4.6" || dialect.SonnetModel == "grok-4.5") &&
 			dialect.HaikuModel == "kimi-k3" {
 			return "cursor-mix"
 		}
@@ -966,7 +966,7 @@ func presetForDialect(dialect Dialect) string {
 			return "cursor-composer-fast"
 		case "auto":
 			return "cursor-auto"
-		case "grok-4.5":
+		case "grok-4.5", "grok-4.6":
 			return "cursor-grok"
 		default:
 			return ""
