@@ -12,6 +12,15 @@ export interface RuntimeStatus {
   bridge?: ComponentStatus;
 }
 
+export type PresetDriftState = 'drifted' | 'uncertain';
+
+export interface PresetDrift {
+  state: PresetDriftState;
+  preset?: string;
+  changes?: string[];
+  command?: string;
+}
+
 export interface DialectView {
   name: string;
   preset: string;
@@ -37,6 +46,7 @@ export interface DialectView {
   bridgePort?: number;
   extraEnvKeys?: string[];
   status?: RuntimeStatus;
+  presetDrift?: PresetDrift;
 }
 
 export interface DialectInput {

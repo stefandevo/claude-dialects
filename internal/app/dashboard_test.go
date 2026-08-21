@@ -409,6 +409,13 @@ func TestDashboardSafeResponsesAndErrors(t *testing.T) {
 			return DialectListResult{Dialects: []DialectView{{
 				Name: "safe", Model: "model", BaseURL: "https://user:credential@example.com/v1?api_key=secret#credential",
 				ExtraEnvKeys: []string{"SECRET_ENV"},
+				PresetDrift: &PresetDrift{
+					State:  PresetDriftDrifted,
+					Preset: "custom",
+					Changes: []string{
+						"base URL https://user:credential@example.com/v1?api_key=secret#credential → https://other.example.com/v1?token=hidden#frag",
+					},
+				},
 			}}, Revision: "revision-1"}, nil
 		},
 		installCursorRuntimeFn: func() (CursorInstallResult, error) {

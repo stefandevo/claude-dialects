@@ -89,6 +89,51 @@ func TestPresetDriftStaysSilentForACurrentDialect(t *testing.T) {
 	if lines := presetDriftDiagnostics("cc-glm", current); len(lines) != 0 {
 		t.Fatalf("an unstamped current dialect reported %v", lines)
 	}
+	if view := presetDriftView("cc-glm", current); view != nil {
+		t.Fatalf("a current dialect surfaced drift %v", view)
+	}
+}
+
+func TestPresetDriftViewMatchesDiagnosticsForConfirmedDrift(t *testing.T) {
+	stale := staleGLMDialect()
+	view := presetDriftView("cc-glm", stale)
+	if view == nil {
+		t.Fatal("expected drift view for a stale dialect")
+	}
+	if view.State != PresetDriftDrifted {
+		t.Fatalf("state = %q, want %q", view.State, PresetDriftDrifted)
+	}
+	if view.Preset != "glm" {
+		t.Fatalf("preset = %q, want glm", view.Preset)
+	}
+	if len(view.Changes) == 0 {
+		t.Fatal("expected differing fields")
+	}
+	if view.Command == "" {
+		t.Fatal("expected an adoption command")
+	}
+	if lines := presetDriftDiagnostics("cc-glm", stale); len(lines) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
+	}
+}
+
+func TestPresetDriftViewSurfacesUncertainStaleLabelNotes(t *testing.T) {
+	relabeled := presets["cursor-mix"]
+	relabeled.Preset = "cursor-composer"
+
+	view := presetDriftView("cc-cursor-mix", relabeled)
+	if view == nil {
+		t.Fatal("expected an uncertain drift view for a stale label")
+	}
+	if view.State != PresetDriftUncertain {
+		t.Fatalf("state = %q, want %q", view.State, PresetDriftUncertain)
+	}
+	if len(view.Changes) != 0 {
+		t.Fatalf("stale-label note should not invent changes: %v", view.Changes)
+	}
+	if view.Command != "" {
+		t.Fatalf("stale-label note must not offer a command: %q", view.Command)
+	}
 }
 
 // A revision may move only the window. The route still matches, so the

@@ -85,6 +85,9 @@ type DialectView struct {
 	BridgePort               int            `json:"bridgePort,omitempty"`
 	ExtraEnvKeys             []string       `json:"extraEnvKeys,omitempty"`
 	Status                   *RuntimeStatus `json:"status,omitempty"`
+	// PresetDrift reports read-only preset revision drift for configured
+	// dialects. Omitted when the dialect matches its preset or cannot be judged.
+	PresetDrift *PresetDrift `json:"presetDrift,omitempty"`
 }
 
 type DialectMutationResult struct {
@@ -215,6 +218,7 @@ func safeDialectView(name string, dialect Dialect) DialectView {
 func installedDialectView(name string, dialect Dialect) DialectView {
 	view := safeDialectView(name, dialect)
 	view.UnauthenticatedProviders = missingAuthProviders(name, dialect)
+	view.PresetDrift = presetDriftView(name, dialect)
 	return view
 }
 

@@ -5,6 +5,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { LoadingState } from '../components/LoadingState';
 import { PageHeader } from '../components/PageHeader';
+import { PresetDriftBadge } from '../components/PresetDriftBadge';
 import { StatusBadge } from '../components/StatusBadge';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -75,7 +76,7 @@ export function OverviewPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
-                      <div className="flex flex-wrap gap-2"><Badge variant="outline">Port {dialect.port}</Badge>{dialect.bridge && <Badge variant="outline">{dialect.bridge}</Badge>}{needsAuth(dialect) && <Badge variant="warning">Needs auth: {dialect.unauthenticatedProviders!.join(', ')}</Badge>}</div>
+                      <div className="flex flex-wrap gap-2"><Badge variant="outline">Port {dialect.port}</Badge>{dialect.bridge && <Badge variant="outline">{dialect.bridge}</Badge>}{dialect.presetDrift && <PresetDriftBadge drift={dialect.presetDrift} />}{needsAuth(dialect) && <Badge variant="warning">Needs auth: {dialect.unauthenticatedProviders!.join(', ')}</Badge>}</div>
                       <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                     </CardContent>
                   </Card>

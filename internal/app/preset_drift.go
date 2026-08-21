@@ -5,6 +5,23 @@ import (
 	"strings"
 )
 
+type PresetDriftState string
+
+const (
+	PresetDriftDrifted   PresetDriftState = "drifted"
+	PresetDriftUncertain PresetDriftState = "uncertain"
+)
+
+// PresetDrift is the structured, read-only drift state for a configured
+// dialect. Current dialects omit the field; drifted means the binary can
+// confirm a preset revision, and uncertain covers informational or hedged cases.
+type PresetDrift struct {
+	State   PresetDriftState `json:"state"`
+	Preset  string           `json:"preset,omitempty"`
+	Changes []string         `json:"changes,omitempty"`
+	Command string           `json:"command,omitempty"`
+}
+
 // retiredPresetReplacements is deliberately narrower than generic unknown-label
 // handling. These names were shipped by this project and later removed, so an
 // untouched dialect can be directed to their supported replacement without
@@ -52,21 +69,34 @@ var retiredPresetReplacements = map[string]string{
 // Reporting is all doctor does: `--fix` never rewrites a model or a window,
 // because nothing distinguishes a value the user chose from one the old
 // preset supplied — the same contract the context-window repair keeps.
+func presetDriftView(name string, dialect Dialect) *PresetDrift {
+	view, _ := resolvePresetDrift(name, dialect)
+	return view
+}
+
 func presetDriftDiagnostics(name string, dialect Dialect) []string {
+	_, line := resolvePresetDrift(name, dialect)
+	if line == "" {
+		return nil
+	}
+	return []string{line}
+}
+
+func resolvePresetDrift(name string, dialect Dialect) (*PresetDrift, string) {
 	label := dialect.Preset
 	if label == "" {
-		return nil
+		return nil, ""
 	}
 	presetName := label
 	preset, known := presets[presetName]
 	if !known {
 		presetName, known = retiredPresetReplacements[label]
 		if !known {
-			return nil
+			return nil, ""
 		}
 		preset, known = presets[presetName]
 		if !known {
-			return nil
+			return nil, ""
 		}
 	}
 	// Equality through the fingerprint rather than sharesContextRoute alone:
@@ -74,7 +104,7 @@ func presetDriftDiagnostics(name string, dialect Dialect) []string {
 	// stored route matches must not be reported for state create cannot even
 	// see.
 	if presetFingerprint(dialect) == presetFingerprint(preset) {
-		return nil
+		return nil, ""
 	}
 	// Untouched since creation: the stamp still describes the dialect's own
 	// route and window. Route drift is then provably the preset's movement —
@@ -89,15 +119,18 @@ func presetDriftDiagnostics(name string, dialect Dialect) []string {
 		// where reporting the difference is a finding rather than noise about
 		// a value the user set on purpose.
 		if untouched {
-			return []string{presetDriftLine(name, dialect, preset, presetName)}
+			view := presetDriftFromCompare(name, label, dialect, preset, presetName, PresetDriftDrifted)
+			return view, presetDriftLine(name, dialect, preset, presetName)
 		}
-		return nil
+		return nil, ""
 	}
 	if matched := presetByContextRoute(dialect); matched != "" {
 		routePreset := presets[matched]
 		if dialect.ContextWindow == routePreset.ContextWindow {
-			return []string{fmt.Sprintf("○ %s already matches the current %s preset but is labeled %s",
-				name, matched, label)}
+			view := &PresetDrift{State: PresetDriftUncertain, Preset: label}
+			line := fmt.Sprintf("○ %s already matches the current %s preset but is labeled %s",
+				name, matched, label)
+			return view, line
 		}
 		// presetByContextRoute compares routes, so a window left behind by a
 		// revision of the matched preset would otherwise hide behind a note
@@ -107,24 +140,40 @@ func presetDriftDiagnostics(name string, dialect Dialect) []string {
 		// the changes below name the window alone.
 		changes := strings.Join(presetDriftChanges(dialect, routePreset), ", ")
 		if untouched {
+			view := presetDriftFromCompare(name, label, dialect, routePreset, matched, PresetDriftDrifted)
 			line := fmt.Sprintf("✗ %s matches the current %s route but its window is from an older revision (%s)",
 				name, matched, changes)
-			if command := presetDriftCommand(name, dialect, routePreset, matched); command != "" {
-				return []string{line + " (run: " + command + ")"}
+			if view.Command != "" {
+				return view, line + " (run: " + view.Command + ")"
 			}
-			return []string{line + "; this dialect holds settings that cc-dialect create would drop"}
+			return view, line + "; this dialect holds settings that cc-dialect create would drop"
 		}
+		view := presetDriftFromCompare(name, label, dialect, routePreset, matched, PresetDriftUncertain)
 		line := fmt.Sprintf("○ %s matches the current %s route but is labeled %s and its window differs (%s); this may be an older preset revision or your own customization",
 			name, matched, label, changes)
-		if command := presetDriftCommand(name, dialect, routePreset, matched); command != "" {
-			return []string{line + " (run: " + command + ")"}
+		if view.Command != "" {
+			return view, line + " (run: " + view.Command + ")"
 		}
-		return []string{line + ", and it holds settings that cc-dialect create would drop"}
+		return view, line + ", and it holds settings that cc-dialect create would drop"
 	}
 	if untouched {
-		return []string{presetDriftLine(name, dialect, preset, presetName)}
+		view := presetDriftFromCompare(name, label, dialect, preset, presetName, PresetDriftDrifted)
+		return view, presetDriftLine(name, dialect, preset, presetName)
 	}
-	return []string{presetDriftHedgeLine(name, dialect, preset, presetName)}
+	view := presetDriftFromCompare(name, label, dialect, preset, presetName, PresetDriftUncertain)
+	return view, presetDriftHedgeLine(name, dialect, preset, presetName)
+}
+
+func presetDriftFromCompare(name, label string, dialect, compare Dialect, commandPreset string, state PresetDriftState) *PresetDrift {
+	view := &PresetDrift{
+		State:   state,
+		Preset:  label,
+		Changes: presetDriftChanges(dialect, compare),
+	}
+	if command := presetDriftCommand(name, dialect, compare, commandPreset); command != "" {
+		view.Command = command
+	}
+	return view
 }
 
 // presetDriftLine phrases a confirmed revision: the dialect was created from
