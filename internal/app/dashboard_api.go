@@ -406,20 +406,71 @@ func (api *dashboardAPI) handleDialects(w http.ResponseWriter, r *http.Request, 
 }
 
 func dashboardSafeDialectView(view DialectView) DialectView {
-	if view.BaseURL == "" {
-		return view
+	if view.BaseURL != "" {
+		view.BaseURL = sanitizeDisplayURL(view.BaseURL)
 	}
-	parsed, err := url.Parse(view.BaseURL)
+	if view.PresetDrift != nil {
+		view.PresetDrift.Changes = sanitizePresetDriftChanges(view.PresetDrift.Changes)
+	}
+	return view
+}
+
+// sanitizeDisplayURL strips userinfo, query, and fragment from a URL before it
+// is exposed through the dashboard API.
+func sanitizeDisplayURL(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
 	if err != nil {
-		view.BaseURL = ""
-		return view
+		return ""
 	}
 	parsed.User = nil
 	parsed.RawQuery = ""
 	parsed.ForceQuery = false
 	parsed.Fragment = ""
-	view.BaseURL = parsed.String()
-	return view
+	return parsed.String()
+}
+
+// sanitizePresetDriftChanges redacts URL secrets embedded in drift change
+// strings, matching the top-level BaseURL contract.
+func sanitizePresetDriftChanges(changes []string) []string {
+	if len(changes) == 0 {
+		return changes
+	}
+	sanitized := make([]string, len(changes))
+	for index, change := range changes {
+		sanitized[index] = sanitizePresetDriftChange(change)
+	}
+	return sanitized
+}
+
+func sanitizePresetDriftChange(change string) string {
+	const prefix = "base URL "
+	if !strings.HasPrefix(change, prefix) {
+		return change
+	}
+	rest := strings.TrimPrefix(change, prefix)
+	arrow := " → "
+	separator := strings.Index(rest, arrow)
+	if separator < 0 {
+		return change
+	}
+	from := strings.TrimSpace(rest[:separator])
+	to := strings.TrimSpace(rest[separator+len(arrow):])
+	return fmt.Sprintf("%s%s → %s", prefix,
+		sanitizePresetDriftURLValue(from), sanitizePresetDriftURLValue(to))
+}
+
+func sanitizePresetDriftURLValue(value string) string {
+	if value == "none" {
+		return value
+	}
+	sanitized := sanitizeDisplayURL(value)
+	if sanitized == "" && value != "" {
+		return "none"
+	}
+	return sanitized
 }
 
 func (request dialectRequest) dialectInput(name string) DialectInput {
