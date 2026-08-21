@@ -74,7 +74,8 @@ func TestBridgeMarkersHaveASingleDefinition(t *testing.T) {
 // Copilot accumulates the turn's assistant.message chunks, so filtering the
 // completed text covers the SSE and the JSON path at once. Cursor streams, so
 // its answer deltas go through the filter on the way to the wire, its reasoning
-// goes through a second one, and the non-streaming paths are filtered whole.
+// goes through a second one on its way to the reasoning channel, and the
+// non-streaming paths are filtered whole.
 func TestBridgesApplyTheMarkerFilter(t *testing.T) {
 	copilot := string(copilotBridgeSource)
 	if !strings.Contains(copilot, "const filteredText = stripTranscriptMarkers(result.text, () => {") {
@@ -89,7 +90,7 @@ func TestBridgesApplyTheMarkerFilter(t *testing.T) {
 		"const outputFilter = createMarkerFilter(() => logMarkerSuppression(\"assistant text\"));",
 		"const reasoningFilter = createMarkerFilter(() => logMarkerSuppression(\"reasoning output\"));",
 		"const visible = outputFilter.push(chunk);",
-		"streamContent(reasoningFilter.push(update.text));",
+		"streamReasoning(reasoningFilter.push(update.text));",
 		"const tail = outputFilter.flush();",
 		"text = stripTranscriptMarkers(text, () => logMarkerSuppression(\"assistant text\"));",
 		"text = stripTranscriptMarkers(result.result, () => logMarkerSuppression(\"assistant text\"));",

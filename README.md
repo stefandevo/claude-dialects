@@ -441,11 +441,24 @@ whole prompt each step.
 Streaming chat completions write SSE headers and the initial role chunk before
 the Cursor run starts, then forward `text-delta` output from the SDK's `onDelta`
 callback as incremental `delta.content` chunks. Summary and thinking progress
-lines are streamed for visibility but are not merged into the billed assistant
-text. A periodic SSE comment heartbeat keeps long runs from going idle on the
-proxy path, and per-request timing (run start, first delta, first tool call, run
-end) is logged to `cursor-bridge.log`. Non-streaming requests stay buffered
-until the run settles.
+lines stay visible, but leave on a separate `delta.reasoning_content` channel:
+the proxy turns that into Anthropic thinking blocks, so Claude Code shows the
+progress as collapsed thinking instead of recording it as assistant text. That
+matters for context, because assistant text is conversation — Claude Code keeps
+it and resends it on every following request, and the bridge then replays it to
+Cursor as a prior assistant reply. A thinking-heavy Cursor session used to spend
+its context window twice over on reasoning nobody needed to keep.
+
+Reasoning is still kept out of the assistant text the bridge builds, so it never
+reaches the non-streaming response body or the fallback token estimate. It is
+not free, though: when the Cursor SDK reports its own token usage the bridge
+prefers that count, and Cursor counts the reasoning it generated.
+
+A periodic SSE comment heartbeat keeps long runs from going idle on the proxy
+path, and per-request timing (run start, first delta, first tool call, run end)
+is logged to `cursor-bridge.log`. Non-streaming requests stay buffered until the
+run settles, and carry no reasoning at all — the bridge only subscribes to
+`onDelta` while streaming.
 
 Both SDK bridges pass the conversation to their model as flattened text. Past
 tool calls and results use the neutral `TOOL HISTORY <tool>:` and

@@ -410,7 +410,7 @@ func TestDashboardSafeResponsesAndErrors(t *testing.T) {
 				Name: "safe", Model: "model", BaseURL: "https://user:credential@example.com/v1?api_key=secret#credential",
 				ExtraEnvKeys: []string{"SECRET_ENV"},
 				PresetDrift: &PresetDrift{
-					State: PresetDriftDrifted,
+					State:  PresetDriftDrifted,
 					Preset: "custom",
 					Changes: []string{
 						"base URL https://user:credential@example.com/v1?api_key=secret#credential → https://other.example.com/v1?token=hidden#frag",
