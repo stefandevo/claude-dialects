@@ -1186,7 +1186,8 @@ The dashboard can:
 
 - inspect safe views of configured preset and custom dialects, their effective
   model and runtime settings, built-in presets, tracked native launchers, and
-  Cursor runtime readiness;
+  Cursor runtime readiness, including read-only [preset drift](#custom-dialects)
+  badges on dialects that lag a preset revision;
 - create and update dialects, including model aliases, effort, concurrency,
   [context window](#context-window-and-auto-compaction), ports, tool search, and
   custom Anthropic-compatible routing;
