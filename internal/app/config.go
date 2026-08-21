@@ -98,7 +98,7 @@ var presets = map[string]Dialect{
 	},
 	"mixed-frontier": {
 		Model: "claude-fable-5", SubagentModel: "claude-fable-5",
-		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.5",
+		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.6",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	// The haiku tier is GLM-4.7 rather than GLM-5-Turbo. Both hold 200,000
@@ -114,20 +114,8 @@ var presets = map[string]Dialect{
 		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
 	},
 	"grok": {
-		Model: "grok-4.5", SubagentModel: "grok-4.5",
-		OpusModel: "grok-4.5", SonnetModel: "grok-4.5", HaikuModel: "grok-4.5",
-		AuthProvider: "xai",
-		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
-	},
-	"grok-build": {
-		Model: "grok-build-0.1", SubagentModel: "grok-build-0.1",
-		OpusModel: "grok-build-0.1", SonnetModel: "grok-build-0.1", HaikuModel: "grok-build-0.1",
-		AuthProvider: "xai",
-		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
-	},
-	"composer": {
-		Model: "grok-composer-2.5-fast", SubagentModel: "grok-composer-2.5-fast",
-		OpusModel: "grok-composer-2.5-fast", SonnetModel: "grok-composer-2.5-fast", HaikuModel: "grok-composer-2.5-fast",
+		Model: "grok-4.6", SubagentModel: "grok-4.6",
+		OpusModel: "grok-4.6", SonnetModel: "grok-4.6", HaikuModel: "grok-4.6",
 		AuthProvider: "xai",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
@@ -955,9 +943,9 @@ func presetForDialect(dialect Dialect) string {
 	case "xai":
 		switch {
 		case strings.HasPrefix(dialect.Model, "grok-composer-"):
-			return "composer"
+			return "grok"
 		case strings.HasPrefix(dialect.Model, "grok-build-"):
-			return "grok-build"
+			return "grok"
 		default:
 			return "grok"
 		}
@@ -1028,9 +1016,9 @@ func presetForDialect(dialect Dialect) string {
 	case strings.HasPrefix(dialect.Model, "glm-"):
 		return "glm"
 	case strings.HasPrefix(dialect.Model, "grok-composer-"):
-		return "composer"
+		return "grok"
 	case strings.HasPrefix(dialect.Model, "grok-build-"):
-		return "grok-build"
+		return "grok"
 	case strings.HasPrefix(dialect.Model, "grok-"):
 		return "grok"
 	case strings.HasPrefix(strings.ToLower(dialect.Model), "minimax-"):
@@ -1103,7 +1091,7 @@ func providerForDialect(dialect Dialect) string {
 		return "claude"
 	case "glm":
 		return "glm"
-	case "grok", "grok-build", "composer":
+	case "grok":
 		return "xai"
 	case "minimax":
 		return "minimax"

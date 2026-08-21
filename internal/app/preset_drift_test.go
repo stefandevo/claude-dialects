@@ -226,6 +226,96 @@ func TestPresetDriftOffersTheMatchedPresetCommandUnderAForeignLabel(t *testing.T
 	}
 }
 
+// Retired preset names are the narrow exception to unknown-label silence. They
+// name routes this build deliberately removed, so doctor can safely direct an
+// untouched dialect to the replacement instead of orphaning it.
+func TestPresetDriftMigratesRetiredXAIPresetsToGrok(t *testing.T) {
+	for _, testCase := range []struct {
+		preset string
+		model  string
+		window int
+	}{
+		{preset: "grok-build", model: "grok-build-0.1", window: 256000},
+		{preset: "composer", model: "grok-composer-2.5-fast", window: 200000},
+	} {
+		t.Run(testCase.preset, func(t *testing.T) {
+			legacy := Dialect{
+				Model: testCase.model, SubagentModel: testCase.model,
+				OpusModel: testCase.model, SonnetModel: testCase.model, HaikuModel: testCase.model,
+				AuthProvider: "xai", Preset: testCase.preset,
+				ContextWindow: testCase.window, Effort: true, EffortLevel: "auto", Concurrency: 3,
+				Port: 43170, APIKey: "private",
+			}
+			legacy.PresetFingerprint = presetFingerprint(legacy)
+
+			original, existed := presets[testCase.preset]
+			delete(presets, testCase.preset)
+			defer func() {
+				if existed {
+					presets[testCase.preset] = original
+				} else {
+					delete(presets, testCase.preset)
+				}
+			}()
+
+			name := "cc-" + testCase.preset
+			lines := presetDriftDiagnostics(name, legacy)
+			if len(lines) != 1 {
+				t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
+			}
+			for _, expected := range []string{
+				"✗ " + name + " was created from an older " + testCase.preset + " preset",
+				"model " + testCase.model + " → grok-4.6",
+				"(run: cc-dialect create " + name + " --preset grok --context-window 500000)",
+			} {
+				if !strings.Contains(lines[0], expected) {
+					t.Errorf("diagnostic %q does not contain %q", lines[0], expected)
+				}
+			}
+
+			t.Setenv("DIALECT_HOME", t.TempDir())
+			if err := saveConfig(&Config{
+				Version: configVersion, BasePort: 43170,
+				Dialects:        map[string]Dialect{name: legacy},
+				NativeLaunchers: map[string]NativeLauncher{},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			service := newAppService()
+			service.stopRuntime = func(*instanceFS, Dialect) error { return nil }
+			if _, err := service.UpsertDialect(createInputFromCommand(t, lines[0]), ""); err != nil {
+				t.Fatal(err)
+			}
+
+			after, err := loadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			kept := after.Dialects[name]
+			if kept.Preset != "grok" || kept.ContextWindow != presets["grok"].ContextWindow {
+				t.Errorf("remedy kept preset/window %q/%d, want grok/%d", kept.Preset, kept.ContextWindow, presets["grok"].ContextWindow)
+			}
+			for field, model := range map[string]string{
+				"model": kept.Model, "subagent": kept.SubagentModel, "opus": kept.OpusModel,
+				"sonnet": kept.SonnetModel, "haiku": kept.HaikuModel,
+			} {
+				if model != "grok-4.6" {
+					t.Errorf("remedy %s model = %q, want grok-4.6", field, model)
+				}
+			}
+			if got, want := kept.PresetFingerprint, presetFingerprint(presets["grok"]); got != want {
+				t.Errorf("remedy stamped %q, want current grok preset %q", got, want)
+			}
+			if kept.Port != legacy.Port || kept.APIKey != legacy.APIKey {
+				t.Errorf("remedy lost the dialect's port or key: %d %q", kept.Port, kept.APIKey)
+			}
+			if remaining := presetDriftDiagnostics(name, kept); len(remaining) != 0 {
+				t.Errorf("dialect still reports drift after the remedy: %v", remaining)
+			}
+		})
+	}
+}
+
 // Dialects created before fingerprints existed cannot be told apart from
 // hand-customized ones, so the report says both possibilities instead of
 // asserting an upgrade the binary cannot prove.
