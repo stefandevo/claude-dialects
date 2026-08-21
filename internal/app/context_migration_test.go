@@ -690,11 +690,11 @@ func TestBackfillKeepsTheConfigRevisionStable(t *testing.T) {
       "dialects": {
         "cc-grok": {
           "preset": "grok",
-          "model": "grok-4.5",
-          "subagentModel": "grok-4.5",
-          "opusModel": "grok-4.5",
-          "sonnetModel": "grok-4.5",
-          "haikuModel": "grok-4.5",
+          "model": "grok-4.6",
+          "subagentModel": "grok-4.6",
+          "opusModel": "grok-4.6",
+          "sonnetModel": "grok-4.6",
+          "haikuModel": "grok-4.6",
           "authProvider": "xai",
           "port": 43171,
           "apiKey": "local-secret"

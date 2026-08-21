@@ -45,7 +45,7 @@ or other user-level Claude Code settings stay inside the active dialect.
   - [Z.ai GLM](#zai-glm)
   - [Moonshot Kimi](#moonshot-kimi)
   - [Google Gemini](#google-gemini)
-  - [xAI Grok, Grok Build, and Composer](#xai-grok-grok-build-and-composer)
+  - [xAI Grok](#xai-grok)
   - [MiniMax](#minimax)
   - [DeepSeek](#deepseek)
   - [Cursor](#cursor)
@@ -155,7 +155,7 @@ named dialects.
 | [Z.ai GLM](#zai-glm) | `glm` | `ZAI_API_KEY` | `cc-glm` |
 | [Moonshot Kimi](#moonshot-kimi) | `kimi` | Kimi OAuth | `cc-kimi` |
 | [Google Gemini](#google-gemini) | `gemini` | Google OAuth through Antigravity | `cc-gemini` |
-| [xAI](#xai-grok-grok-build-and-composer) | `grok`, `grok-build`, `composer` | xAI OAuth | `cc-grok` |
+| [xAI](#xai-grok) | `grok` | xAI OAuth | `cc-grok` |
 | [MiniMax](#minimax) | `minimax` | `MINIMAX_API_KEY` | `cc-minimax` |
 | [DeepSeek](#deepseek) | `deepseek` | `DEEPSEEK_API_KEY` | `cc-deepseek` |
 | [Cursor](#cursor) | `cursor-composer`, `cursor-composer-fast`, `cursor-grok`, `cursor-auto`, `cursor-mix` | Cursor API key | `cc-cursor` |
@@ -307,35 +307,24 @@ cc-gemini
 The preset uses `gemini-pro-agent` as its main and `opus` model, with Gemini
 3.5 Flash variants for the lower tiers.
 
-### xAI Grok, Grok Build, and Composer
+### xAI Grok
 
-xAI authentication is shared conceptually, but each model family gets its own
-preset and can have its own dialect:
+The `grok` preset maps every Claude Code tier to Grok 4.6 through xAI OAuth:
 
 ```sh
-# Grok 4.5
 cc-dialect create cc-grok --preset grok
 cc-dialect auth cc-grok xai
 cc-dialect shim install cc-grok
-
-# Grok Build
-cc-dialect create cc-grok-build --preset grok-build
-cc-dialect auth cc-grok-build xai
-cc-dialect shim install cc-grok-build
-
-# Cursor Composer 2.5 Fast as exposed by xAI Grok Build
-cc-dialect create cc-composer --preset composer
-cc-dialect auth cc-composer xai
-cc-dialect shim install cc-composer
-
 cc-grok
-# Or run cc-grok-build / cc-composer.
 ```
 
-The `grok`, `grok-build`, and `composer` presets remain separate model
-families. `composer` uses Cursor Composer 2.5 Fast as exposed by xAI Grok
-Build; it is not a Grok foundation model. Availability depends on the models
-enabled for the authenticated xAI account.
+Grok 4.6 adds the `xhigh` reasoning level to the levels advertised by Grok
+4.5, so `/effort xhigh` is forwarded when that model is active. The former
+`grok-build-0.1` and `grok-composer-2.5-fast` model IDs are no longer offered
+on the grok.com OAuth surface. Existing dialects still using either retired
+route are reported by `cc-dialect doctor`; recreate them in place with the reported
+`cc-dialect create <name> --preset grok` command to preserve their isolated
+state, credentials, port, and shim.
 
 ### MiniMax
 
@@ -634,7 +623,7 @@ and xAI:
 | Main + subagent | `claude-fable-5` | Anthropic | `cc-dialect auth cc-mixed claude` |
 | `/model opus` | `gpt-5.6-sol` | OpenAI Codex | `cc-dialect auth cc-mixed codex` |
 | `/model sonnet` | `kimi-k3` | Moonshot Kimi | `cc-dialect auth cc-mixed kimi` |
-| `/model haiku` | `grok-4.5` | xAI Grok | `cc-dialect auth cc-mixed xai` |
+| `/model haiku` | `grok-4.6` | xAI Grok | `cc-dialect auth cc-mixed xai` |
 
 Because the tiers span providers, the dialect needs each provider's OAuth login.
 Authenticate them into the **same** dialect, one command per provider:
@@ -899,7 +888,7 @@ exclusion follows the **model in use**, not the dialect. `claude` and
 whatever Claude Code's own registry resolves, which need not equal the declared
 window. `mixed-frontier` does so only on its main and subagent model
 (`claude-fable-5`); switching to `/model opus`, `sonnet`, or `haiku` selects
-GPT-5.6 Sol, Kimi K3, or Grok 4.5, and the declared window applies again.
+GPT-5.6 Sol, Kimi K3, or Grok 4.6, and the declared window applies again.
 **Compaction** can only come out tighter than the declared window, never looser,
 because `CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such exclusion and Claude Code
 takes the smaller of the two — so these conversations still cannot outrun the
@@ -935,15 +924,13 @@ mid-conversation and spawning subagents safe.
 | `gemini` | 1,048,576 | Gemini Pro Agent and 3.5 Flash routes |
 | `copilot-gemini` | 1,048,576 | Gemini 3.1 Pro and 3.5 Flash |
 | `deepseek` | 1,000,000 | DeepSeek V4 Pro and V4 Flash |
-| `grok` | 500,000 | Grok 4.5 |
+| `grok` | 500,000 | Grok 4.6 |
 | `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
 | `mixed-frontier` | 372,000 | GPT-5.6 Sol |
 | `kimi` | 262,144 | Kimi K2.7 Code Highspeed and K2.6 |
-| `grok-build` | 256,000 | Grok Build 0.1 |
 | `copilot-mai` | 256,000 | MAI-Code-1-Flash |
 | `minimax` | 204,800 | MiniMax-M2.7 (input and output combined) |
 | `claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
-| `composer` | 200,000 | Grok Composer 2.5 Fast |
 | `glm` | 200,000 | GLM-5-Turbo (sonnet), GLM-4.7 (haiku) |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
 | `cursor-grok` | 200,000 | Cursor Grok route |
@@ -1611,8 +1598,7 @@ Claude Dialects is available under the [MIT License](LICENSE).
 - [CLIProxyAPI Codex setup](https://help.router-for.me/agent-client/codex)
 - [Claude Code model and effort configuration](https://code.claude.com/docs/en/model-config)
 - [Kimi K3 model, API identifier, effort, and compatibility notes](https://www.kimi.com/blog/kimi-k3)
-- [xAI Grok 4.5 model documentation](https://docs.x.ai/developers/grok-4-5)
-- [xAI Composer 2.5 announcement](https://x.ai/news/composer-2-5)
+- [xAI Grok 4.6 model documentation](https://docs.x.ai/developers/grok-4-6)
 - [Cursor Composer model documentation](https://cursor.com/composer)
 - [Cursor SDK announcement and local-agent example](https://cursor.com/changelog/sdk-release)
 - [Cursor SDK custom tools and stores](https://cursor.com/changelog/sdk-updates-jun-2026)

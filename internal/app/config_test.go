@@ -372,20 +372,21 @@ func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
 	}
 }
 
-func TestXAIPresetsUseDistinctModelsAndOAuth(t *testing.T) {
-	tests := map[string]string{
-		"grok":       "grok-4.5",
-		"grok-build": "grok-build-0.1",
-		"composer":   "grok-composer-2.5-fast",
+func TestXAIPresetUsesGrok46AndRetiresLegacyPresets(t *testing.T) {
+	grok, ok := presets["grok"]
+	if !ok {
+		t.Fatal("grok preset is missing")
 	}
-	for name, model := range tests {
-		preset := presets[name]
-		if preset.Model != model || preset.SubagentModel != model ||
-			preset.OpusModel != model || preset.SonnetModel != model || preset.HaikuModel != model {
-			t.Errorf("%s preset does not consistently use %s: %#v", name, model, preset)
-		}
-		if preset.AuthProvider != "xai" {
-			t.Errorf("%s preset auth provider = %q, want xai", name, preset.AuthProvider)
+	if grok.Model != "grok-4.6" || grok.SubagentModel != "grok-4.6" ||
+		grok.OpusModel != "grok-4.6" || grok.SonnetModel != "grok-4.6" || grok.HaikuModel != "grok-4.6" {
+		t.Fatalf("grok preset does not consistently use grok-4.6: %#v", grok)
+	}
+	if grok.AuthProvider != "xai" {
+		t.Errorf("grok preset auth provider = %q, want xai", grok.AuthProvider)
+	}
+	for _, retired := range []string{"grok-build", "composer"} {
+		if _, ok := presets[retired]; ok {
+			t.Errorf("retired %s preset is still available", retired)
 		}
 	}
 }
@@ -607,9 +608,13 @@ func TestPresetForDialectSupportsStoredAndLegacyConfigurations(t *testing.T) {
 	if got := presetForDialect(legacyGLM); got != "glm" {
 		t.Fatalf("legacy GLM preset = %q, want glm", got)
 	}
-	legacyComposer := Dialect{Model: "grok-composer-2.5-fast", AuthProvider: "xai"}
-	if got := presetForDialect(legacyComposer); got != "composer" {
-		t.Fatalf("legacy Composer preset = %q, want composer", got)
+	for _, legacy := range []Dialect{
+		{Model: "grok-composer-2.5-fast", AuthProvider: "xai"},
+		{Model: "grok-build-0.1", AuthProvider: "xai"},
+	} {
+		if got := presetForDialect(legacy); got != "grok" {
+			t.Errorf("legacy xAI preset for %q = %q, want grok", legacy.Model, got)
+		}
 	}
 	legacyMiniMax := Dialect{
 		Model: "MiniMax-M2.7", BaseURL: "https://api.minimax.io/anthropic",
@@ -636,9 +641,11 @@ func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
 	grok := presets["grok"]
 	grok.Preset = "grok"
 	grok.Port = 43173
-	composer := presets["composer"]
-	composer.Preset = "composer"
-	composer.Port = 43174
+	composer := Dialect{
+		Model: "grok-composer-2.5-fast", SubagentModel: "grok-composer-2.5-fast",
+		OpusModel: "grok-composer-2.5-fast", SonnetModel: "grok-composer-2.5-fast", HaikuModel: "grok-composer-2.5-fast",
+		AuthProvider: "xai", Preset: "composer", Port: 43174,
+	}
 	cfg := &Config{Dialects: map[string]Dialect{
 		"cc-codex-sol": codexSol,
 		"cc-codex":     codex,
@@ -673,7 +680,7 @@ func TestMixedFrontierPresetMapsTiersAcrossProviders(t *testing.T) {
 	if mixed.Model != "claude-fable-5" || mixed.SubagentModel != "claude-fable-5" {
 		t.Fatalf("mixed-frontier main/subagent model = %q/%q, want claude-fable-5", mixed.Model, mixed.SubagentModel)
 	}
-	if mixed.OpusModel != "gpt-5.6-sol" || mixed.SonnetModel != "kimi-k3" || mixed.HaikuModel != "grok-4.5" {
+	if mixed.OpusModel != "gpt-5.6-sol" || mixed.SonnetModel != "kimi-k3" || mixed.HaikuModel != "grok-4.6" {
 		t.Fatalf("mixed-frontier tier mapping = opus %q / sonnet %q / haiku %q, want Sol/Kimi/Grok: %#v",
 			mixed.OpusModel, mixed.SonnetModel, mixed.HaikuModel, mixed)
 	}

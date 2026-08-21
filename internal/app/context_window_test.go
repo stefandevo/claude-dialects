@@ -53,7 +53,7 @@ func TestMultiModelPresetsUseTheSmallestSupportedWindow(t *testing.T) {
 		reason string
 	}{
 		{"claude", 200000, "Sonnet 4.6 and Haiku 4.5 cap the 1M Fable 5 main model"},
-		{"mixed-frontier", 372000, "GPT-5.6 Sol caps Fable 5, Kimi K3, and Grok 4.5"},
+		{"mixed-frontier", 372000, "GPT-5.6 Sol caps Fable 5, Kimi K3, and Grok 4.6"},
 		{"glm", 200000, "GLM-5-Turbo (sonnet) and GLM-4.7 (haiku) both at 200K cap GLM-5.3"},
 		{"codex-sol", 372000, "every GPT-5.6 Sol/Terra/Luna tier shares one window"},
 	} {

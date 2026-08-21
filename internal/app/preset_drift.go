@@ -22,6 +22,15 @@ type PresetDrift struct {
 	Command string           `json:"command,omitempty"`
 }
 
+// retiredPresetReplacements is deliberately narrower than generic unknown-label
+// handling. These names were shipped by this project and later removed, so an
+// untouched dialect can be directed to their supported replacement without
+// treating arbitrary newer-build labels as safe to rewrite.
+var retiredPresetReplacements = map[string]string{
+	"composer":   "grok",
+	"grok-build": "grok",
+}
+
 // presetDriftDiagnostics reports when a dialect no longer matches the preset
 // it claims, so a preset revision that arrived with `cc-dialect upgrade`
 // reaches existing dialects instead of applying to newly created ones only.
@@ -53,8 +62,9 @@ type PresetDrift struct {
 //
 // A label this build does not recognize, or no label at all, stays silent: an
 // unrecognized label may belong to a newer build, and an unlabeled dialect
-// makes no claim to judge. ExtraEnv keeps its dialect reportable but refuses
-// the command, since create would drop it.
+// makes no claim to judge. The exception is a label this build deliberately
+// retired and mapped to a replacement preset. ExtraEnv keeps its dialect
+// reportable but refuses the command, since create would drop it.
 //
 // Reporting is all doctor does: `--fix` never rewrites a model or a window,
 // because nothing distinguishes a value the user chose from one the old
@@ -77,9 +87,17 @@ func resolvePresetDrift(name string, dialect Dialect) (*PresetDrift, string) {
 	if label == "" {
 		return nil, ""
 	}
-	preset, known := presets[label]
+	presetName := label
+	preset, known := presets[presetName]
 	if !known {
-		return nil, ""
+		presetName, known = retiredPresetReplacements[label]
+		if !known {
+			return nil, ""
+		}
+		preset, known = presets[presetName]
+		if !known {
+			return nil, ""
+		}
 	}
 	// Equality through the fingerprint rather than sharesContextRoute alone:
 	// a revision may move only the window, and an ExtraEnv dialect whose
@@ -101,8 +119,8 @@ func resolvePresetDrift(name string, dialect Dialect) (*PresetDrift, string) {
 		// where reporting the difference is a finding rather than noise about
 		// a value the user set on purpose.
 		if untouched {
-			view := presetDriftFromCompare(name, label, dialect, preset, label, PresetDriftDrifted)
-			return view, presetDriftLine(name, dialect, preset)
+			view := presetDriftFromCompare(name, label, dialect, preset, presetName, PresetDriftDrifted)
+			return view, presetDriftLine(name, dialect, preset, presetName)
 		}
 		return nil, ""
 	}
@@ -139,11 +157,11 @@ func resolvePresetDrift(name string, dialect Dialect) (*PresetDrift, string) {
 		return view, line + ", and it holds settings that cc-dialect create would drop"
 	}
 	if untouched {
-		view := presetDriftFromCompare(name, label, dialect, preset, label, PresetDriftDrifted)
-		return view, presetDriftLine(name, dialect, preset)
+		view := presetDriftFromCompare(name, label, dialect, preset, presetName, PresetDriftDrifted)
+		return view, presetDriftLine(name, dialect, preset, presetName)
 	}
-	view := presetDriftFromCompare(name, label, dialect, preset, label, PresetDriftUncertain)
-	return view, presetDriftHedgeLine(name, dialect, preset)
+	view := presetDriftFromCompare(name, label, dialect, preset, presetName, PresetDriftUncertain)
+	return view, presetDriftHedgeLine(name, dialect, preset, presetName)
 }
 
 func presetDriftFromCompare(name, label string, dialect, compare Dialect, commandPreset string, state PresetDriftState) *PresetDrift {
@@ -161,10 +179,10 @@ func presetDriftFromCompare(name, label string, dialect, compare Dialect, comman
 // presetDriftLine phrases a confirmed revision: the dialect was created from
 // the preset and never edited, so the differences named are the revision's,
 // and the command rebuilds the dialect on today's preset.
-func presetDriftLine(name string, dialect, preset Dialect) string {
+func presetDriftLine(name string, dialect, preset Dialect, presetName string) string {
 	line := fmt.Sprintf("✗ %s was created from an older %s preset (%s)",
 		name, dialect.Preset, strings.Join(presetDriftChanges(dialect, preset), ", "))
-	if command := presetDriftCommand(name, dialect, preset, dialect.Preset); command != "" {
+	if command := presetDriftCommand(name, dialect, preset, presetName); command != "" {
 		return line + " (run: " + command + ")"
 	}
 	return line + "; this dialect holds settings that cc-dialect create would drop"
@@ -175,10 +193,10 @@ func presetDriftLine(name string, dialect, preset Dialect) string {
 // may be an older revision or the user's own customization. It names the same
 // differences the confirmed line would, because the reader needs them to
 // judge before running a command that rebuilds the dialect either way.
-func presetDriftHedgeLine(name string, dialect, preset Dialect) string {
+func presetDriftHedgeLine(name string, dialect, preset Dialect, presetName string) string {
 	line := fmt.Sprintf("○ %s differs from the current %s preset (%s); this may be an older preset revision or your own customization",
-		name, dialect.Preset, strings.Join(presetDriftChanges(dialect, preset), ", "))
-	if command := presetDriftCommand(name, dialect, preset, dialect.Preset); command != "" {
+		name, presetName, strings.Join(presetDriftChanges(dialect, preset), ", "))
+	if command := presetDriftCommand(name, dialect, preset, presetName); command != "" {
 		return line + " (run: " + command + ")"
 	}
 	return line + ", and it holds settings that cc-dialect create would drop"

@@ -94,7 +94,7 @@
               <tr><td><a href="#glm">Z.ai GLM</a></td><td><code>glm</code></td><td><code>ZAI_API_KEY</code></td><td><code>cc-glm</code></td></tr>
               <tr><td><a href="#kimi">Moonshot Kimi</a></td><td><code>kimi</code></td><td>Kimi OAuth</td><td><code>cc-kimi</code></td></tr>
               <tr><td><a href="#gemini">Google Gemini</a></td><td><code>gemini</code></td><td>Google OAuth (Antigravity)</td><td><code>cc-gemini</code></td></tr>
-              <tr><td><a href="#xai">xAI</a></td><td><code>grok</code>, <code>grok-build</code>, <code>composer</code></td><td>xAI OAuth</td><td><code>cc-grok</code></td></tr>
+              <tr><td><a href="#xai">xAI</a></td><td><code>grok</code></td><td>xAI OAuth</td><td><code>cc-grok</code></td></tr>
               <tr><td><a href="#minimax">MiniMax</a></td><td><code>minimax</code></td><td><code>MINIMAX_API_KEY</code></td><td><code>cc-minimax</code></td></tr>
               <tr><td><a href="#deepseek">DeepSeek</a></td><td><code>deepseek</code></td><td><code>DEEPSEEK_API_KEY</code></td><td><code>cc-deepseek</code></td></tr>
               <tr><td><a href="#cursor">Cursor</a></td><td><code>cursor-composer</code>, etc.</td><td>Cursor API key</td><td><code>cc-cursor</code></td></tr>
@@ -124,7 +124,7 @@
               <tr><td>Main + subagent</td><td><code>claude-fable-5</code></td><td>Anthropic</td><td><code>cc-dialect auth cc-mixed claude</code></td></tr>
               <tr><td><code>/model opus</code></td><td><code>gpt-5.6-sol</code></td><td>OpenAI Codex</td><td><code>cc-dialect auth cc-mixed codex</code></td></tr>
               <tr><td><code>/model sonnet</code></td><td><code>kimi-k3</code></td><td>Moonshot Kimi</td><td><code>cc-dialect auth cc-mixed kimi</code></td></tr>
-              <tr><td><code>/model haiku</code></td><td><code>grok-4.5</code></td><td>xAI Grok</td><td><code>cc-dialect auth cc-mixed xai</code></td></tr>
+              <tr><td><code>/model haiku</code></td><td><code>grok-4.6</code></td><td>xAI Grok</td><td><code>cc-dialect auth cc-mixed xai</code></td></tr>
             </tbody>
           </table>
         </div>
@@ -236,33 +236,21 @@ cc-gemini</code></pre>
 
       <article id="xai" class="provider-detail reveal">
         <div class="provider-detail__header">
-          <h2>xAI Grok, Grok Build, and Composer</h2>
-          <span class="provider-detail__badge">grok · grok-build · composer</span>
+          <h2>xAI Grok</h2>
+          <span class="provider-detail__badge">grok</span>
         </div>
-        <p>xAI authentication is shared, but each model family gets its own preset and can have its own dialect:</p>
+        <p>The <code>grok</code> preset maps every Claude Code tier to Grok 4.6 through xAI OAuth:</p>
         <div class="code-block">
           <div class="code-block__header">
-            <span>Multiple xAI routes</span>
+            <span>Grok 4.6 setup</span>
             <button class="copy-btn" data-copy="xai">Copy</button>
           </div>
-          <pre><code id="code-xai"># Grok 4.5
-cc-dialect create cc-grok --preset grok
+          <pre><code id="code-xai">cc-dialect create cc-grok --preset grok
 cc-dialect auth cc-grok xai
 cc-dialect shim install cc-grok
-
-# Grok Build
-cc-dialect create cc-grok-build --preset grok-build
-cc-dialect auth cc-grok-build xai
-cc-dialect shim install cc-grok-build
-
-# Composer 2.5 Fast (via xAI Grok Build)
-cc-dialect create cc-composer --preset composer
-cc-dialect auth cc-composer xai
-cc-dialect shim install cc-composer
-
-cc-grok   # or cc-grok-build / cc-composer</code></pre>
+cc-grok</code></pre>
         </div>
-        <p><code>composer</code> uses Cursor Composer 2.5 Fast as exposed by xAI Grok Build — not a Grok foundation model.</p>
+        <p>Grok 4.6 adds the <code>xhigh</code> reasoning level. The former <code>grok-build-0.1</code> and <code>grok-composer-2.5-fast</code> model IDs are no longer offered on the grok.com OAuth surface. <code>cc-dialect doctor</code> gives dialects still using either retired route a recreate command targeting <code>--preset grok</code>.</p>
       </article>
 
       <article id="minimax" class="provider-detail reveal">

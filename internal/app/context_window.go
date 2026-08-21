@@ -74,7 +74,7 @@ type contextWindowSource struct {
 // init below stamps these onto the presets themselves, so every existing reader
 // of the presets map picks the value up without a second table to keep in sync.
 //
-// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.131
+// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.137
 // model registry (internal/registry/models/models.json), which is authoritative
 // for the OAuth-backed routes because it is the same catalog the proxy serves.
 // Recalibrating means re-reading that file at the version go.mod pins now, not
@@ -92,7 +92,7 @@ type contextWindowSource struct {
 // lookup. codex selects gpt-5.6, a family name carried as the version field of
 // the gpt-5.6-sol/terra/luna entries rather than as any entry's id; claude
 // selects claude-haiku-4-5, the undated form of claude-haiku-4-5-20251001. The
-// other fourteen match an id verbatim, so a lookup that quietly prefix-matches
+// every other ID matches an id verbatim, so a lookup that quietly prefix-matches
 // will paper over exactly these two and hide it if either family's tiers stop
 // agreeing.
 //
@@ -124,7 +124,7 @@ var presetContextWindows = map[string]contextWindowSource{
 	},
 	"mixed-frontier": {
 		Window: 372000, Verified: "2026-08-21",
-		Basis: "GPT-5.6 Sol at 372000 caps Fable 5 (1M), Kimi K3 (1048576), and Grok 4.5 (500000) (CLIProxyAPI registry)",
+		Basis: "GPT-5.6 Sol at 372000 caps Fable 5 (1M), Kimi K3 (1048576), and Grok 4.6 (500000) (CLIProxyAPI registry)",
 	},
 	"glm": {
 		Window: 200000, Verified: "2026-08-15",
@@ -132,15 +132,7 @@ var presetContextWindows = map[string]contextWindowSource{
 	},
 	"grok": {
 		Window: 500000, Verified: "2026-08-21",
-		Basis: "Grok 4.5 (CLIProxyAPI registry)",
-	},
-	"grok-build": {
-		Window: 256000, Verified: "2026-08-21",
-		Basis: "Grok Build 0.1 (CLIProxyAPI registry)",
-	},
-	"composer": {
-		Window: 200000, Verified: "2026-08-21",
-		Basis: "Grok Composer 2.5 Fast as exposed by xAI (CLIProxyAPI registry)",
+		Basis: "Grok 4.6 (CLIProxyAPI registry and Grok CLI)",
 	},
 	"minimax": {
 		Window: 204800, Verified: "2026-07-27",
