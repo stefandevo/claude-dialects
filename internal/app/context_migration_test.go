@@ -85,8 +85,8 @@ func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
           "model": "glm-5.3",
           "subagentModel": "glm-5.3",
           "opusModel": "glm-5.3",
-          "sonnetModel": "glm-5-turbo",
-          "haikuModel": "glm-4.7",
+          "sonnetModel": "glm-5.3-flash",
+          "haikuModel": "glm-5.3-flash",
           "baseUrl": "https://api.z.ai/api/anthropic",
           "authTokenEnv": "ZAI_API_KEY",
           "effort": true,
@@ -108,7 +108,7 @@ func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
 		preset string
 	}{
 		"cc-codex": {372000, "codex-sol"},
-		"cc-glm":   {200000, "glm"},
+		"cc-glm":   {1000000, "glm"},
 	} {
 		if got := cfg.Dialects[name].ContextWindow; got != want.window {
 			t.Errorf("%s context window = %d, want %d", name, got, want.window)

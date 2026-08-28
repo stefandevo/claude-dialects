@@ -116,8 +116,7 @@ func TestWriteProxyConfigRoutesLatestGLMModels(t *testing.T) {
 	for _, expected := range []string{
 		`base-url: "https://api.z.ai/api/anthropic"`,
 		`name: "glm-5.3"`,
-		`name: "glm-5-turbo"`,
-		`name: "glm-4.7"`,
+		`name: "glm-5.3-flash"`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("GLM proxy config does not contain %q:\n%s", expected, text)
@@ -358,10 +357,9 @@ func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
 	if glm.Model != "glm-5.3" || glm.SubagentModel != "glm-5.3" || glm.OpusModel != "glm-5.3" {
 		t.Fatalf("GLM preset does not use GLM-5.3 for main, subagent, and opus: %#v", glm)
 	}
-	// Sonnet stays on GLM-5-Turbo (agent-optimized, heavier reasoning); haiku
-	// drops to GLM-4.7 at half the price — both hold 200,000 tokens so the
-	// old window-spread argument no longer distinguishes them.
-	if glm.SonnetModel != "glm-5-turbo" || glm.HaikuModel != "glm-4.7" {
+	// Sonnet and haiku both map to GLM-5.3-Flash so the dialect can advertise
+	// Flash's 1M window; a 200K lower tier would cap the whole process.
+	if glm.SonnetModel != "glm-5.3-flash" || glm.HaikuModel != "glm-5.3-flash" {
 		t.Fatalf("GLM preset has unexpected lower-tier model mappings: %#v", glm)
 	}
 	if glm.BaseURL != "https://api.z.ai/api/anthropic" {

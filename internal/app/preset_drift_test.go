@@ -9,13 +9,16 @@ import (
 
 // staleGLMDialect reconstructs the observed case from issue #104: a dialect
 // created when the glm preset still declared GLM-5.2 with a GLM-4.5-Air haiku
-// tier and a 131,072-token window, stamped as that revision. The current
+// tier and a 131,072-token window, stamped as that revision. Sonnet is pinned
+// to the historical glm-5-turbo ID so the fixture still represents that
+// dialect after the current preset moved sonnet onto Flash. The current
 // preset in this build plays the role of the upgraded one.
 func staleGLMDialect() Dialect {
 	stale := presets["glm"]
 	stale.Model = "glm-5.2"
 	stale.SubagentModel = "glm-5.2"
 	stale.OpusModel = "glm-5.2"
+	stale.SonnetModel = "glm-5-turbo"
 	stale.HaikuModel = "glm-4.5-air"
 	stale.ContextWindow = 131072
 	stale.Preset = "glm"
@@ -62,17 +65,14 @@ func TestPresetDriftReportsAStaleStampedPreset(t *testing.T) {
 	for _, expected := range []string{
 		"✗ cc-glm was created from an older glm preset",
 		"model glm-5.2 → glm-5.3",
-		"haiku glm-4.5-air → glm-4.7",
-		"window 131072 → 200000",
-		"(run: cc-dialect create cc-glm --preset glm --context-window 200000)",
+		"sonnet glm-5-turbo → glm-5.3-flash",
+		"haiku glm-4.5-air → glm-5.3-flash",
+		"window 131072 → 1000000",
+		"(run: cc-dialect create cc-glm --preset glm --context-window 1000000)",
 	} {
 		if !strings.Contains(lines[0], expected) {
 			t.Errorf("diagnostic %q does not contain %q", lines[0], expected)
 		}
-	}
-	// The sonnet tier never differed, so it must not pad the report.
-	if strings.Contains(lines[0], "sonnet") {
-		t.Errorf("diagnostic %q names an unchanged field", lines[0])
 	}
 }
 
@@ -148,13 +148,13 @@ func TestPresetDriftReportsAWindowOnlyRevision(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
 	}
-	if !strings.Contains(lines[0], "window 131072 → 200000") {
+	if !strings.Contains(lines[0], "window 131072 → 1000000") {
 		t.Errorf("diagnostic %q lost the window change", lines[0])
 	}
 	// The route is unchanged, so create would keep the stored window — the
 	// command has to state the revised one or it would re-stamp the dialect
 	// as current while the old capacity stays.
-	if !strings.Contains(lines[0], "--context-window 200000") {
+	if !strings.Contains(lines[0], "--context-window 1000000") {
 		t.Errorf("command in %q does not adopt the revised window", lines[0])
 	}
 	if strings.Contains(lines[0], "model ") {
@@ -501,7 +501,7 @@ func TestPresetDriftHedgesAHandEditedStampedDialect(t *testing.T) {
 	if len(lines) != 1 || !strings.HasPrefix(lines[0], "○ ") {
 		t.Fatalf("an edited dialect was reported as a clean upgrade: %v", lines)
 	}
-	if !strings.Contains(lines[0], "sonnet glm-5.2-flash → glm-5-turbo") {
+	if !strings.Contains(lines[0], "sonnet glm-5.2-flash → glm-5.3-flash") {
 		t.Errorf("diagnostic %q does not name the differing field", lines[0])
 	}
 }
@@ -537,7 +537,7 @@ func TestPresetDriftCommandRestatesNonRouteSettings(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("got %d diagnostics, want 1: %v", len(lines), lines)
 	}
-	for _, expected := range []string{"--context-window 200000", "--effort=false", "--tool-search=true", "--concurrency 5", "--effort-level high"} {
+	for _, expected := range []string{"--context-window 1000000", "--effort=false", "--tool-search=true", "--concurrency 5", "--effort-level high"} {
 		if !strings.Contains(lines[0], expected) {
 			t.Errorf("command in %q lost %q", lines[0], expected)
 		}
