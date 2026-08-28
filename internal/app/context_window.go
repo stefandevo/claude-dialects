@@ -127,8 +127,8 @@ var presetContextWindows = map[string]contextWindowSource{
 		Basis: "GPT-5.6 Sol at 372000 caps Fable 5 (1M), Kimi K3 (1048576), and Grok 4.6 (500000) (CLIProxyAPI registry)",
 	},
 	"glm": {
-		Window: 200000, Verified: "2026-08-15",
-		Basis: "GLM-5-Turbo (sonnet) and GLM-4.7 (haiku) both at 200000 cap GLM-5.3 (1M); Z.ai's documented 200K is decimal, as its own 1M guidance declares 1000000 (Z.ai model documentation)",
+		Window: 1000000, Verified: "2026-08-28",
+		Basis: "GLM-5.3 (opus/main/subagent) and GLM-5.3-Flash (sonnet and haiku) both 1M; Z.ai documents 1M as 1000000 (Z.ai model documentation)",
 	},
 	"grok": {
 		Window: 500000, Verified: "2026-08-21",

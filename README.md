@@ -213,21 +213,24 @@ cc-dialect shim install cc-glm
 cc-glm
 ```
 
-The GLM preset maps `opus` to `glm-5.3`, `sonnet` to `glm-5-turbo`, and
-`haiku` to `glm-4.7`. Its `auto` effort setting leaves GLM-5.3 at the provider default
-(`max`). GLM-5.3 runs three effort levels — `low`, `high`, and `max` — and Z.ai
-folds Claude Code's scale onto them: `low` stays `low`, `medium` and `high` both
-become `high`, and `xhigh` and `max` both become `max`. Thinking cannot be
-turned off; asking for it disabled is converted to `low` rather than honored,
-so the model still reasons briefly.
+The GLM preset maps `opus` to `glm-5.3`, and both `sonnet` and `haiku` to
+`glm-5.3-flash`. GLM-5.3 and GLM-5.3-Flash both hold 1,000,000 tokens, so the
+dialect window is 1,000,000 — no smaller tier remains on the route. Its `auto`
+effort setting leaves GLM-5.3 at the provider default (`max`). GLM-5.3 runs
+three effort levels — `low`, `high`, and `max` — and Z.ai folds Claude Code's
+scale onto them: `low` stays `low`, `medium` and `high` both become `high`, and
+`xhigh` and `max` both become `max`. Thinking cannot be turned off; asking for
+it disabled is converted to `low` rather than honored, so the model still
+reasons briefly. Flash uses the same effort scale.
 
 `glm-5.3` answered on a live GLM Coding Plan key on 2026-08-15. Z.ai's model
 page still reads "The GLM-5.3 API is coming soon", so a pay-as-you-go key may
 still be refused where a Coding Plan key succeeds — that half is untested. If
 yours is refused, `glm-4.7` is the newest model the endpoint serves under its
-own name, and it holds the same 200,000 tokens the preset declares. Overriding
-the models changes the route, so a preset's window no longer applies on its own
-and has to be restated — without it the dialect is left uncalibrated:
+own name, and it holds 200,000 tokens. Overriding the models changes the route,
+so a preset's window no longer applies on its own and has to be restated —
+without it the dialect is left uncalibrated. Restate the fallback model's real
+window (200,000), not the preset's 1,000,000:
 
 ```sh
 cc-dialect create cc-glm --preset glm \
@@ -243,14 +246,9 @@ this endpoint, so a request for `glm-5.2` is answered by `glm-5.3` (verified
 `400 modelCode: does not exist`. A stale model name therefore never announces
 itself — it quietly serves something newer.
 
-The `sonnet` tier stays on GLM-5-Turbo (agent-optimized for heavier reasoning),
-while the `haiku` tier uses GLM-4.7 at half the price ($0.60/$2.20 vs
-$1.20/$4.00 per 1M tokens). Both hold 200,000 tokens, so the old window-spread
-argument that once ruled out the cheaper option no longer applies — Claude Code
-sends the `haiku` tier short auxiliary work (titles, summaries, classification)
-that doesn't need agent capabilities. GLM-4.5-Air held only 131,072 and is no
-longer served under its own name (Z.ai resolves it to `glm-4.7`, verified
-2026-08-15), so it is not an option either way.
+GLM-4.5-Air held only 131,072 and is no longer served under its own name (Z.ai
+resolves it to `glm-4.7`, verified 2026-08-15), so it is not an option either
+way.
 
 An existing `cc-glm` keeps whatever it was created with. Nothing rewrites a
 window already on disk: [a recorded window is never raised on your
@@ -260,21 +258,20 @@ may have been set deliberately.
 
 A dialect old enough to carry a `glm-4.5-air` haiku tier and a 131,072-token
 window is already being answered by `glm-4.7` (Z.ai resolves the retired ID
-forward), so re-running `cc-dialect create cc-glm --preset glm` lifts the
-window to 200,000 — the half Claude Code cannot learn from the provider.
+forward), so re-running `cc-dialect create cc-glm --preset glm --context-window 1000000`
+updates sonnet and haiku to `glm-5.3-flash` and lifts the window to 1,000,000 —
+the half Claude Code cannot learn from the provider.
 (A `cc-glm` that predates the stored window entirely no longer matches this
 preset field for field, so it is left uncalibrated rather than given a window
 its old tier cannot hold; `doctor` reports it with the same command.)
 
-A dialect created against the previous preset (both lower tiers on
-`glm-5-turbo`, window already 200,000) is not harmed by the mismatch: Turbo
-is still the sonnet model, and the endpoint has no opinions about what a
-dialect's internal haiku slot should be. Re-running `cc-dialect create cc-glm
---preset glm` updates the haiku route to `glm-4.7` without touching the
-window. `doctor` reports both through [preset drift](#custom-dialects),
-naming the tiers and window the preset has since changed, with the `create`
-command that adopts the current preset — restating a moved window through
-`--context-window`.
+A dialect created against the previous preset (sonnet on `glm-5-turbo`, haiku
+on `glm-4.7`, window 200,000) is not rewritten in place. Re-running
+`cc-dialect create cc-glm --preset glm --context-window 1000000` updates sonnet
+and haiku to `glm-5.3-flash` and lifts the window to 1,000,000. `doctor`
+reports both through [preset drift](#custom-dialects), naming the tiers and
+window the preset has since changed, with the `create` command that adopts the
+current preset — restating a moved window through `--context-window`.
 
 ### Moonshot Kimi
 
@@ -937,6 +934,7 @@ mid-conversation and spawning subagents safe.
 | `gemini` | 1,048,576 | Gemini Pro Agent and 3.5 Flash routes |
 | `copilot-gemini` | 1,048,576 | Gemini 3.1 Pro and 3.5 Flash |
 | `deepseek` | 1,000,000 | DeepSeek V4 Pro and V4 Flash |
+| `glm` | 1,000,000 | GLM-5.3 / GLM-5.3-Flash |
 | `grok` | 500,000 | Grok 4.6 |
 | `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
 | `mixed-frontier` | 372,000 | GPT-5.6 Sol |
@@ -944,7 +942,6 @@ mid-conversation and spawning subagents safe.
 | `copilot-mai` | 256,000 | MAI-Code-1-Flash |
 | `minimax` | 204,800 | MiniMax-M2.7 (input and output combined) |
 | `claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
-| `glm` | 200,000 | GLM-5-Turbo (sonnet), GLM-4.7 (haiku) |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
 | `cursor-grok` | 200,000 | Cursor Grok route |
 | `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |

@@ -101,15 +101,15 @@ var presets = map[string]Dialect{
 		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.6",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
-	// The haiku tier is GLM-4.7 rather than GLM-5-Turbo. Both hold 200,000
-	// tokens so the window-spread argument that once ruled out the cheaper
-	// option no longer applies, and GLM-4.7 costs half as much per token — a
-	// straight saving for the classification and summarisation Claude Code
-	// sends to the haiku tier. GLM-4.5-Air (the original cheaper option) held
-	// only 131,072 and is no longer served under its own name anyway.
+	// Sonnet and haiku both map to GLM-5.3-Flash. Claude Code receives one
+	// process-level window, so a 200K lower tier would cap the whole dialect
+	// even though GLM-5.3 holds 1M. Flash is native multimodal at 1M on the
+	// same Anthropic endpoint, so both lower aliases can share it and the
+	// preset window becomes 1000000 (Z.ai documents 1M as 1000000). Opus,
+	// primary, and subagent stay on GLM-5.3.
 	"glm": {
 		Model: "glm-5.3", SubagentModel: "glm-5.3",
-		OpusModel: "glm-5.3", SonnetModel: "glm-5-turbo", HaikuModel: "glm-4.7",
+		OpusModel: "glm-5.3", SonnetModel: "glm-5.3-flash", HaikuModel: "glm-5.3-flash",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
 	},
