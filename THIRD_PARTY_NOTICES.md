@@ -1431,7 +1431,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## github.com/router-for-me/CLIProxyAPI/v7 v7.2.137
+## github.com/router-for-me/CLIProxyAPI/v7 v7.2.144
 
 Source: https://github.com/router-for-me/CLIProxyAPI/v7
 
@@ -3717,7 +3717,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.31.0
+## npm:lucide-react 1.34.0
 
 Source: https://github.com/lucide-icons/lucide
 

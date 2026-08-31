@@ -74,7 +74,7 @@ type contextWindowSource struct {
 // init below stamps these onto the presets themselves, so every existing reader
 // of the presets map picks the value up without a second table to keep in sync.
 //
-// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.137
+// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.144
 // model registry (internal/registry/models/models.json), which is authoritative
 // for the OAuth-backed routes because it is the same catalog the proxy serves.
 // Recalibrating means re-reading that file at the version go.mod pins now, not
