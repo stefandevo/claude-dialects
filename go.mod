@@ -3,8 +3,8 @@ module github.com/stefandevo/claude-dialects
 go 1.26.6
 
 require (
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.149
-	golang.org/x/sys v0.47.0
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.157
+	golang.org/x/sys v0.48.0
 )
 
 require (
