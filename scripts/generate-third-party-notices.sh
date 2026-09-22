@@ -13,15 +13,18 @@ trap 'rm -f "$temp" "$clean"' EXIT
   printf "Run \`./scripts/generate-third-party-notices.sh\` after dependency changes.\n"
 } > "$temp"
 
+# Byte-order sort so Linux and macOS emit the same section order. Default
+# UTF-8 collation treats punctuation differently (go-playground vs google,
+# go.uber vs golang), which turns CI's notices check red after a Linux regen.
 go list -deps -f '{{with .Module}}{{if ne .Path "github.com/stefandevo/claude-dialects"}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}' ./... |
   sed '/^$/d' |
-  sort -u |
+  LC_ALL=C sort -u |
   while IFS='|' read -r module version directory; do
     license_files=$(find "$directory" -maxdepth 1 -type f \( \
       -iname 'LICENSE*' -o \
       -iname 'COPYING*' -o \
       -iname 'NOTICE*' \
-    \) | sort)
+    \) | LC_ALL=C sort)
 
     if [ -z "$license_files" ]; then
       printf 'No license file found for %s %s\n' "$module" "$version" >&2
