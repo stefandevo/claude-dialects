@@ -66,15 +66,20 @@ type Dialect struct {
 }
 
 var presets = map[string]Dialect{
+	// GPT-6 dropped Terra. Sol stays the session model; sonnet stays on Sol
+	// rather than collapsing onto Luna, and haiku is Luna.
 	"codex-sol": {
-		Model: "gpt-5.6-sol", SubagentModel: "gpt-5.6-sol",
-		OpusModel: "gpt-5.6-sol", SonnetModel: "gpt-5.6-terra", HaikuModel: "gpt-5.6-luna",
+		Model: "gpt-6-sol", SubagentModel: "gpt-6-sol",
+		OpusModel: "gpt-6-sol", SonnetModel: "gpt-6-sol", HaikuModel: "gpt-6-luna",
 		AuthProvider: "codex",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
+	// No requestable GPT-6 family slug exists. The registry version field is
+	// gpt-6.0, which is not a model id. Astra leads this preset so it stays a
+	// different route from codex-sol; sonnet is Sol and haiku is Luna.
 	"codex": {
-		Model: "gpt-5.6", SubagentModel: "gpt-5.6",
-		OpusModel: "gpt-5.6-sol", SonnetModel: "gpt-5.6-terra", HaikuModel: "gpt-5.6-luna",
+		Model: "gpt-6-astra", SubagentModel: "gpt-6-astra",
+		OpusModel: "gpt-6-astra", SonnetModel: "gpt-6-sol", HaikuModel: "gpt-6-luna",
 		AuthProvider: "codex",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
@@ -86,19 +91,19 @@ var presets = map[string]Dialect{
 	},
 	"gemini": {
 		Model: "gemini-pro-agent", SubagentModel: "gemini-pro-agent",
-		OpusModel: "gemini-pro-agent", SonnetModel: "gemini-3.5-flash-low", HaikuModel: "gemini-3.5-flash-extra-low",
+		OpusModel: "gemini-pro-agent", SonnetModel: "gemini-3.8-flash-high", HaikuModel: "gemini-3.5-flash-lite",
 		AuthProvider: "antigravity",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"claude": {
-		Model: "claude-fable-5", SubagentModel: "claude-fable-5",
-		OpusModel: "claude-fable-5", SonnetModel: "claude-sonnet-4-6", HaikuModel: "claude-haiku-4-5",
+		Model: "claude-fable-5-1", SubagentModel: "claude-fable-5-1",
+		OpusModel: "claude-fable-5-1", SonnetModel: "claude-sonnet-5", HaikuModel: "claude-haiku-4-5",
 		AuthProvider: "claude",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"mixed-frontier": {
-		Model: "claude-fable-5", SubagentModel: "claude-fable-5",
-		OpusModel: "gpt-5.6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.6",
+		Model: "claude-fable-5-1", SubagentModel: "claude-fable-5-1",
+		OpusModel: "gpt-6-sol", SonnetModel: "kimi-k3", HaikuModel: "grok-4.7",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	// Sonnet and haiku both map to GLM-5.3-Flash. Claude Code receives one
@@ -114,20 +119,20 @@ var presets = map[string]Dialect{
 		BaseURL: "https://api.z.ai/api/anthropic", AuthTokenEnv: "ZAI_API_KEY",
 	},
 	"grok": {
-		Model: "grok-4.6", SubagentModel: "grok-4.6",
-		OpusModel: "grok-4.6", SonnetModel: "grok-4.6", HaikuModel: "grok-4.6",
+		Model: "grok-4.7", SubagentModel: "grok-4.7",
+		OpusModel: "grok-4.7", SonnetModel: "grok-4.7", HaikuModel: "grok-4.7",
 		AuthProvider: "xai",
 		Effort:       true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"minimax": {
-		Model: "MiniMax-M2.7", SubagentModel: "MiniMax-M2.7",
-		OpusModel: "MiniMax-M2.7", SonnetModel: "MiniMax-M2.7", HaikuModel: "MiniMax-M2.7",
+		Model: "MiniMax-M3", SubagentModel: "MiniMax-M3",
+		OpusModel: "MiniMax-M3", SonnetModel: "MiniMax-M3", HaikuModel: "MiniMax-M3",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 		BaseURL: "https://api.minimax.io/anthropic", AuthTokenEnv: "MINIMAX_API_KEY",
 	},
 	"deepseek": {
 		Model: "deepseek-v4-pro", SubagentModel: "deepseek-v4-pro",
-		OpusModel: "deepseek-v4-pro", SonnetModel: "deepseek-v4-flash", HaikuModel: "deepseek-v4-flash",
+		OpusModel: "deepseek-v4-pro", SonnetModel: "deepseek-flash", HaikuModel: "deepseek-flash",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 		BaseURL: "https://api.deepseek.com/anthropic", AuthTokenEnv: "DEEPSEEK_API_KEY",
 	},
@@ -150,14 +155,14 @@ var presets = map[string]Dialect{
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"cursor-grok": {
-		Model: "grok-4.6", SubagentModel: "grok-4.6",
-		OpusModel: "grok-4.6", SonnetModel: "grok-4.6", HaikuModel: "grok-4.6",
+		Model: "grok-4.7", SubagentModel: "grok-4.7",
+		OpusModel: "grok-4.7", SonnetModel: "grok-4.7", HaikuModel: "grok-4.7",
 		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"cursor-mix": {
 		Model: "composer-2.5", SubagentModel: "composer-2.5",
-		OpusModel: "composer-2.5", SonnetModel: "grok-4.6", HaikuModel: "kimi-k3",
+		OpusModel: "composer-2.5", SonnetModel: "grok-4.7", HaikuModel: "kimi-k3",
 		Bridge: "cursor", AuthTokenEnv: "CURSOR_API_KEY",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
@@ -168,26 +173,26 @@ var presets = map[string]Dialect{
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"copilot-mai": {
-		Model: "mai-code-1-flash", SubagentModel: "mai-code-1-flash",
-		OpusModel: "mai-code-1-flash", SonnetModel: "mai-code-1-flash", HaikuModel: "mai-code-1-flash",
+		Model: "mai-code-1.1-flash", SubagentModel: "mai-code-1.1-flash",
+		OpusModel: "mai-code-1.1-flash", SonnetModel: "mai-code-1.1-flash", HaikuModel: "mai-code-1.1-flash",
 		Bridge: "copilot",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"copilot-codex": {
-		Model: "gpt-5.3-codex", SubagentModel: "gpt-5.3-codex",
-		OpusModel: "gpt-5.3-codex", SonnetModel: "gpt-5.3-codex", HaikuModel: "gpt-5.3-codex",
+		Model: "gpt-6-sol", SubagentModel: "gpt-6-sol",
+		OpusModel: "gpt-6-sol", SonnetModel: "gpt-6-sol", HaikuModel: "gpt-6-sol",
 		Bridge: "copilot",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"copilot-claude": {
-		Model: "claude-sonnet-4.6", SubagentModel: "claude-sonnet-4.6",
-		OpusModel: "claude-sonnet-4.6", SonnetModel: "claude-sonnet-4.6", HaikuModel: "claude-haiku-4.5",
+		Model: "claude-sonnet-5", SubagentModel: "claude-sonnet-5",
+		OpusModel: "claude-sonnet-5", SonnetModel: "claude-sonnet-5", HaikuModel: "claude-haiku-4.5",
 		Bridge: "copilot",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
 	"copilot-gemini": {
-		Model: "gemini-3.1-pro-preview", SubagentModel: "gemini-3.1-pro-preview",
-		OpusModel: "gemini-3.1-pro-preview", SonnetModel: "gemini-3.5-flash", HaikuModel: "gemini-3.5-flash",
+		Model: "gemini-3.8-flash", SubagentModel: "gemini-3.8-flash",
+		OpusModel: "gemini-3.8-flash", SonnetModel: "gemini-3.8-flash", HaikuModel: "gemini-3.8-flash",
 		Bridge: "copilot",
 		Effort: true, EffortLevel: "auto", Concurrency: 3, ToolSearch: false,
 	},
@@ -955,7 +960,7 @@ func presetForDialect(dialect Dialect) string {
 		// cursor-composer — so the primary model cannot tell the two apart. Its
 		// distinct Opus/Sonnet/Haiku tier mapping is what identifies it.
 		if dialect.OpusModel == "composer-2.5" &&
-			(dialect.SonnetModel == "grok-4.6" || dialect.SonnetModel == "grok-4.5") &&
+			(dialect.SonnetModel == "grok-4.7" || dialect.SonnetModel == "grok-4.6" || dialect.SonnetModel == "grok-4.5") &&
 			dialect.HaikuModel == "kimi-k3" {
 			return "cursor-mix"
 		}
@@ -966,7 +971,7 @@ func presetForDialect(dialect Dialect) string {
 			return "cursor-composer-fast"
 		case "auto":
 			return "cursor-auto"
-		case "grok-4.5", "grok-4.6":
+		case "grok-4.5", "grok-4.6", "grok-4.7":
 			return "cursor-grok"
 		default:
 			return ""
@@ -976,13 +981,13 @@ func presetForDialect(dialect Dialect) string {
 		switch dialect.Model {
 		case "auto":
 			return "copilot-auto"
-		case "mai-code-1-flash":
+		case "mai-code-1-flash", "mai-code-1.1-flash":
 			return "copilot-mai"
-		case "gpt-5.3-codex":
+		case "gpt-5.3-codex", "gpt-6-sol":
 			return "copilot-codex"
-		case "claude-sonnet-4.6":
+		case "claude-sonnet-4.6", "claude-sonnet-5":
 			return "copilot-claude"
-		case "gemini-3.1-pro-preview":
+		case "gemini-3.1-pro-preview", "gemini-3.8-flash":
 			return "copilot-gemini"
 		default:
 			return ""

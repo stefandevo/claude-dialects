@@ -165,7 +165,7 @@ named dialects.
 
 ### OpenAI Codex
 
-Use `codex-sol` for GPT-5.6 Sol as both the main and subagent model:
+Use `codex-sol` for GPT-6 Sol as the main, subagent, opus, and sonnet model, with GPT-6 Luna on haiku:
 
 ```sh
 cc-dialect create cc-codex --preset codex-sol
@@ -174,10 +174,11 @@ cc-dialect shim install cc-codex
 cc-codex
 ```
 
-Use `--preset codex` instead to make GPT-5.6 the main model while retaining
-Sol, Terra, and Luna for the `opus`, `sonnet`, and `haiku` menu entries. Both
-routes authenticate through ChatGPT OAuth and the embedded CLIProxyAPI
-instance.
+Use `--preset codex` instead to lead with GPT-6 Astra (`gpt-6-astra`) for the
+main, subagent, and `opus` routes, with Sol on `sonnet` and Luna on `haiku`.
+There is no requestable `gpt-6` family id. Both routes authenticate through
+ChatGPT OAuth and the embedded CLIProxyAPI instance. Astra and Sol are listed
+on the team, plus, and pro Codex catalogs; the free catalog lists Luna.
 
 #### Troubleshooting `auth_unavailable`
 
@@ -192,7 +193,8 @@ Run `cc-dialect doctor`. For an authenticated Codex dialect, it inspects recent
 `auth/logs/error-v1-messages-*.log` and `proxy.log` entries and reports the
 upstream HTTP failure separately from a fast cooldown retry. The diagnostic
 names the failing request model when the log contains it and suggests a
-different configured `/model` tier (for example, Sonnet/Terra when Sol failed),
+different configured `/model` tier (for example, Haiku/Luna when Sol failed
+on `codex-sol`, where sonnet is also Sol),
 restarting the embedded proxy with `cc-dialect proxy cc-codex restart`, and
 opening the full logs with `cc-dialect proxy cc-codex logs`.
 
@@ -301,12 +303,12 @@ cc-dialect shim install cc-gemini
 cc-gemini
 ```
 
-The preset uses `gemini-pro-agent` as its main and `opus` model, with Gemini
-3.5 Flash variants for the lower tiers.
+The preset uses `gemini-pro-agent` as its main and `opus` model,
+`gemini-3.8-flash-high` for `sonnet`, and `gemini-3.5-flash-lite` for `haiku`.
 
 ### xAI Grok
 
-The `grok` preset maps every Claude Code tier to Grok 4.6 through xAI OAuth:
+The `grok` preset maps every Claude Code tier to Grok 4.7 (`grok-4.7`) through xAI OAuth:
 
 ```sh
 cc-dialect create cc-grok --preset grok
@@ -315,8 +317,8 @@ cc-dialect shim install cc-grok
 cc-grok
 ```
 
-Grok 4.6 adds the `xhigh` reasoning level to the levels advertised by Grok
-4.5, so `/effort xhigh` is forwarded when that model is active. The former
+Grok 4.7 advertises `low`, `medium`, `high`, and `xhigh` reasoning, so
+`/effort xhigh` is forwarded when that model is active. The former
 `grok-build-0.1` and `grok-composer-2.5-fast` model IDs are no longer offered
 on the grok.com OAuth surface. Existing dialects still using either retired
 route are reported by `cc-dialect doctor`; recreate them in place with the reported
@@ -334,7 +336,7 @@ cc-dialect shim install cc-minimax
 cc-minimax
 ```
 
-The preset maps every Claude Code model alias to `MiniMax-M2.7`.
+The preset maps every Claude Code model alias to `MiniMax-M3`.
 
 ### DeepSeek
 
@@ -348,7 +350,7 @@ cc-deepseek
 ```
 
 The preset maps the main, subagent, and `opus` selections to
-`deepseek-v4-pro`; `sonnet` and `haiku` use `deepseek-v4-flash`.
+`deepseek-v4-pro`; `sonnet` and `haiku` use `deepseek-flash`.
 
 ### Cursor
 
@@ -379,8 +381,8 @@ Available Cursor presets are:
 
 - `cursor-composer` — Composer 2.5 with Fast and Standard menu mappings
 - `cursor-composer-fast` — explicitly forces Composer 2.5 Fast
-- `cursor-grok` — Cursor Grok 4.6
-- `cursor-mix` — Composer 2.5, Grok 4.6, and Kimi K3 across the Opus, Sonnet, and Haiku tiers
+- `cursor-grok` — Cursor Grok 4.7 (`grok-4.7`)
+- `cursor-mix` — Composer 2.5, Grok 4.7, and Kimi K3 across the Opus, Sonnet, and Haiku tiers
 - `cursor-auto` — Cursor's `auto` selection
 
 The bridge discovers the live model catalog from Cursor, supplies the catalog's
@@ -476,7 +478,7 @@ re-run `cc-dialect create <name> --preset <preset>` — creating an existing nam
 is an upsert that preserves authentication, isolated state, and shims, so removing
 and recreating the dialect is never the right response to an update.
 
-Cursor Grok 4.6 is a different route from the direct xAI preset:
+Cursor Grok 4.7 is a different route from the direct xAI preset:
 
 ```sh
 cc-dialect create cc-cursor-grok --preset cursor-grok
@@ -484,9 +486,9 @@ cc-dialect shim install cc-cursor-grok
 cc-cursor-grok
 ```
 
-`cursor-grok` uses the `grok-4.6` model in Cursor's first-party model pool
+`cursor-grok` uses the `grok-4.7` model in Cursor's first-party model pool
 through the Cursor SDK and `CURSOR_API_KEY`. The plain `grok` preset instead
-uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.6 effort
+uses CLIProxyAPI's direct xAI OAuth provider. Cursor exposes Grok 4.7 effort
 settings through its live SDK catalog when supported, so the bridge maps
 Claude Code's `/effort` choice onto the advertised variant.
 
@@ -499,7 +501,7 @@ cc-dialect shim install cc-cursor-mix
 cc-cursor-mix
 ```
 
-Composer 2.5 is the default session model and `/model opus`, Grok 4.6 is
+Composer 2.5 is the default session model and `/model opus`, Grok 4.7 is
 `/model sonnet`, and Kimi K3 is `/model haiku` — all served through the
 Cursor SDK and `CURSOR_API_KEY`, with no OAuth splitting. Like the other
 Cursor routes, Cursor publishes no per-model context window for this mix, so
@@ -530,13 +532,13 @@ cc-copilot
 Available Copilot presets are:
 
 - `copilot-auto` — Copilot chooses from the models enabled for the account
-- `copilot-mai` — Microsoft MAI-Code-1-Flash (`mai-code-1-flash`)
-- `copilot-codex` — GPT-5.3-Codex
-- `copilot-claude` — Claude Sonnet 4.6 with Claude Haiku 4.5 for the Haiku tier
-- `copilot-gemini` — Gemini 3.1 Pro Preview with Gemini 3.5 Flash for lower tiers
+- `copilot-mai` — Microsoft MAI-Code-1.1-Flash (`mai-code-1.1-flash`)
+- `copilot-codex` — GPT-6 Sol (`gpt-6-sol`)
+- `copilot-claude` — Claude Sonnet 5 (`claude-sonnet-5`) with Claude Haiku 4.5 (`claude-haiku-4.5`) for the Haiku tier
+- `copilot-gemini` — Gemini 3.8 Flash (`gemini-3.8-flash`)
 
 For example, replace `copilot-auto` with `copilot-mai` and name the dialect
-`cc-copilot-mai` to force Microsoft's Copilot-native MAI-Code-1-Flash model.
+`cc-copilot-mai` to force Microsoft's Copilot-native MAI-Code-1.1-Flash model.
 
 The live SDK catalog remains authoritative. GitHub model availability depends
 on the Copilot plan and organization policy, and models may be added, replaced,
@@ -582,7 +584,7 @@ still resends the full long-context prompt and consumes the corresponding
 Copilot allowance.
 
 Reasoning effort is forwarded only when the live model metadata advertises it.
-MAI-Code-1-Flash currently uses its adaptive provider behavior and does not
+MAI-Code-1.1-Flash currently uses its adaptive provider behavior and does not
 advertise configurable reasoning levels.
 
 `@github/copilot-sdk` is pinned for reproducible installation. Re-run
@@ -611,7 +613,8 @@ cc-claude
 This differs from a native shortcut: `cc-claude` has private settings,
 credentials, and history, while a native shortcut uses the regular
 `~/.claude` environment. The preset currently maps the main and `opus` routes
-to Claude Fable 5, with Claude Sonnet 4.6 and Claude Haiku 4.5 for the lower
+to Claude Fable 5.1 (`claude-fable-5-1`), with Claude Sonnet 5
+(`claude-sonnet-5`) and Claude Haiku 4.5 (`claude-haiku-4-5`) for the lower
 tiers.
 
 ## Mix multiple providers in one session
@@ -624,16 +627,16 @@ agents run on different providers: the main agent on one model, opus-tier
 subagents on another, sonnet-tier on a third, and so on — all inside the same
 conversation.
 
-The `mixed-frontier` preset wires this up out of the box. It runs Claude Fable 5
+The `mixed-frontier` preset wires this up out of the box. It runs Claude Fable 5.1
 as the main and subagent model and spreads the tiers across OpenAI, Moonshot,
 and xAI:
 
 | Tier / role | Model | Provider | OAuth login |
 | --- | --- | --- | --- |
-| Main + subagent | `claude-fable-5` | Anthropic | `cc-dialect auth cc-mixed claude` |
-| `/model opus` | `gpt-5.6-sol` | OpenAI Codex | `cc-dialect auth cc-mixed codex` |
+| Main + subagent | `claude-fable-5-1` | Anthropic | `cc-dialect auth cc-mixed claude` |
+| `/model opus` | `gpt-6-sol` | OpenAI Codex | `cc-dialect auth cc-mixed codex` |
 | `/model sonnet` | `kimi-k3` | Moonshot Kimi | `cc-dialect auth cc-mixed kimi` |
-| `/model haiku` | `grok-4.6` | xAI Grok | `cc-dialect auth cc-mixed xai` |
+| `/model haiku` | `grok-4.7` | xAI Grok | `cc-dialect auth cc-mixed xai` |
 
 Because the tiers span providers, the dialect needs each provider's OAuth login.
 Authenticate them into the **same** dialect, one command per provider:
@@ -691,9 +694,9 @@ Ports are actively checked and allocated per dialect starting at the high range
 rejected again at startup:
 
 ```text
-cc-codex       codex-sol    gpt-5.6-sol       embedded proxy :43170
+cc-codex       codex-sol    gpt-6-sol         embedded proxy :43170
 cc-kimi        kimi         kimi-k3           embedded proxy :43171
-cc-codex-work  codex        gpt-5.6           embedded proxy :43172
+cc-codex-work  codex        gpt-6-astra       embedded proxy :43172
 ```
 
 Pass Claude Code arguments normally:
@@ -825,14 +828,14 @@ Override the important parameters while creating or updating a dialect:
 ```sh
 cc-dialect create cc-my-codex \
   --preset codex \
-  --model gpt-5.6 \
-  --subagent-model gpt-5.6-sol \
-  --opus-model gpt-5.6-sol \
-  --sonnet-model gpt-5.6-terra \
-  --haiku-model gpt-5.6-luna \
+  --model gpt-6-astra \
+  --subagent-model gpt-6-astra \
+  --opus-model gpt-6-astra \
+  --sonnet-model gpt-6-sol \
+  --haiku-model gpt-6-luna \
   --effort-level auto \
   --concurrency 3 \
-  --context-window 372000 \
+  --context-window 272000 \
   --effort=true \
   --tool-search=false \
   --port 53170
@@ -861,7 +864,7 @@ of [xqsit94/glm](https://github.com/xqsit94/glm).
 Claude Code compacts a conversation before it outgrows the model's context
 window. To decide when, it needs to know how large that window is — and it
 cannot recognize the provider model IDs a dialect routes to, such as
-`gpt-5.6-sol` or `composer-2.5`. Without a declared capacity, a conversation can
+`gpt-6-sol` or `composer-2.5`. Without a declared capacity, a conversation can
 reach the provider's real limit before any compaction happens, after which
 further requests fail.
 
@@ -897,8 +900,8 @@ exclusion follows the **model in use**, not the dialect. `claude` and
 `copilot-claude` map every tier to a Claude model, so they always report against
 whatever Claude Code's own registry resolves, which need not equal the declared
 window. `mixed-frontier` does so only on its main and subagent model
-(`claude-fable-5`); switching to `/model opus`, `sonnet`, or `haiku` selects
-GPT-5.6 Sol, Kimi K3, or Grok 4.6, and the declared window applies again.
+(`claude-fable-5-1`); switching to `/model opus`, `sonnet`, or `haiku` selects
+GPT-6 Sol, Kimi K3, or Grok 4.7, and the declared window applies again.
 **Compaction** can only come out tighter than the declared window, never looser,
 because `CLAUDE_CODE_AUTO_COMPACT_WINDOW` has no such exclusion and Claude Code
 takes the smaller of the two — so these conversations still cannot outrun the
@@ -931,22 +934,22 @@ mid-conversation and spawning subagents safe.
 
 | Preset | Context window | Smallest supported model |
 | --- | ---: | --- |
-| `gemini` | 1,048,576 | Gemini Pro Agent and 3.5 Flash routes |
-| `copilot-gemini` | 1,048,576 | Gemini 3.1 Pro and 3.5 Flash |
-| `deepseek` | 1,000,000 | DeepSeek V4 Pro and V4 Flash |
+| `gemini` | 1,048,576 | Gemini Pro Agent, 3.8 Flash High, and 3.5 Flash Lite |
+| `deepseek` | 1,000,000 | DeepSeek V4 Pro and `deepseek-flash` |
 | `glm` | 1,000,000 | GLM-5.3 / GLM-5.3-Flash |
-| `grok` | 500,000 | Grok 4.6 |
-| `codex-sol`, `codex` | 372,000 | GPT-5.6 Sol, Terra, and Luna |
-| `mixed-frontier` | 372,000 | GPT-5.6 Sol |
+| `minimax` | 1,000,000 | MiniMax-M3 |
+| `copilot-gemini` | 1,000,000 | Gemini 3.8 Flash on the Copilot catalog |
+| `grok` | 500,000 | Grok 4.7 |
+| `codex-sol`, `codex` | 272,000 | GPT-6 Astra, Sol, and Luna |
+| `mixed-frontier` | 272,000 | GPT-6 Sol |
+| `copilot-codex` | 272,000 | Copilot GPT-6 Sol route |
 | `kimi` | 262,144 | Kimi K2.7 Code Highspeed and K2.6 |
-| `copilot-mai` | 256,000 | MAI-Code-1-Flash |
-| `minimax` | 204,800 | MiniMax-M2.7 (input and output combined) |
-| `claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
+| `copilot-mai` | 256,000 | MAI-Code-1.1-Flash |
+| `claude` | 200,000 | Claude Haiku 4.5 (Fable 5.1 and Sonnet 5 are larger) |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
-| `cursor-grok` | 200,000 | Cursor Grok route |
+| `cursor-grok` | 200,000 | Cursor Grok 4.7 route |
 | `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |
-| `copilot-codex` | 200,000 | Copilot GPT-5.3-Codex route |
-| `copilot-claude` | 200,000 | Claude Sonnet 4.6 and Haiku 4.5 |
+| `copilot-claude` | 200,000 | Claude Haiku 4.5 (Sonnet 5 is larger) |
 | `cursor-auto`, `copilot-auto` | 128,000 | any model the route may select |
 
 OAuth-backed values come from the embedded CLIProxyAPI model registry. Cursor
@@ -1608,16 +1611,16 @@ Claude Dialects is available under the [MIT License](LICENSE).
 - [CLIProxyAPI Codex setup](https://help.router-for.me/agent-client/codex)
 - [Claude Code model and effort configuration](https://code.claude.com/docs/en/model-config)
 - [Kimi K3 model, API identifier, effort, and compatibility notes](https://www.kimi.com/blog/kimi-k3)
-- [xAI Grok 4.6 model documentation](https://docs.x.ai/developers/grok-4-6)
+- [xAI Grok 4.7 model documentation](https://docs.x.ai/developers/grok-4-7)
 - [Cursor Composer model documentation](https://cursor.com/composer)
 - [Cursor SDK announcement and local-agent example](https://cursor.com/changelog/sdk-release)
 - [Cursor SDK custom tools and stores](https://cursor.com/changelog/sdk-updates-jun-2026)
 - [Cursor Composer 2.5 variants and pricing](https://cursor.com/changelog/composer-2-5)
-- [Cursor Grok 4.6 SDK availability](https://cursor.com/docs/models/grok-4-6)
+- [Cursor Grok 4.7 availability](https://cursor.com/help/models-and-usage/grok-4-7)
 - [Official GitHub Copilot SDK](https://github.com/github/copilot-sdk)
 - [GitHub Copilot SDK authentication](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate)
 - [GitHub Copilot CLI model identifiers](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
 - [GitHub Copilot supported models](https://docs.github.com/en/copilot/reference/ai-models/supported-models)
-- [MAI-Code-1-Flash announcement](https://github.blog/changelog/2026-06-02-mai-code-1-flash-is-now-available-for-github-copilot/)
+- [MAI-Code-1.1-Flash announcement](https://github.blog/changelog/2026-08-11-mai-code-1-1-flash-available-in-github-copilot/)
 - [MiniMax Anthropic-compatible API](https://platform.minimax.io/docs/api-reference/text-anthropic-api)
 - [DeepSeek API documentation](https://api-docs.deepseek.com/)

@@ -128,7 +128,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc</code></pre>
 
       <section id="first-dialect" class="doc-section reveal">
         <h2>Create your first dialect</h2>
-        <p>Let's create an OpenAI Codex dialect using the <code>codex-sol</code> preset (GPT-5.6 Sol as main and subagent model):</p>
+        <p>Let's create an OpenAI Codex dialect using the <code>codex-sol</code> preset (GPT-6 Sol as the main and subagent model, Luna on haiku):</p>
         <div class="code-block">
           <div class="code-block__header">
             <span>OpenAI Codex · codex-sol preset</span>
@@ -142,9 +142,9 @@ cc-codex</code></pre>
         <p>For preset-based routes, <code>create</code> prints the remaining setup steps in the correct order. An arbitrary custom model ID cannot determine its provider automatically, so you must supply and follow the appropriate authentication or token route yourself. OAuth dialects will not launch or list models before authentication — if you skip auth, the error includes the exact command to run.</p>
         <p>Inside Claude Code you can switch models and effort live:</p>
         <div class="code-block">
-          <pre><code>/model opus    # → gpt-5.6-sol
-/model sonnet  # → gpt-5.6-terra
-/model haiku   # → gpt-5.6-luna
+          <pre><code>/model opus    # → gpt-6-sol
+/model sonnet  # → gpt-6-sol
+/model haiku   # → gpt-6-luna
 /effort high</code></pre>
         </div>
       </section>
@@ -237,13 +237,13 @@ cc-codex-work    # embedded proxy :43170
 cc-kimi-work     # embedded proxy :43171</code></pre>
         </div>
         <p>Ports are actively checked and allocated per dialect starting at <code>:43170</code>. A port already bound by any process is skipped during creation and rejected again at startup.</p>
-        <p>Every dialect also gets a generated statusline that names the dialect — e.g. <code>cc-codex · GPT-5.6 Sol · effort:auto · ctx 42%</code> — with the name colored per provider route, so parallel terminals are easy to tell apart. <code>cc-dialect create</code> writes <code>instances/&lt;name&gt;/statusline.sh</code> and wires it into the dialect's isolated <code>claude/settings.json</code>; older dialects are backfilled the next time they run. The script uses <code>jq</code> — preinstalled on recent macOS, usually an explicit install on Linux — and stays empty when it is missing. To customize, point the <code>statusLine</code> key in that <code>settings.json</code> at your own script — a user-set <code>statusLine</code> is never overwritten. To remove it, delete the <code>statusLine</code> key; it is never re-added once the generated script exists.</p>
+        <p>Every dialect also gets a generated statusline that names the dialect — e.g. <code>cc-codex · GPT-6 Sol · effort:auto · ctx 42%</code> — with the name colored per provider route, so parallel terminals are easy to tell apart. <code>cc-dialect create</code> writes <code>instances/&lt;name&gt;/statusline.sh</code> and wires it into the dialect's isolated <code>claude/settings.json</code>; older dialects are backfilled the next time they run. The script uses <code>jq</code> — preinstalled on recent macOS, usually an explicit install on Linux — and stays empty when it is missing. To customize, point the <code>statusLine</code> key in that <code>settings.json</code> at your own script — a user-set <code>statusLine</code> is never overwritten. To remove it, delete the <code>statusLine</code> key; it is never re-added once the generated script exists.</p>
         <p>Because that <code>settings.json</code> is isolated, an opt-out in your global <code>~/.claude</code> never reaches a dialect — so every dialect is also seeded with <code>"attribution": {"commit": "", "pr": ""}</code>, which keeps the <code>Co-Authored-By: Claude</code> trailer out of commits and the attribution block out of pull request bodies. It is only written when the dialect has no attribution preference of its own, so a value you set is never overwritten; to bring the trailer back, set an explicit value rather than deleting the key. Existing dialects are updated the next time they run, or all at once with <code>cc-dialect doctor --fix</code>, which <code>cc-dialect upgrade</code> invokes for you.</p>
       </section>
 
       <section id="mixed" class="doc-section reveal">
         <h2>Mix providers in one session</h2>
-        <p>A single dialect can hold OAuth credentials for several providers at once, so each model tier can point at a different provider. The <code>mixed-frontier</code> preset runs Claude Fable 5 as the main model and maps <code>opus</code> to OpenAI Sol, <code>sonnet</code> to Kimi, and <code>haiku</code> to xAI Grok — one Claude Code session whose agents run on different providers. Authenticate every provider into the same dialect:</p>
+        <p>A single dialect can hold OAuth credentials for several providers at once, so each model tier can point at a different provider. The <code>mixed-frontier</code> preset runs Claude Fable 5.1 as the main model and maps <code>opus</code> to GPT-6 Sol, <code>sonnet</code> to Kimi K3, and <code>haiku</code> to Grok 4.7 — one Claude Code session whose agents run on different providers. Authenticate every provider into the same dialect:</p>
         <div class="code-block">
           <div class="code-block__header">
             <span>Mixed-provider dialect</span>

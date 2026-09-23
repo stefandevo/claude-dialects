@@ -310,7 +310,7 @@ func TestPresetDriftMigratesRetiredXAIPresetsToGrok(t *testing.T) {
 			}
 			for _, expected := range []string{
 				"✗ " + name + " was created from an older " + testCase.preset + " preset",
-				"model " + testCase.model + " → grok-4.6",
+				"model " + testCase.model + " → grok-4.7",
 				"(run: cc-dialect create " + name + " --preset grok --context-window 500000)",
 			} {
 				if !strings.Contains(lines[0], expected) {
@@ -344,8 +344,8 @@ func TestPresetDriftMigratesRetiredXAIPresetsToGrok(t *testing.T) {
 				"model": kept.Model, "subagent": kept.SubagentModel, "opus": kept.OpusModel,
 				"sonnet": kept.SonnetModel, "haiku": kept.HaikuModel,
 			} {
-				if model != "grok-4.6" {
-					t.Errorf("remedy %s model = %q, want grok-4.6", field, model)
+				if model != "grok-4.7" {
+					t.Errorf("remedy %s model = %q, want grok-4.7", field, model)
 				}
 			}
 			if got, want := kept.PresetFingerprint, presetFingerprint(presets["grok"]); got != want {
@@ -366,8 +366,8 @@ func TestPresetDriftRemediesCursorGrok46Routes(t *testing.T) {
 		preset      string
 		changedTier string
 	}{
-		{preset: "cursor-grok", changedTier: "model grok-4.5 → grok-4.6"},
-		{preset: "cursor-mix", changedTier: "sonnet grok-4.5 → grok-4.6"},
+		{preset: "cursor-grok", changedTier: "model grok-4.5 → grok-4.7"},
+		{preset: "cursor-mix", changedTier: "sonnet grok-4.5 → grok-4.7"},
 	} {
 		t.Run(testCase.preset, func(t *testing.T) {
 			current := presets[testCase.preset]

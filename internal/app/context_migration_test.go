@@ -32,11 +32,11 @@ func TestBackfillFillsPresetBackedDialects(t *testing.T) {
       "dialects": {
         "cc-codex": {
           "preset": "codex-sol",
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "effort": true,
           "effortLevel": "auto",
@@ -52,8 +52,8 @@ func TestBackfillFillsPresetBackedDialects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 372000 {
-		t.Fatalf("backfilled context window = %d, want 372000", got)
+	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 272000 {
+		t.Fatalf("backfilled context window = %d, want 272000", got)
 	}
 }
 
@@ -68,11 +68,11 @@ func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
       "basePort": 43170,
       "dialects": {
         "cc-codex": {
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "effort": true,
           "effortLevel": "auto",
@@ -107,7 +107,7 @@ func TestBackfillFillsUnlabeledDialectsIdenticalToAPreset(t *testing.T) {
 		window int
 		preset string
 	}{
-		"cc-codex": {372000, "codex-sol"},
+		"cc-codex": {272000, "codex-sol"},
 		"cc-glm":   {1000000, "glm"},
 	} {
 		if got := cfg.Dialects[name].ContextWindow; got != want.window {
@@ -179,11 +179,11 @@ func TestBackfillLeavesAmbiguousRoutesUnknown(t *testing.T) {
       "basePort": 43170,
       "dialects": {
         "cc-codex": {
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "port": 43170,
           "apiKey": "local-secret"
@@ -240,11 +240,11 @@ func TestBackfillLeavesCustomDialectsUnknown(t *testing.T) {
       "basePort": 43170,
       "dialects": {
         "cc-custom": {
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "port": 43170,
           "apiKey": "local-secret"
         }
@@ -268,11 +268,11 @@ func TestBackfillPreservesAnExplicitContextWindow(t *testing.T) {
       "dialects": {
         "cc-codex": {
           "preset": "codex-sol",
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "contextWindow": 128000,
           "port": 43170,
@@ -328,11 +328,11 @@ func TestBackfillCalibratesAnUnrecognizedLabelWithoutRenamingIt(t *testing.T) {
       "dialects": {
         "cc-codex": {
           "preset": "codex-sol-v2",
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "port": 43170,
           "apiKey": "local-secret"
@@ -344,8 +344,8 @@ func TestBackfillCalibratesAnUnrecognizedLabelWithoutRenamingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 372000 {
-		t.Errorf("context window = %d, want the route's reviewed 372000", got)
+	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 272000 {
+		t.Errorf("context window = %d, want the route's reviewed 272000", got)
 	}
 	if got := cfg.Dialects["cc-codex"].Preset; got != "codex-sol-v2" {
 		t.Errorf("preset = %q, want the stored \"codex-sol-v2\" left untouched", got)
@@ -415,11 +415,11 @@ func TestPersistContextWindowBackfillWritesOnlyUnambiguousDialects(t *testing.T)
       "dialects": {
         "cc-codex": {
           "preset": "codex-sol",
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "port": 43170,
           "apiKey": "codex-secret"
@@ -476,8 +476,8 @@ func TestPersistContextWindowBackfillWritesOnlyUnambiguousDialects(t *testing.T)
 	if err = json.Unmarshal(data, &stored); err != nil {
 		t.Fatal(err)
 	}
-	if got := stored.Dialects["cc-codex"].ContextWindow; got != 372000 {
-		t.Errorf("cc-codex context window = %d, want 372000 written to disk", got)
+	if got := stored.Dialects["cc-codex"].ContextWindow; got != 272000 {
+		t.Errorf("cc-codex context window = %d, want 272000 written to disk", got)
 	}
 	if got := stored.Dialects["cc-tweaked"].ContextWindow; got != 0 {
 		t.Errorf("cc-tweaked context window = %d, want it left unwritten", got)
@@ -512,7 +512,7 @@ func TestPersistContextWindowBackfillCalibratesExactRouteWithoutChangingDiverged
           "model": "composer-2.5",
           "subagentModel": "composer-2.5",
           "opusModel": "composer-2.5",
-          "sonnetModel": "grok-4.6",
+          "sonnetModel": "grok-4.7",
           "haikuModel": "kimi-k3",
           "bridge": "cursor",
           "authTokenEnv": "CURSOR_API_KEY",
@@ -566,11 +566,11 @@ func TestPersistContextWindowBackfillRecordsTheResolvedPreset(t *testing.T) {
       "basePort": 43170,
       "dialects": {
         "cc-codex": {
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "port": 43170,
           "apiKey": "local-secret"
@@ -606,8 +606,8 @@ func TestPersistContextWindowBackfillRecordsTheResolvedPreset(t *testing.T) {
 	if got := stored.Dialects["cc-codex"].Preset; got != "codex-sol" {
 		t.Errorf("stored preset = %q, want the matched \"codex-sol\" written to disk", got)
 	}
-	if got := stored.Dialects["cc-codex"].ContextWindow; got != 372000 {
-		t.Errorf("stored context window = %d, want 372000", got)
+	if got := stored.Dialects["cc-codex"].ContextWindow; got != 272000 {
+		t.Errorf("stored context window = %d, want 272000", got)
 	}
 }
 
@@ -620,11 +620,11 @@ func TestPersistContextWindowBackfillIsIdempotent(t *testing.T) {
       "dialects": {
         "cc-codex": {
           "preset": "codex-sol",
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "port": 43170,
           "apiKey": "codex-secret"
@@ -690,11 +690,11 @@ func TestBackfillKeepsTheConfigRevisionStable(t *testing.T) {
       "dialects": {
         "cc-grok": {
           "preset": "grok",
-          "model": "grok-4.6",
-          "subagentModel": "grok-4.6",
-          "opusModel": "grok-4.6",
-          "sonnetModel": "grok-4.6",
-          "haikuModel": "grok-4.6",
+          "model": "grok-4.7",
+          "subagentModel": "grok-4.7",
+          "opusModel": "grok-4.7",
+          "sonnetModel": "grok-4.7",
+          "haikuModel": "grok-4.7",
           "authProvider": "xai",
           "port": 43171,
           "apiKey": "local-secret"

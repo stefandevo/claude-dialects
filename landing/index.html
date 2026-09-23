@@ -78,7 +78,7 @@
         </div>
         <div class="terminal__body">
           <div class="terminal__line"><span class="prompt">$</span> cc-dialect create cc-codex --preset codex-sol</div>
-          <div class="terminal__line terminal__line--dim">✓ Created cc-codex · gpt-5.6-sol · proxy :43170</div>
+          <div class="terminal__line terminal__line--dim">✓ Created cc-codex · gpt-6-sol · proxy :43170</div>
           <div class="terminal__line"><span class="prompt">$</span> cc-dialect auth cc-codex codex</div>
           <div class="terminal__line terminal__line--dim">✓ ChatGPT OAuth complete</div>
           <div class="terminal__line"><span class="prompt">$</span> cc-dialect shim install cc-codex && cc-codex</div>
@@ -251,7 +251,7 @@
           <span class="provider-card__name">OpenAI Codex</span>
           <code>codex-sol</code>
         </div>
-        <p>GPT-5.6 Sol, Terra, Luna via ChatGPT OAuth</p>
+        <p>GPT-6 Sol and Luna via ChatGPT OAuth</p>
         <span class="provider-card__cmd">cc-codex</span>
       </div>
       <div class="provider-card reveal" data-provider="kimi">
@@ -275,7 +275,7 @@
           <span class="provider-card__name">xAI Grok</span>
           <code>grok</code>
         </div>
-        <p>Grok 4.6 across every tier · xAI OAuth</p>
+        <p>Grok 4.7 across every tier · xAI OAuth</p>
         <span class="provider-card__cmd">cc-grok</span>
       </div>
       <div class="provider-card reveal" data-provider="cursor">
@@ -283,7 +283,7 @@
           <span class="provider-card__name">Cursor</span>
           <code>cursor-composer</code>
         </div>
-        <p>Official @cursor/sdk bridge · Composer 2.5, Grok 4.6 &amp; Kimi K3</p>
+        <p>Official @cursor/sdk bridge · Composer 2.5, Grok 4.7 &amp; Kimi K3</p>
         <span class="provider-card__cmd">cc-cursor</span>
       </div>
       <div class="provider-card reveal" data-provider="copilot">
@@ -307,7 +307,7 @@
           <span class="provider-card__name">Anthropic Claude</span>
           <code>claude</code>
         </div>
-        <p>Separate OAuth · Fable 5, Sonnet 4.6, Haiku 4.5</p>
+        <p>Separate OAuth · Fable 5.1, Sonnet 5, Haiku 4.5</p>
         <span class="provider-card__cmd">cc-claude</span>
       </div>
     </div>
@@ -350,7 +350,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc</code></pre>
       <div class="config-panel" data-panel="codex">
         <div class="code-block">
           <div class="code-block__header">
-            <span>OpenAI Codex · GPT-5.6 Sol</span>
+            <span>OpenAI Codex · GPT-6 Sol</span>
             <button class="copy-btn" data-copy="codex">Copy</button>
           </div>
           <pre><code id="code-codex">cc-dialect create cc-codex --preset codex-sol
@@ -359,8 +359,9 @@ cc-dialect shim install cc-codex
 cc-codex
 
 # Switch models inside Claude Code
-/model opus    # → gpt-5.6-sol
-/model sonnet  # → gpt-5.6-terra
+/model opus    # → gpt-6-sol
+/model sonnet  # → gpt-6-sol
+/model haiku   # → gpt-6-luna
 /effort high</code></pre>
         </div>
       </div>
@@ -428,10 +429,10 @@ cc-kimi-work     # proxy :43171</code></pre>
           </div>
           <pre><code id="code-custom">cc-dialect create cc-my-codex \
   --preset codex \
-  --model gpt-5.6 \
-  --opus-model gpt-5.6-sol \
-  --sonnet-model gpt-5.6-terra \
-  --haiku-model gpt-5.6-luna \
+  --model gpt-6-astra \
+  --opus-model gpt-6-astra \
+  --sonnet-model gpt-6-sol \
+  --haiku-model gpt-6-luna \
   --effort-level auto \
   --concurrency 3 \
   --port 53170

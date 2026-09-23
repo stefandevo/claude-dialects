@@ -14,15 +14,15 @@ func TestCreateDialectAdoptsThePresetContextWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Dialect.ContextWindow != 372000 {
-		t.Fatalf("view context window = %d, want 372000", result.Dialect.ContextWindow)
+	if result.Dialect.ContextWindow != 272000 {
+		t.Fatalf("view context window = %d, want 272000", result.Dialect.ContextWindow)
 	}
 	cfg, err := loadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 372000 {
-		t.Fatalf("stored context window = %d, want 372000", got)
+	if got := cfg.Dialects["cc-codex"].ContextWindow; got != 272000 {
+		t.Fatalf("stored context window = %d, want 272000", got)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestDialectViewSerializesContextWindowWithoutSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	if !strings.Contains(body, `"contextWindow":372000`) {
+	if !strings.Contains(body, `"contextWindow":272000`) {
 		t.Fatalf("serialized view does not expose the context window:\n%s", body)
 	}
 	if strings.Contains(body, "local-secret") {

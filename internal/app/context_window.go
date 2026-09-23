@@ -74,7 +74,7 @@ type contextWindowSource struct {
 // init below stamps these onto the presets themselves, so every existing reader
 // of the presets map picks the value up without a second table to keep in sync.
 //
-// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.2.149
+// "CLIProxyAPI registry" values come from the embedded CLIProxyAPI v7.3.15
 // model registry (internal/registry/models/models.json), which is authoritative
 // for the OAuth-backed routes because it is the same catalog the proxy serves.
 // Recalibrating means re-reading that file at the version go.mod pins now, not
@@ -88,13 +88,13 @@ type contextWindowSource struct {
 // (gemini, vertex, aistudio, gemini-cli) spell it inputTokenLimit, while every
 // other key, antigravity included, spells it context_length.
 //
-// Two stamped IDs are not registry IDs and have to be normalized before that
-// lookup. codex selects gpt-5.6, a family name carried as the version field of
-// the gpt-5.6-sol/terra/luna entries rather than as any entry's id; claude
-// selects claude-haiku-4-5, the undated form of claude-haiku-4-5-20251001. The
-// every other ID matches an id verbatim, so a lookup that quietly prefix-matches
-// will paper over exactly these two and hide it if either family's tiers stop
-// agreeing.
+// One stamped ID is not a registry ID and has to be normalized before that
+// lookup. claude selects claude-haiku-4-5, the undated form of
+// claude-haiku-4-5-20251001. Every other stamped ID matches an id verbatim, so
+// a lookup that quietly prefix-matches will paper over that alias and hide it
+// if the dated Haiku entry's window moves. GPT-6 Codex entries are registry
+// ids (gpt-6-astra, gpt-6-sol, gpt-6-luna); the version field gpt-6.0 is not a
+// requestable id and is not used as a preset model.
 //
 // Cursor and GitHub publish no per-route context window, and neither the
 // @cursor/sdk model list nor the Copilot SDK carries the field, so those routes
@@ -103,44 +103,44 @@ type contextWindowSource struct {
 // the vendor offers, so its fallback covers the smallest of them.
 var presetContextWindows = map[string]contextWindowSource{
 	"codex-sol": {
-		Window: 372000, Verified: "2026-08-21",
-		Basis: "GPT-5.6 Sol, Terra, and Luna all 372000 (CLIProxyAPI registry)",
+		Window: 272000, Verified: "2026-09-23",
+		Basis: "GPT-6 Sol and Luna both 272000 on every Codex account tier that lists them (CLIProxyAPI registry)",
 	},
 	"codex": {
-		Window: 372000, Verified: "2026-08-21",
-		Basis: "GPT-5.6 tiers Sol, Terra, and Luna all 372000 (CLIProxyAPI registry)",
+		Window: 272000, Verified: "2026-09-23",
+		Basis: "GPT-6 Astra, Sol, and Luna all 272000 on codex team, plus, and pro (CLIProxyAPI registry)",
 	},
 	"kimi": {
-		Window: 262144, Verified: "2026-08-21",
+		Window: 262144, Verified: "2026-09-23",
 		Basis: "K2.7 Code Highspeed and K2.6 at 262144 cap the 1048576 Kimi K3 main model (CLIProxyAPI registry)",
 	},
 	"gemini": {
-		Window: 1048576, Verified: "2026-08-21",
-		Basis: "Gemini Pro Agent and the 3.5 Flash routes all 1048576 (CLIProxyAPI registry)",
+		Window: 1048576, Verified: "2026-09-23",
+		Basis: "Gemini Pro Agent, Gemini 3.8 Flash High, and Gemini 3.5 Flash Lite all 1048576 (CLIProxyAPI registry)",
 	},
 	"claude": {
-		Window: 200000, Verified: "2026-08-21",
-		Basis: "Sonnet 4.6 and Haiku 4.5 at 200000 cap the 1M Fable 5 main model (CLIProxyAPI registry)",
+		Window: 200000, Verified: "2026-09-23",
+		Basis: "Haiku 4.5 at 200000 caps Fable 5.1 and Sonnet 5, both 1000000 (CLIProxyAPI registry)",
 	},
 	"mixed-frontier": {
-		Window: 372000, Verified: "2026-08-21",
-		Basis: "GPT-5.6 Sol at 372000 caps Fable 5 (1M), Kimi K3 (1048576), and Grok 4.6 (500000) (CLIProxyAPI registry)",
+		Window: 272000, Verified: "2026-09-23",
+		Basis: "GPT-6 Sol at 272000 caps Fable 5.1 (1000000), Kimi K3 (1048576), and Grok 4.7 (500000) (CLIProxyAPI registry)",
 	},
 	"glm": {
 		Window: 1000000, Verified: "2026-08-28",
 		Basis: "GLM-5.3 (opus/main/subagent) and GLM-5.3-Flash (sonnet and haiku) both 1M; Z.ai documents 1M as 1000000 (Z.ai model documentation)",
 	},
 	"grok": {
-		Window: 500000, Verified: "2026-08-21",
-		Basis: "Grok 4.6 (CLIProxyAPI registry and Grok CLI)",
+		Window: 500000, Verified: "2026-09-23",
+		Basis: "Grok 4.7 (CLIProxyAPI registry)",
 	},
 	"minimax": {
-		Window: 204800, Verified: "2026-07-27",
-		Basis: "MiniMax-M2.7 documented 204800 combined input and output window (MiniMax platform documentation)",
+		Window: 1000000, Verified: "2026-09-23",
+		Basis: "MiniMax-M3 documented 1000000 context window (MiniMax platform documentation)",
 	},
 	"deepseek": {
-		Window: 1000000, Verified: "2026-07-27",
-		Basis: "DeepSeek V4 Pro and V4 Flash both 1000000 (DeepSeek API documentation)",
+		Window: 1000000, Verified: "2026-09-23",
+		Basis: "DeepSeek V4 Pro and deepseek-flash both 1000000 (DeepSeek API documentation)",
 	},
 	"cursor-composer": {
 		Window: 200000, Verified: "2026-07-27",
@@ -155,32 +155,32 @@ var presetContextWindows = map[string]contextWindowSource{
 		Basis: "conservative fallback: Cursor auto may select any offered model, including 128000-token routes",
 	},
 	"cursor-grok": {
-		Window: 200000, Verified: "2026-08-21",
-		Basis: "conservative fallback: served through the Cursor route, whose window is not published and need not match xAI's direct Grok 4.6 window",
+		Window: 200000, Verified: "2026-09-23",
+		Basis: "conservative fallback: served through the Cursor route, whose window is not published and need not match xAI's direct Grok 4.7 window",
 	},
 	"cursor-mix": {
-		Window: 200000, Verified: "2026-08-21",
-		Basis: "conservative fallback: Composer, Grok, and Kimi models served through the Cursor route, whose window is not published and need not match any direct provider window",
+		Window: 200000, Verified: "2026-09-23",
+		Basis: "conservative fallback: Composer, Grok 4.7, and Kimi models served through the Cursor route, whose window is not published and need not match any direct provider window",
 	},
 	"copilot-auto": {
 		Window: 128000, Verified: "2026-07-27",
 		Basis: "conservative fallback: Copilot auto may select any offered model, including the small mini routes",
 	},
 	"copilot-mai": {
-		Window: 256000, Verified: "2026-07-27",
-		Basis: "MAI-Code-1-Flash documented 256000 window",
+		Window: 256000, Verified: "2026-09-23",
+		Basis: "MAI-Code-1.1-Flash documented 256000 context window",
 	},
 	"copilot-codex": {
-		Window: 200000, Verified: "2026-07-27",
-		Basis: "conservative fallback: GitHub documents no default window for the GPT-5.3-Codex Copilot route",
+		Window: 272000, Verified: "2026-09-23",
+		Basis: "conservative fallback: Copilot lists GPT-6 Sol without a context-window field; 272000 is its published default pricing tier and the CLIProxyAPI Codex catalog window for this ID",
 	},
 	"copilot-claude": {
-		Window: 200000, Verified: "2026-07-27",
-		Basis: "Claude Sonnet 4.6 and Haiku 4.5 base windows of 200000; the 1M window is an extended-context capability, not the route default",
+		Window: 200000, Verified: "2026-09-23",
+		Basis: "Haiku 4.5 base window of 200000 caps Sonnet 5; Copilot publishes no separate route window",
 	},
 	"copilot-gemini": {
-		Window: 1048576, Verified: "2026-07-27",
-		Basis: "Gemini 3.1 Pro and 3.5 Flash 1048576",
+		Window: 1000000, Verified: "2026-09-23",
+		Basis: "Gemini 3.8 Flash context of 1000000 on the Copilot catalog",
 	},
 }
 

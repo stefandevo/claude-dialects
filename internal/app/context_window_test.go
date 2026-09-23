@@ -52,10 +52,10 @@ func TestMultiModelPresetsUseTheSmallestSupportedWindow(t *testing.T) {
 		window int
 		reason string
 	}{
-		{"claude", 200000, "Sonnet 4.6 and Haiku 4.5 cap the 1M Fable 5 main model"},
-		{"mixed-frontier", 372000, "GPT-5.6 Sol caps Fable 5, Kimi K3, and Grok 4.6"},
+		{"claude", 200000, "Haiku 4.5 caps the 1M Fable 5.1 and Sonnet 5 models"},
+		{"mixed-frontier", 272000, "GPT-6 Sol caps Fable 5.1, Kimi K3, and Grok 4.7"},
 		{"glm", 1000000, "GLM-5.3 and GLM-5.3-Flash both hold 1M; no smaller tier remains on the route"},
-		{"codex-sol", 372000, "every GPT-5.6 Sol/Terra/Luna tier shares one window"},
+		{"codex-sol", 272000, "every GPT-6 Sol and Luna tier shares one window"},
 	} {
 		if got := presets[testCase.preset].ContextWindow; got != testCase.window {
 			t.Errorf("presets[%q].ContextWindow = %d, want %d (%s)", testCase.preset, got, testCase.window, testCase.reason)
@@ -181,9 +181,10 @@ func percent(part, whole int) int {
 	return int(math.Round(float64(part) / float64(whole) * 100))
 }
 
-// The reproduced codex-sol session reached 368,812 effective input tokens
-// against a 372,000-token provider window without compacting. The preset must
-// hand Claude Code that same denominator so it can compact before exhaustion.
+// A GPT-5.6 Sol session reached 368,812 effective input tokens against a
+// 372,000-token window without compacting. GPT-6 Sol and Luna are 272,000 in
+// the Codex catalog, so that session is past the window the preset now
+// declares. Declaring 272,000 is what lets compaction run first.
 func TestCodexSolWindowCoversTheReproducedExhaustionCase(t *testing.T) {
 	const uncachedInput = 15020
 	const cacheReadInput = 353792
@@ -192,11 +193,11 @@ func TestCodexSolWindowCoversTheReproducedExhaustionCase(t *testing.T) {
 		t.Fatalf("effective input = %d, want 368812", effectiveInput)
 	}
 	window := presets["codex-sol"].ContextWindow
-	if window != 372000 {
-		t.Fatalf("codex-sol context window = %d, want the 372000-token GPT-5.6 Sol window", window)
+	if window != 272000 {
+		t.Fatalf("codex-sol context window = %d, want the 272000-token GPT-6 catalog window", window)
 	}
-	if effectiveInput >= window {
-		t.Fatalf("effective input %d must stay below the configured window %d", effectiveInput, window)
+	if effectiveInput < window {
+		t.Fatalf("previous exhaustion %d must sit above the catalog window %d", effectiveInput, window)
 	}
 	env := applyContextWindow(nil, window)
 	if value := lookupEnv(env, autoCompactWindowEnv); value != strconv.Itoa(window) {

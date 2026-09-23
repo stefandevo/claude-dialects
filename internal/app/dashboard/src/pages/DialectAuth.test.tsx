@@ -24,8 +24,8 @@ import { DialectDetailPage } from './DialectDetailPage';
 
 function mixedDialect(overrides: Partial<DialectView> = {}): DialectView {
   return {
-    name: 'cc-mixed', preset: 'mixed-frontier', provider: 'mixed', model: 'claude-fable-5',
-    opusModel: 'gpt-5.6-sol', sonnetModel: 'kimi-k3', haikuModel: 'grok-4.6',
+    name: 'cc-mixed', preset: 'mixed-frontier', provider: 'mixed', model: 'claude-fable-5-1',
+    opusModel: 'gpt-6-sol', sonnetModel: 'kimi-k3', haikuModel: 'grok-4.7',
     effort: true, concurrency: 3, toolSearch: false, port: 43170,
     authProviders: ['claude', 'codex', 'kimi', 'xai'],
     status: { state: 'stopped', proxy: { state: 'stopped', port: 43170 } },
