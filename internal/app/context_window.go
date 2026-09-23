@@ -171,8 +171,8 @@ var presetContextWindows = map[string]contextWindowSource{
 		Basis: "MAI-Code-1.1-Flash documented 256000 context window",
 	},
 	"copilot-codex": {
-		Window: 272000, Verified: "2026-09-23",
-		Basis: "conservative fallback: Copilot lists GPT-6 Sol without a context-window field; 272000 is its published default pricing tier and the CLIProxyAPI Codex catalog window for this ID",
+		Window: 200000, Verified: "2026-09-23",
+		Basis: "conservative fallback: Copilot publishes no context window for this GPT-6 Sol route",
 	},
 	"copilot-claude": {
 		Window: 200000, Verified: "2026-09-23",

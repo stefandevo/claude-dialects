@@ -942,13 +942,13 @@ mid-conversation and spawning subagents safe.
 | `grok` | 500,000 | Grok 4.7 |
 | `codex-sol`, `codex` | 272,000 | GPT-6 Astra, Sol, and Luna |
 | `mixed-frontier` | 272,000 | GPT-6 Sol |
-| `copilot-codex` | 272,000 | Copilot GPT-6 Sol route |
 | `kimi` | 262,144 | Kimi K2.7 Code Highspeed and K2.6 |
 | `copilot-mai` | 256,000 | MAI-Code-1.1-Flash |
 | `claude` | 200,000 | Claude Haiku 4.5 (Fable 5.1 and Sonnet 5 are larger) |
 | `cursor-composer`, `cursor-composer-fast` | 200,000 | Cursor Composer 2.5 route |
 | `cursor-grok` | 200,000 | Cursor Grok 4.7 route |
 | `cursor-mix` | 200,000 | Cursor Composer/Grok/Kimi mixed route |
+| `copilot-codex` | 200,000 | conservative fallback; Copilot publishes no window for GPT-6 Sol |
 | `copilot-claude` | 200,000 | Claude Haiku 4.5 (Sonnet 5 is larger) |
 | `cursor-auto`, `copilot-auto` | 128,000 | any model the route may select |
 
@@ -1097,7 +1097,8 @@ Claude Code 2.x supports live switching without losing the conversation:
 ```
 
 Each dialect maps the standard `opus`, `sonnet`, and `haiku` choices to its own
-three configured model IDs. The Codex preset maps them to Sol, Terra, and Luna.
+three configured model IDs. The `codex` preset maps them to Astra, Sol, and Luna;
+`codex-sol` maps opus and sonnet to Sol and haiku to Luna.
 Use `--opus-model`, `--sonnet-model`, and `--haiku-model` to change that mapping.
 `/model` also lets you adjust effort with the arrow keys, and `/effort` changes
 it immediately. We deliberately do not set `CLAUDE_CODE_EFFORT_LEVEL`, because
