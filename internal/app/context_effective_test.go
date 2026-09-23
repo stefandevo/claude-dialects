@@ -13,8 +13,8 @@ import (
 // Claude Code actually runs with.
 func TestEffectiveContextWindowFollowsAnExtraEnvOverride(t *testing.T) {
 	dialect := presets["codex-sol"]
-	if got := effectiveContextWindow(dialect); got != 372000 {
-		t.Fatalf("effective window = %d, want the stored 372000", got)
+	if got := effectiveContextWindow(dialect); got != 272000 {
+		t.Fatalf("effective window = %d, want the stored 272000", got)
 	}
 
 	dialect.ExtraEnv = map[string]string{autoCompactWindowEnv: "150000"}
@@ -108,8 +108,8 @@ func TestEffectiveContextWindowRejectsAHalfCalibratedDialect(t *testing.T) {
 func TestEffectiveContextWindowIgnoresUnrelatedExtraEnv(t *testing.T) {
 	dialect := presets["codex-sol"]
 	dialect.ExtraEnv = map[string]string{"SOME_OTHER_VARIABLE": "1"}
-	if got := effectiveContextWindow(dialect); got != 372000 {
-		t.Fatalf("effective window = %d, want the stored 372000", got)
+	if got := effectiveContextWindow(dialect); got != 272000 {
+		t.Fatalf("effective window = %d, want the stored 272000", got)
 	}
 }
 

@@ -55,9 +55,11 @@ func TestRecordInputTokensReportsNothingForAnEmptyRecord(t *testing.T) {
 	}
 }
 
-// The reproduced codex-sol session: 99.1% of the provider window reached in a
-// single request. The monitor must compare that per-request input against the
-// dialect's configured window, not against cumulative account usage.
+// The reproduced codex-sol session reached 368,812 input tokens. That was 99.1%
+// of the old 372,000-token GPT-5.6 window; GPT-6 Sol and Luna are 272,000, so
+// the same request now sits above the preset. The monitor must compare that
+// per-request input against the dialect's configured window, not against
+// cumulative account usage.
 func TestMonitorMeasuresTheReproducedCodexExhaustion(t *testing.T) {
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	dialect := presets["codex-sol"]
@@ -77,11 +79,11 @@ func TestMonitorMeasuresTheReproducedCodexExhaustion(t *testing.T) {
 	if state.InputTokens != 368812 {
 		t.Fatalf("observed input = %d, want 368812", state.InputTokens)
 	}
-	if state.Window != 372000 {
-		t.Fatalf("observed window = %d, want 372000", state.Window)
+	if state.Window != 272000 {
+		t.Fatalf("observed window = %d, want 272000", state.Window)
 	}
-	if state.UsedPercent < 99.0 || state.UsedPercent > 99.2 {
-		t.Fatalf("used percent = %.2f, want the reported 99.1", state.UsedPercent)
+	if state.UsedPercent < 135.5 || state.UsedPercent > 135.7 {
+		t.Fatalf("used percent = %.2f, want about 135.6 of the 272000-token window", state.UsedPercent)
 	}
 }
 
@@ -122,18 +124,19 @@ func TestMonitorWarnsOncePerThresholdBand(t *testing.T) {
 		})
 	}
 
-	send(310000) // ~83% — first warning
-	send(312000) // still ~84%, same band — silent
-	send(340000) // ~91% — next band warns
+	window := int64(presets["codex-sol"].ContextWindow)
+	send(window * 83 / 100) // ~83% — first warning
+	send(window * 84 / 100) // still ~84%, same band — silent
+	send(window * 91 / 100) // ~91% — next band warns
 	if len(warnings) != 2 {
 		t.Fatalf("got %d warnings, want 2: %v", len(warnings), warnings)
 	}
 
-	send(100000) // compaction happened; band re-arms silently
+	send(window * 30 / 100) // compaction happened; band re-arms silently
 	if len(warnings) != 2 {
 		t.Fatalf("dropping below the band warned again: %v", warnings)
 	}
-	send(310000) // back above the band — warns again
+	send(window * 83 / 100) // back above the band — warns again
 	if len(warnings) != 3 {
 		t.Fatalf("got %d warnings after re-entering the band, want 3: %v", len(warnings), warnings)
 	}
@@ -259,7 +262,7 @@ func TestContextUsageReportSurfacesTheLatestReading(t *testing.T) {
 	})
 
 	line := contextUsageReport("cc-codex")
-	for _, expected := range []string{"cc-codex", "99.1%", "372000", "368812", "gpt-5.6-sol"} {
+	for _, expected := range []string{"cc-codex", "135.6%", "272000", "368812", "gpt-5.6-sol"} {
 		if !strings.Contains(line, expected) {
 			t.Errorf("report %q does not mention %q", line, expected)
 		}
