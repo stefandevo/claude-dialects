@@ -3,7 +3,7 @@ module github.com/stefandevo/claude-dialects
 go 1.26.6
 
 require (
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.149
+	github.com/router-for-me/CLIProxyAPI/v7 v7.3.15
 	golang.org/x/sys v0.47.0
 )
 
@@ -30,7 +30,9 @@ require (
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/libp2p/zeroconf/v2 v2.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/miekg/dns v1.1.43 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect

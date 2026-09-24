@@ -344,7 +344,7 @@ func TestGeminiPresetUsesAntigravityModelAliases(t *testing.T) {
 	if gemini.Model != "gemini-pro-agent" || gemini.SubagentModel != "gemini-pro-agent" || gemini.OpusModel != "gemini-pro-agent" {
 		t.Fatalf("Gemini preset does not use the Antigravity Pro alias: %#v", gemini)
 	}
-	if gemini.SonnetModel != "gemini-3.5-flash-low" || gemini.HaikuModel != "gemini-3.5-flash-extra-low" {
+	if gemini.SonnetModel != "gemini-3.8-flash-high" || gemini.HaikuModel != "gemini-3.5-flash-lite" {
 		t.Fatalf("Gemini preset has unsupported Antigravity Flash aliases: %#v", gemini)
 	}
 	if gemini.AuthProvider != "antigravity" {
@@ -370,14 +370,14 @@ func TestGLMPresetUsesLatestModelsAndEndpoint(t *testing.T) {
 	}
 }
 
-func TestXAIPresetUsesGrok46AndRetiresLegacyPresets(t *testing.T) {
+func TestXAIPresetUsesGrok47AndRetiresLegacyPresets(t *testing.T) {
 	grok, ok := presets["grok"]
 	if !ok {
 		t.Fatal("grok preset is missing")
 	}
-	if grok.Model != "grok-4.6" || grok.SubagentModel != "grok-4.6" ||
-		grok.OpusModel != "grok-4.6" || grok.SonnetModel != "grok-4.6" || grok.HaikuModel != "grok-4.6" {
-		t.Fatalf("grok preset does not consistently use grok-4.6: %#v", grok)
+	if grok.Model != "grok-4.7" || grok.SubagentModel != "grok-4.7" ||
+		grok.OpusModel != "grok-4.7" || grok.SonnetModel != "grok-4.7" || grok.HaikuModel != "grok-4.7" {
+		t.Fatalf("grok preset does not consistently use grok-4.7: %#v", grok)
 	}
 	if grok.AuthProvider != "xai" {
 		t.Errorf("grok preset auth provider = %q, want xai", grok.AuthProvider)
@@ -391,7 +391,7 @@ func TestXAIPresetUsesGrok46AndRetiresLegacyPresets(t *testing.T) {
 
 func TestMiniMaxPresetUsesAnthropicCompatibleEndpoint(t *testing.T) {
 	minimax := presets["minimax"]
-	if minimax.Model != "MiniMax-M2.7" || minimax.SubagentModel != "MiniMax-M2.7" {
+	if minimax.Model != "MiniMax-M3" || minimax.SubagentModel != "MiniMax-M3" {
 		t.Fatalf("MiniMax preset uses unexpected models: %#v", minimax)
 	}
 	if minimax.BaseURL != "https://api.minimax.io/anthropic" {
@@ -407,7 +407,7 @@ func TestDeepSeekPresetUsesProAndFlashModels(t *testing.T) {
 	if deepseek.Model != "deepseek-v4-pro" || deepseek.SubagentModel != "deepseek-v4-pro" || deepseek.OpusModel != "deepseek-v4-pro" {
 		t.Fatalf("DeepSeek preset does not use Pro for main, subagent, and opus: %#v", deepseek)
 	}
-	if deepseek.SonnetModel != "deepseek-v4-flash" || deepseek.HaikuModel != "deepseek-v4-flash" {
+	if deepseek.SonnetModel != "deepseek-flash" || deepseek.HaikuModel != "deepseek-flash" {
 		t.Fatalf("DeepSeek preset does not use Flash for lower tiers: %#v", deepseek)
 	}
 	if deepseek.BaseURL != "https://api.deepseek.com/anthropic" || deepseek.AuthTokenEnv != "DEEPSEEK_API_KEY" {
@@ -420,7 +420,7 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 		"cursor-composer":      "composer-2.5",
 		"cursor-composer-fast": "composer-2.5-fast",
 		"cursor-auto":          "auto",
-		"cursor-grok":          "grok-4.6",
+		"cursor-grok":          "grok-4.7",
 		"cursor-mix":           "composer-2.5",
 	}
 	for name, model := range tests {
@@ -442,9 +442,9 @@ func TestCursorPresetsUseOfficialSDKBridge(t *testing.T) {
 		t.Fatalf("Cursor Composer preset does not expose Fast and Standard variants: %#v", composer)
 	}
 	cursorGrok := presets["cursor-grok"]
-	if cursorGrok.Model != "grok-4.6" || cursorGrok.SubagentModel != "grok-4.6" ||
-		cursorGrok.OpusModel != "grok-4.6" || cursorGrok.SonnetModel != "grok-4.6" || cursorGrok.HaikuModel != "grok-4.6" {
-		t.Fatalf("cursor-grok preset does not consistently use grok-4.6: %#v", cursorGrok)
+	if cursorGrok.Model != "grok-4.7" || cursorGrok.SubagentModel != "grok-4.7" ||
+		cursorGrok.OpusModel != "grok-4.7" || cursorGrok.SonnetModel != "grok-4.7" || cursorGrok.HaikuModel != "grok-4.7" {
+		t.Fatalf("cursor-grok preset does not consistently use grok-4.7: %#v", cursorGrok)
 	}
 	if got := presetForDialect(cursorGrok); got != "cursor-grok" {
 		t.Fatalf("Cursor Grok preset detection = %q, want cursor-grok", got)
@@ -459,8 +459,8 @@ func TestCursorMixPresetCombinesComposerGrokAndKimi(t *testing.T) {
 	if mix.Model != "composer-2.5" || mix.SubagentModel != "composer-2.5" {
 		t.Fatalf("cursor-mix does not use Composer 2.5 for main and subagent: %#v", mix)
 	}
-	if mix.OpusModel != "composer-2.5" || mix.SonnetModel != "grok-4.6" || mix.HaikuModel != "kimi-k3" {
-		t.Fatalf("cursor-mix tier mapping = opus %q / sonnet %q / haiku %q, want composer-2.5 / grok-4.6 / kimi-k3: %#v",
+	if mix.OpusModel != "composer-2.5" || mix.SonnetModel != "grok-4.7" || mix.HaikuModel != "kimi-k3" {
+		t.Fatalf("cursor-mix tier mapping = opus %q / sonnet %q / haiku %q, want composer-2.5 / grok-4.7 / kimi-k3: %#v",
 			mix.OpusModel, mix.SonnetModel, mix.HaikuModel, mix)
 	}
 	if mix.Bridge != "cursor" || mix.AuthTokenEnv != "CURSOR_API_KEY" {
@@ -502,10 +502,10 @@ func TestCursorMixPresetCombinesComposerGrokAndKimi(t *testing.T) {
 func TestCopilotPresetsUseOfficialSDKBridge(t *testing.T) {
 	tests := map[string]string{
 		"copilot-auto":   "auto",
-		"copilot-mai":    "mai-code-1-flash",
-		"copilot-codex":  "gpt-5.3-codex",
-		"copilot-claude": "claude-sonnet-4.6",
-		"copilot-gemini": "gemini-3.1-pro-preview",
+		"copilot-mai":    "mai-code-1.1-flash",
+		"copilot-codex":  "gpt-6-sol",
+		"copilot-claude": "claude-sonnet-5",
+		"copilot-gemini": "gemini-3.8-flash",
 	}
 	for name, model := range tests {
 		preset := presets[name]
@@ -690,10 +690,10 @@ func TestDetectDialectsMatchesProviderFamilyAndRunningState(t *testing.T) {
 
 func TestMixedFrontierPresetMapsTiersAcrossProviders(t *testing.T) {
 	mixed := presets["mixed-frontier"]
-	if mixed.Model != "claude-fable-5" || mixed.SubagentModel != "claude-fable-5" {
-		t.Fatalf("mixed-frontier main/subagent model = %q/%q, want claude-fable-5", mixed.Model, mixed.SubagentModel)
+	if mixed.Model != "claude-fable-5-1" || mixed.SubagentModel != "claude-fable-5-1" {
+		t.Fatalf("mixed-frontier main/subagent model = %q/%q, want claude-fable-5-1", mixed.Model, mixed.SubagentModel)
 	}
-	if mixed.OpusModel != "gpt-5.6-sol" || mixed.SonnetModel != "kimi-k3" || mixed.HaikuModel != "grok-4.6" {
+	if mixed.OpusModel != "gpt-6-sol" || mixed.SonnetModel != "kimi-k3" || mixed.HaikuModel != "grok-4.7" {
 		t.Fatalf("mixed-frontier tier mapping = opus %q / sonnet %q / haiku %q, want Sol/Kimi/Grok: %#v",
 			mixed.OpusModel, mixed.SonnetModel, mixed.HaikuModel, mixed)
 	}

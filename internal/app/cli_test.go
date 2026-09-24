@@ -20,8 +20,8 @@ func TestClaudeEnvironmentOverridesInheritedContextWindow(t *testing.T) {
 		if count := countEnv(env, key); count != 1 {
 			t.Fatalf("%s appears %d times, want exactly 1", key, count)
 		}
-		if value := lookupEnv(env, key); value != "372000" {
-			t.Fatalf("%s = %q, want the codex-sol capacity %q", key, value, "372000")
+		if value := lookupEnv(env, key); value != "272000" {
+			t.Fatalf("%s = %q, want the codex-sol capacity %q", key, value, "272000")
 		}
 	}
 }
@@ -80,18 +80,19 @@ func TestClaudeEnvironmentLetsExtraEnvOverrideEitherWindowVariable(t *testing.T)
 			if other == overridden {
 				continue
 			}
-			if value := lookupEnv(env, other); value != "372000" {
-				t.Errorf("%s = %q, want the untouched codex-sol capacity %q", other, value, "372000")
+			if value := lookupEnv(env, other); value != "272000" {
+				t.Errorf("%s = %q, want the untouched codex-sol capacity %q", other, value, "272000")
 			}
 		}
 	}
 }
 
-// The reproduced session sent 368,812 effective input tokens into a
-// 372,000-token window with no compaction event. With the window declared,
-// Claude Code has the denominator it needs to compact before exhaustion.
+// A GPT-5.6 Sol session reached 368,812 tokens inside a 372,000-token window
+// without compacting. GPT-6's Codex catalog window is 272,000, so that same
+// session is past the new capacity. The launch has to declare 272,000, which
+// is what makes compaction run before the catalog limit.
 func TestCodexSolLaunchDeclaresTheWindowTheReproducedSessionLacked(t *testing.T) {
-	const effectiveInput = 15020 + 353792
+	const previousExhaustion = 15020 + 353792
 
 	dialect := presets["codex-sol"]
 	dialect.Port = 43170
@@ -99,12 +100,12 @@ func TestCodexSolLaunchDeclaresTheWindowTheReproducedSessionLacked(t *testing.T)
 
 	env := claudeEnvironment(nil, "/tmp/claude", dialect)
 	for _, key := range contextWindowEnvs {
-		if value := lookupEnv(env, key); value != "372000" {
-			t.Fatalf("%s = %q, want %q", key, value, "372000")
+		if value := lookupEnv(env, key); value != "272000" {
+			t.Fatalf("%s = %q, want %q", key, value, "272000")
 		}
 	}
-	if percent := float64(effectiveInput) / float64(dialect.ContextWindow) * 100; percent < 99 || percent > 100 {
-		t.Fatalf("reproduced fill = %.1f%%, want the reported 99.1%% of the configured window", percent)
+	if previousExhaustion < dialect.ContextWindow {
+		t.Fatalf("previous exhaustion %d is no longer above the catalog window %d", previousExhaustion, dialect.ContextWindow)
 	}
 }
 

@@ -60,7 +60,7 @@ func TestUpdatingATierClearsAnInheritedContextWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := service.UpdateDialect(DialectInput{
-		Name: "cc-codex", Model: "gpt-5.6-sol", HaikuModel: "some-small-model",
+		Name: "cc-codex", Model: "gpt-6-sol", HaikuModel: "some-small-model",
 	}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestCreateDialectAdoptsWindowFromTheExactResolvedRoute(t *testing.T) {
 
 	result, err := service.CreateDialect(DialectInput{
 		Name: "cc-cursor-mix", Preset: "cursor-composer",
-		OpusModel: "composer-2.5", SonnetModel: "grok-4.6", HaikuModel: "kimi-k3",
+		OpusModel: "composer-2.5", SonnetModel: "grok-4.7", HaikuModel: "kimi-k3",
 	}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -173,8 +173,8 @@ func TestUnchangedPresetUpdateStillSuppliesAMissingContextWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Dialect.ContextWindow != 372000 {
-		t.Fatalf("context window = %d, want the preset capacity 372000", result.Dialect.ContextWindow)
+	if result.Dialect.ContextWindow != 272000 {
+		t.Fatalf("context window = %d, want the preset capacity 272000", result.Dialect.ContextWindow)
 	}
 }
 
@@ -192,8 +192,8 @@ func TestReapplyingAPresetRestoresItsContextWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Dialect.ContextWindow != 372000 {
-		t.Fatalf("context window = %d, want the codex-sol capacity 372000", result.Dialect.ContextWindow)
+	if result.Dialect.ContextWindow != 272000 {
+		t.Fatalf("context window = %d, want the codex-sol capacity 272000", result.Dialect.ContextWindow)
 	}
 }
 
@@ -234,11 +234,11 @@ func TestBackfillSkipsDialectsCarryingExtraEnv(t *testing.T) {
       "dialects": {
         "cc-codex": {
           "preset": "codex-sol",
-          "model": "gpt-5.6-sol",
-          "subagentModel": "gpt-5.6-sol",
-          "opusModel": "gpt-5.6-sol",
-          "sonnetModel": "gpt-5.6-terra",
-          "haikuModel": "gpt-5.6-luna",
+          "model": "gpt-6-sol",
+          "subagentModel": "gpt-6-sol",
+          "opusModel": "gpt-6-sol",
+          "sonnetModel": "gpt-6-sol",
+          "haikuModel": "gpt-6-luna",
           "authProvider": "codex",
           "extraEnv": { "ANTHROPIC_MODEL": "some-other-model" },
           "port": 43170,
@@ -355,7 +355,7 @@ func TestModelOverrideWarningCoversUnknownModels(t *testing.T) {
 	if warning := modelOverrideWarning("cc-codex", dialect, []string{"--model", "gpt-5.3-codex-spark"}); warning == "" {
 		t.Fatal("an unrecognized model override produced no warning")
 	} else {
-		for _, expected := range []string{"cc-codex", "gpt-5.3-codex-spark", "372000"} {
+		for _, expected := range []string{"cc-codex", "gpt-5.3-codex-spark", "272000"} {
 			if !strings.Contains(warning, expected) {
 				t.Errorf("warning %q does not mention %q", warning, expected)
 			}
@@ -364,7 +364,7 @@ func TestModelOverrideWarningCoversUnknownModels(t *testing.T) {
 	if warning := modelOverrideWarning("cc-codex", dialect, []string{"--model=gpt-5.3-codex-spark"}); warning == "" {
 		t.Error("the --model=value form produced no warning")
 	}
-	if warning := modelOverrideWarning("cc-codex", dialect, []string{"--model", "gpt-5.6-terra"}); warning != "" {
+	if warning := modelOverrideWarning("cc-codex", dialect, []string{"--model", "gpt-6-luna"}); warning != "" {
 		t.Errorf("a configured tier model warned: %q", warning)
 	}
 	if warning := modelOverrideWarning("cc-codex", dialect, nil); warning != "" {
