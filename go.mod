@@ -4,7 +4,7 @@ go 1.26.6
 
 require (
 	github.com/router-for-me/CLIProxyAPI/v7 v7.3.20
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
