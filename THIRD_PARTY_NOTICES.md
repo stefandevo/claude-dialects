@@ -1853,7 +1853,7 @@ THE SOFTWARE.
 
 ```
 
-## golang.org/x/crypto v0.54.0
+## golang.org/x/crypto v0.57.0
 
 Source: https://golang.org/x/crypto
 
@@ -1890,7 +1890,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## golang.org/x/net v0.57.0
+## golang.org/x/net v0.60.0
 
 Source: https://golang.org/x/net
 
@@ -1964,7 +1964,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## golang.org/x/sync v0.22.0
+## golang.org/x/sync v0.23.0
 
 Source: https://golang.org/x/sync
 
@@ -2038,7 +2038,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## golang.org/x/text v0.40.0
+## golang.org/x/text v0.42.0
 
 Source: https://golang.org/x/text
 

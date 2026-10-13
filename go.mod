@@ -1,6 +1,6 @@
 module github.com/stefandevo/claude-dialects
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/router-for-me/CLIProxyAPI/v7 v7.3.20
@@ -67,11 +67,11 @@ require (
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
