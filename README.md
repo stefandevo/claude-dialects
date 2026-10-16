@@ -511,7 +511,9 @@ and `cursor-grok`.
 ### GitHub Copilot
 
 GitHub Copilot dialects use the official `@github/copilot-sdk` and its bundled
-Copilot CLI runtime. Install it and authenticate once:
+runtime. `cc-dialect copilot login` uses a separate, exact `@github/copilot`
+CLI install, because current SDK releases no longer provide the `copilot`
+executable. Install both and authenticate once:
 
 ```sh
 cc-dialect copilot install
@@ -587,16 +589,23 @@ Reasoning effort is forwarded only when the live model metadata advertises it.
 MAI-Code-1.1-Flash currently uses its adaptive provider behavior and does not
 advertise configurable reasoning levels.
 
-`@github/copilot-sdk` is pinned for reproducible installation. Re-run
-`cc-dialect copilot install` after updating `cc-dialect` when the pinned SDK
-version changes: the launcher rejects a mismatched installed version rather
-than starting against it. The SDK remains a separately installed GitHub
-dependency under GitHub's terms. Copilot prompts consume the account's normal
-Copilot usage allowance. To apply a new `cc-dialect` build to an existing
-Copilot dialect, re-run `cc-dialect create <name> --preset <preset>` — creating
-an existing name is an upsert that preserves authentication, isolated state,
-and shims, so removing and recreating the dialect is never the right response
-to an update.
+`@github/copilot-sdk` 1.0.22 and `@github/copilot` 1.0.98 are pinned for
+reproducible installation. The SDK pin is exact so a fresh install cannot
+resolve a newer CLI through a caret range: SDK 1.0.9 depended on
+`@github/copilot` `^1.0.78`, and CLI platform packages from 1.0.81 dropped the
+`./sdk` export that resolver needed. SDK 1.0.22 bundles its own runtime and
+does not install `copilot`, so the CLI package is pinned beside it for
+`cc-dialect copilot login`. `cc-dialect copilot status` and `cc-dialect doctor`
+report either package when it is missing, not the required version, or — for
+the CLI — installed without an executable `copilot` command. Re-run
+`cc-dialect copilot install` after updating `cc-dialect` when either pin
+changes: the launcher rejects a mismatched runtime rather than starting against
+it. Both packages remain separately installed GitHub dependencies under
+GitHub's terms. Copilot prompts consume the account's normal Copilot usage
+allowance. To apply a new `cc-dialect` build to an existing Copilot dialect,
+re-run `cc-dialect create <name> --preset <preset>` — creating an existing name
+is an upsert that preserves authentication, isolated state, and shims, so
+removing and recreating the dialect is never the right response to an update.
 
 ### Anthropic Claude
 
@@ -1316,6 +1325,8 @@ cursor-runtime/
 copilot-runtime/
   copilot_bridge.mjs
   node_modules/@github/copilot-sdk/
+  node_modules/@github/copilot/
+  node_modules/.bin/copilot
 defaults/
   mcp.json         # shared MCP server defaults (owner-only); merged into every dialect
 ```

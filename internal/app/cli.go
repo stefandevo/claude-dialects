@@ -1086,22 +1086,22 @@ func doctor(args []string, version string) error {
 		}
 	}
 	if hasCopilot {
-		if version, copilotErr := copilotRuntimeVersion(); copilotErr == nil {
-			if version == copilotSDKVersion {
-				fmt.Printf("✓ Copilot bridge runtime (@github/copilot-sdk %s)\n", version)
-			} else {
-				fmt.Printf("✗ Copilot bridge runtime has @github/copilot-sdk %s; %s is required (run: cc-dialect copilot install)\n",
-					version, copilotSDKVersion)
-				needsCopilotInstall = true
-			}
-		} else {
-			fmt.Println("✗ Copilot bridge runtime is not installed (run: cc-dialect copilot install)")
+		sdkReady, sdkLine := copilotSDKStatusLine()
+		fmt.Println(sdkLine)
+		if !sdkReady {
 			needsCopilotInstall = true
 		}
-		if status, statusErr := copilotSDKStatus(); statusErr == nil && status.IsAuthenticated {
-			fmt.Println("✓ GitHub Copilot authentication")
-		} else {
-			fmt.Println("✗ GitHub Copilot is not authenticated (run: cc-dialect copilot login)")
+		cliReady, cliLine := copilotCLIStatusLine()
+		fmt.Println(cliLine)
+		if !cliReady {
+			needsCopilotInstall = true
+		}
+		if sdkReady && cliReady {
+			if status, statusErr := copilotSDKStatus(); statusErr == nil && status.IsAuthenticated {
+				fmt.Println("✓ GitHub Copilot authentication")
+			} else {
+				fmt.Println("✗ GitHub Copilot is not authenticated (run: cc-dialect copilot login)")
+			}
 		}
 	}
 	if hasCursor {
@@ -1302,7 +1302,7 @@ func doctor(args []string, version string) error {
 				if result, installErr := installCopilotRuntime(); installErr != nil {
 					fixErrors = append(fixErrors, fmt.Errorf("Copilot install failed: %w", installErr))
 				} else {
-					fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+					fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, @github/copilot %s, %s)\n", result.InstalledVersion, result.InstalledCLIVersion, result.NodePath)
 					// The install stops running Copilot dialects; restart them below
 					// so --fix does not leave previously running dialects stopped.
 					for _, name := range result.StoppedDialects {

@@ -15,8 +15,15 @@ import (
 	"time"
 )
 
+// copilotSDKVersion is the bridge SDK. From 1.0.13 it ships its own runtime and
+// no longer depends on @github/copilot, so it does not install the `copilot`
+// executable. copilotCLIVersion is that CLI, pinned exactly so
+// `cc-dialect copilot login` keeps node_modules/.bin/copilot. A caret range on
+// the CLI is what made SDK 1.0.9 resolve a platform package that had dropped
+// the ./sdk export its resolver still required.
 const (
-	copilotSDKVersion   = "1.0.9"
+	copilotSDKVersion   = "1.0.22"
+	copilotCLIVersion   = "1.0.98"
 	copilotMinNodeMajor = 22
 	copilotMinNodeMinor = 13
 )
@@ -25,10 +32,11 @@ const (
 var copilotBridgeSource []byte
 
 type CopilotInstallResult struct {
-	NodePath         string
-	NodeVersion      string
-	InstalledVersion string
-	StoppedDialects  []string
+	NodePath            string
+	NodeVersion         string
+	InstalledVersion    string
+	InstalledCLIVersion string
+	StoppedDialects     []string
 }
 
 func copilotCommand(args []string) error {
@@ -41,7 +49,7 @@ func copilotCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, %s)\n", result.InstalledVersion, result.NodePath)
+		fmt.Printf("Copilot bridge ready (@github/copilot-sdk %s, @github/copilot %s, %s)\n", result.InstalledVersion, result.InstalledCLIVersion, result.NodePath)
 		if len(result.StoppedDialects) > 0 {
 			fmt.Printf("Stopped stale Copilot dialect runtime(s): %s\n", strings.Join(result.StoppedDialects, ", "))
 			fmt.Println("Launch the dialect again to use the updated bridge.")
@@ -97,25 +105,32 @@ func installCopilotRuntime() (CopilotInstallResult, error) {
 	if err = writeCopilotBridge(bridgePath); err != nil {
 		return CopilotInstallResult{}, err
 	}
-	packageJSON := fmt.Sprintf("{\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@github/copilot-sdk\": %q\n  }\n}\n", copilotSDKVersion)
-	if err = atomicWriteFile(filepath.Join(runtimeDir, "package.json"), []byte(packageJSON), 0o600); err != nil {
+	if err = atomicWriteFile(filepath.Join(runtimeDir, "package.json"), copilotRuntimePackageJSON(), 0o600); err != nil {
 		return CopilotInstallResult{}, err
 	}
-	fmt.Printf("Installing official @github/copilot-sdk %s with Node %s…\n", copilotSDKVersion, version)
+	fmt.Printf("Installing official @github/copilot-sdk %s and @github/copilot %s with Node %s…\n", copilotSDKVersion, copilotCLIVersion, version)
 	cmd := exec.Command(npmPath, "install", "--ignore-scripts", "--no-audit", "--no-fund", "--omit=dev")
 	cmd.Dir = runtimeDir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err = cmd.Run(); err != nil {
 		return CopilotInstallResult{}, fmt.Errorf("install @github/copilot-sdk: %w", err)
 	}
-	installed, err := copilotRuntimeVersion()
+	installed, cliInstalled, err := requireInstalledCopilotRuntime()
 	if err != nil {
 		return CopilotInstallResult{}, err
 	}
 	return CopilotInstallResult{
-		NodePath: nodePath, NodeVersion: version, InstalledVersion: installed,
+		NodePath: nodePath, NodeVersion: version,
+		InstalledVersion: installed, InstalledCLIVersion: cliInstalled,
 		StoppedDialects: stopCopilotDialects(),
 	}, nil
+}
+
+// copilotRuntimePackageJSON is the manifest npm installs into copilot-runtime.
+// Both versions are exact: the SDK must not float, and the CLI must not float
+// back onto a caret range.
+func copilotRuntimePackageJSON() []byte {
+	return []byte(fmt.Sprintf("{\n  \"private\": true,\n  \"type\": \"module\",\n  \"dependencies\": {\n    \"@github/copilot\": %q,\n    \"@github/copilot-sdk\": %q\n  }\n}\n", copilotCLIVersion, copilotSDKVersion))
 }
 
 func copilotLogin() error {
@@ -138,16 +153,17 @@ func copilotStatus() error {
 	} else {
 		fmt.Printf("✓ Node %s: %s\n", nodeVersion, nodePath)
 	}
-	if version, err := copilotRuntimeVersion(); err != nil {
-		fmt.Println("✗ Copilot bridge runtime is not installed (run: cc-dialect copilot install)")
-	} else if version != copilotSDKVersion {
-		fmt.Printf("✗ @github/copilot-sdk %s is installed; %s is required (run: cc-dialect copilot install)\n",
-			version, copilotSDKVersion)
-	} else {
-		fmt.Printf("✓ @github/copilot-sdk %s\n", version)
-	}
+	sdkReady, sdkLine := copilotSDKStatusLine()
+	fmt.Println(sdkLine)
+	cliReady, cliLine := copilotCLIStatusLine()
+	fmt.Println(cliLine)
 	if nodeErr != nil {
 		return nodeErr
+	}
+	// A missing or stale runtime cannot answer an auth query. Reporting that
+	// failure as an authentication error hides the install problem above.
+	if !sdkReady || !cliReady {
+		return nil
 	}
 	status, err := copilotSDKStatus()
 	if err != nil {
@@ -188,6 +204,18 @@ func copilotRuntimeVersion() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return installedNPMVersion(packagePath, "@github/copilot-sdk")
+}
+
+func installedCopilotCLIVersion() (string, error) {
+	runtimeDir, _, _, _, err := copilotRuntimePaths()
+	if err != nil {
+		return "", err
+	}
+	return installedNPMVersion(filepath.Join(runtimeDir, "node_modules", "@github", "copilot", "package.json"), "@github/copilot")
+}
+
+func installedNPMVersion(packagePath, name string) (string, error) {
 	raw, err := os.ReadFile(packagePath)
 	if err != nil {
 		return "", err
@@ -199,21 +227,91 @@ func copilotRuntimeVersion() (string, error) {
 		return "", err
 	}
 	if metadata.Version == "" {
-		return "", errors.New("installed @github/copilot-sdk package has no version")
+		return "", fmt.Errorf("installed %s package has no version", name)
 	}
 	return metadata.Version, nil
 }
 
-func requireCopilotRuntime() error {
+// copilotSDKStatusLine reports the pinned SDK. doctor and copilot status share
+// it so a stale install is described the same way in both places.
+func copilotSDKStatusLine() (ready bool, line string) {
 	version, err := copilotRuntimeVersion()
 	if err != nil {
-		return errors.New("Copilot bridge runtime is not installed; run: cc-dialect copilot install")
+		return false, "✗ Copilot bridge runtime is not installed (run: cc-dialect copilot install)"
 	}
 	if version != copilotSDKVersion {
-		return fmt.Errorf("Copilot bridge has @github/copilot-sdk %s but this cc-dialect requires %s; run: cc-dialect copilot install",
+		return false, fmt.Sprintf("✗ @github/copilot-sdk %s is installed; %s is required (run: cc-dialect copilot install)",
 			version, copilotSDKVersion)
 	}
+	return true, fmt.Sprintf("✓ @github/copilot-sdk %s", version)
+}
+
+// copilotCLIStatusLine reports the pinned login CLI and its executable. The SDK
+// pin alone does not install node_modules/.bin/copilot.
+func copilotCLIStatusLine() (ready bool, line string) {
+	version, err := installedCopilotCLIVersion()
+	if err != nil {
+		return false, "✗ @github/copilot CLI is not installed (run: cc-dialect copilot install)"
+	}
+	if version != copilotCLIVersion {
+		return false, fmt.Sprintf("✗ @github/copilot %s is installed; %s is required (run: cc-dialect copilot install)",
+			version, copilotCLIVersion)
+	}
+	_, _, _, cliPath, err := copilotRuntimePaths()
+	if err != nil {
+		return false, "✗ " + err.Error()
+	}
+	if err = copilotCLIExecutable(cliPath); err != nil {
+		return false, fmt.Sprintf("✗ @github/copilot %s is installed but the copilot login executable is missing or not executable (run: cc-dialect copilot install)", version)
+	}
+	return true, fmt.Sprintf("✓ @github/copilot %s", version)
+}
+
+func copilotCLIExecutable(cliPath string) error {
+	info, err := os.Stat(cliPath)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("%s is not an executable file", cliPath)
+	}
 	return nil
+}
+
+func requireCopilotRuntime() error {
+	if _, _, err := requireInstalledCopilotRuntime(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// requireInstalledCopilotRuntime checks the SDK pin, the CLI pin, and the login
+// executable. It returns the installed versions when every check passes.
+func requireInstalledCopilotRuntime() (sdkVersion, cliVersion string, err error) {
+	sdkVersion, err = copilotRuntimeVersion()
+	if err != nil {
+		return "", "", errors.New("Copilot bridge runtime is not installed; run: cc-dialect copilot install")
+	}
+	if sdkVersion != copilotSDKVersion {
+		return "", "", fmt.Errorf("Copilot bridge has @github/copilot-sdk %s but this cc-dialect requires %s; run: cc-dialect copilot install",
+			sdkVersion, copilotSDKVersion)
+	}
+	cliVersion, err = installedCopilotCLIVersion()
+	if err != nil {
+		return "", "", errors.New("Copilot CLI is not installed; run: cc-dialect copilot install")
+	}
+	if cliVersion != copilotCLIVersion {
+		return "", "", fmt.Errorf("Copilot CLI is @github/copilot %s but this cc-dialect requires %s; run: cc-dialect copilot install",
+			cliVersion, copilotCLIVersion)
+	}
+	_, _, _, cliPath, err := copilotRuntimePaths()
+	if err != nil {
+		return "", "", err
+	}
+	if err = copilotCLIExecutable(cliPath); err != nil {
+		return "", "", errors.New("Copilot login executable is missing or not executable; run: cc-dialect copilot install")
+	}
+	return sdkVersion, cliVersion, nil
 }
 
 func writeCopilotBridge(path string) error {
