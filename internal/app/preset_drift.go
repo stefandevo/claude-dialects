@@ -256,6 +256,9 @@ func presetDriftValue(value string) string {
 // preset's values, so any the dialect changed is restated as a flag —
 // otherwise adopting the models would silently change behavior. Those fields
 // carry no route, which is why they neither clear the stamp nor enter it.
+// `--claude-config-dir inherit` is restated the same way. An omitted flag keeps
+// a stored mode on the same name, and the printed command has to carry it so
+// the mode survives being copied.
 //
 // A dialect whose state the target preset cannot restate — ExtraEnv, which no
 // flag carries, or a bridge or auth provider the preset does not supply —
@@ -287,6 +290,9 @@ func presetDriftCommand(name string, dialect, preset Dialect, presetName string)
 	}
 	if dialect.ToolSearch {
 		command += " --tool-search=true"
+	}
+	if storedClaudeConfigDir(dialect.ClaudeConfigDir) == claudeConfigDirInherit {
+		command += " --claude-config-dir " + claudeConfigDirInherit
 	}
 	return command
 }

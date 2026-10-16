@@ -15,7 +15,9 @@ may instead come from shared environment variables or system credentials.
 The proxy is linked into the `cc-dialect` executable through CLIProxyAPI's Go SDK.
 There is no separate proxy download, installation, container, or global
 `~/.claude/settings.json` modification. Changes made with `/model`, `/effort`,
-or other user-level Claude Code settings stay inside the active dialect.
+or other user-level Claude Code settings stay inside the active dialect, unless
+that dialect was created with `--claude-config-dir inherit` and
+`CLAUDE_CONFIG_DIR` is exported for the launch.
 
 > Current targets: macOS and Linux, on amd64 and arm64.
 
@@ -1411,6 +1413,32 @@ The `claude/` directory is supplied to Claude Code through
 `CLAUDE_CONFIG_DIR`. It contains that dialect's user settings, session history,
 plugins, commands, agents, and other Claude Code state. Project-level
 `.claude/` files in the repository you are working in continue to work normally.
+
+By default every dialect stays isolated. `--claude-config-dir inherit` is the
+opt-in that reuses an exported `CLAUDE_CONFIG_DIR` for that dialect only:
+
+```sh
+cc-dialect create cc-copilot --preset copilot-auto --claude-config-dir inherit
+CLAUDE_CONFIG_DIR=~/.claude cc-copilot
+cc-copilot
+```
+
+With `inherit`, a launch that finds `CLAUDE_CONFIG_DIR` already exported passes
+that directory through, so the dialect sees the same settings, global
+`CLAUDE.md`, plugins, skills, agents, MCP servers, and session history as plain
+`claude`. A launch that does not export the variable stays on the dialect's own
+`claude/` directory. `isolated` is the default. Omitting the flag on a later
+`create` for the same name keeps the stored mode, and a `create` command
+printed by `cc-dialect doctor` restates `--claude-config-dir inherit`.
+
+`cc-dialect` still writes its generated statusline and attribution opt-out into
+the dialect's own `claude/` directory. It does not modify the shared
+`settings.json`.
+
+> [!WARNING]
+> In `inherit` mode, `/model` and `/effort` changes are stored in the shared
+> directory and then affect plain `claude` as well. Do not export
+> `CLAUDE_CONFIG_DIR` for a launch unless that is what you want.
 
 Existing dialects are migrated automatically: after updating and reinstalling
 `cc-dialect`, their private `claude/` directory is created on the next launch. You

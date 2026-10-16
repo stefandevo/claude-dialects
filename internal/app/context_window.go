@@ -423,6 +423,9 @@ func contextWindowFixCommand(name string, dialect Dialect) string {
 	if dialect.ToolSearch {
 		command += " --tool-search=true"
 	}
+	if storedClaudeConfigDir(dialect.ClaudeConfigDir) == claudeConfigDirInherit {
+		command += " --claude-config-dir " + claudeConfigDirInherit
+	}
 	// TOKENS rather than <tokens>: the remedy is copied into a shell, where angle
 	// brackets are redirection rather than an obvious placeholder.
 	return command + " --context-window TOKENS"
