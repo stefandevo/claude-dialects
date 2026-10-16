@@ -176,6 +176,7 @@ func createDialect(args []string) error {
 	tokenEnv := fs.String("token-env", "", "environment variable containing the upstream API token")
 	effort := fs.Bool("effort", true, "enable Claude Code effort")
 	toolSearch := fs.Bool("tool-search", false, "enable Claude Code tool search")
+	claudeConfigDir := fs.String("claude-config-dir", "", "Claude Code config directory: isolated (default) or inherit an exported CLAUDE_CONFIG_DIR")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -186,6 +187,7 @@ func createDialect(args []string) error {
 		EffortLevel: *effortLevel, Concurrency: *concurrency, ContextWindow: *contextWindow,
 		Port: *port, BridgePort: *bridgePort,
 		BaseURL: *baseURL, AuthTokenEnv: *tokenEnv, Effort: *effort, ToolSearch: *toolSearch,
+		ClaudeConfigDir: *claudeConfigDir,
 	}, "")
 	if err != nil {
 		return err
@@ -565,10 +567,12 @@ func runDialect(args []string) error {
 // launched with, starting from the inherited environment. Every value the
 // dialect owns replaces whatever the parent shell exported, so a launch behaves
 // the same in every terminal; the dialect's own ExtraEnv is applied last and
-// stays the explicit last word.
+// stays the explicit last word. CLAUDE_CONFIG_DIR is the exception on a dialect
+// set to inherit: an exported value is passed through, and a missing one still
+// selects the dialect's own directory.
 func claudeEnvironment(inherited []string, claudeDir string, dialect Dialect) []string {
 	env := append([]string{}, inherited...)
-	env = setEnv(env, "CLAUDE_CONFIG_DIR", claudeDir)
+	env = setEnv(env, "CLAUDE_CONFIG_DIR", claudeConfigDirForLaunch(inherited, claudeDir, dialect))
 	env = setEnv(env, "ANTHROPIC_BASE_URL", fmt.Sprintf("http://127.0.0.1:%d", dialect.Port))
 	env = setEnv(env, "ANTHROPIC_AUTH_TOKEN", dialect.APIKey)
 	env = setEnv(env, "ANTHROPIC_MODEL", dialect.Model)
@@ -584,6 +588,38 @@ func claudeEnvironment(inherited []string, claudeDir string, dialect Dialect) []
 		env = setEnv(env, key, value)
 	}
 	return env
+}
+
+// claudeConfigDirForLaunch chooses the directory Claude Code runs with.
+// isolated always uses the dialect's own directory. inherit passes an exported
+// CLAUDE_CONFIG_DIR through, and stays on the isolated directory when the
+// parent shell did not export one.
+func claudeConfigDirForLaunch(inherited []string, isolatedDir string, dialect Dialect) string {
+	if storedClaudeConfigDir(dialect.ClaudeConfigDir) == claudeConfigDirInherit {
+		if exported := inheritedEnv(inherited, "CLAUDE_CONFIG_DIR"); exported != "" {
+			return exported
+		}
+	}
+	return isolatedDir
+}
+
+func inheritedEnv(env []string, key string) string {
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	return ""
+}
+
+// storedClaudeConfigDir canonicalizes the mode. Empty and isolated are the
+// default; only inherit changes launch.
+func storedClaudeConfigDir(value string) string {
+	if value == claudeConfigDirInherit {
+		return claudeConfigDirInherit
+	}
+	return ""
 }
 
 func setEnv(env []string, key, value string) []string {
