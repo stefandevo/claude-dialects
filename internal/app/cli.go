@@ -163,7 +163,7 @@ func createDialect(args []string) error {
 	fs := flag.NewFlagSet("create", flag.ContinueOnError)
 	preset := fs.String("preset", "", "starting preset")
 	model := fs.String("model", "", "main model")
-	subagent := fs.String("subagent-model", "", "subagent model")
+	subagent := fs.String("subagent-model", "", "subagent model, or none to let each agent choose its own model")
 	opusModel := fs.String("opus-model", "", "model selected by /model opus")
 	sonnetModel := fs.String("sonnet-model", "", "model selected by /model sonnet")
 	haikuModel := fs.String("haiku-model", "", "model selected by /model haiku")
@@ -575,7 +575,11 @@ func claudeEnvironment(inherited []string, claudeDir string, dialect Dialect) []
 	env = setEnv(env, "ANTHROPIC_DEFAULT_OPUS_MODEL", dialect.OpusModel)
 	env = setEnv(env, "ANTHROPIC_DEFAULT_SONNET_MODEL", dialect.SonnetModel)
 	env = setEnv(env, "ANTHROPIC_DEFAULT_HAIKU_MODEL", dialect.HaikuModel)
-	env = setEnv(env, "CLAUDE_CODE_SUBAGENT_MODEL", dialect.SubagentModel)
+	if model := routedSubagentModel(dialect); model != "" {
+		env = setEnv(env, "CLAUDE_CODE_SUBAGENT_MODEL", model)
+	} else {
+		env = unsetEnv(env, "CLAUDE_CODE_SUBAGENT_MODEL")
+	}
 	env = setEnv(env, "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", boolNumber(dialect.Effort))
 	env = setEnv(env, "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY", strconv.Itoa(dialect.Concurrency))
 	env = setEnv(env, "ENABLE_TOOL_SEARCH", strconv.FormatBool(dialect.ToolSearch))
@@ -584,6 +588,17 @@ func claudeEnvironment(inherited []string, claudeDir string, dialect Dialect) []
 		env = setEnv(env, key, value)
 	}
 	return env
+}
+
+func unsetEnv(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		if !strings.HasPrefix(item, prefix) {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func setEnv(env []string, key, value string) []string {
