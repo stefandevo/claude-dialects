@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -217,6 +218,104 @@ func TestWriteProxyConfigRoutesCopilotModelsThroughPrivateBridge(t *testing.T) {
 			t.Fatalf("Copilot proxy config does not contain %q:\n%s", expected, text)
 		}
 	}
+}
+
+// Claude Code's picker sends dashed IDs. Copilot's catalog uses dots, so the
+// proxy keeps the dotted upstream name and adds the dashed alias beside it.
+// An alias is not added when the dashed ID is already its own catalog model,
+// and a non-Copilot bridge does not grow aliases for the same IDs.
+func TestWriteProxyConfigAddsDashedClaudeAliasesForCopilot(t *testing.T) {
+	const catalog = `{"data":[` +
+		`{"id":"claude-opus-5.5"},` +
+		`{"id":"claude-fable-5.1"},` +
+		`{"id":"claude-sonnet-5"},` +
+		`{"id":"claude-haiku-4.5"},` +
+		`{"id":"claude-haiku-4-5"},` +
+		`{"id":"gpt-5.3-codex"}` +
+		`]}`
+
+	copilotText := bridgeProxyConfig(t, "copilot-claude", catalog)
+	pairs := proxyModelPairs(copilotText)
+	want := [][2]string{
+		{"claude-opus-5.5", "claude-opus-5.5"},
+		{"claude-fable-5.1", "claude-fable-5.1"},
+		{"claude-sonnet-5", "claude-sonnet-5"},
+		{"claude-haiku-4.5", "claude-haiku-4.5"},
+		{"claude-haiku-4-5", "claude-haiku-4-5"},
+		{"gpt-5.3-codex", "gpt-5.3-codex"},
+		{"claude-opus-5.5", "claude-opus-5-5"},
+		{"claude-fable-5.1", "claude-fable-5-1"},
+	}
+	if !reflect.DeepEqual(pairs, want) {
+		t.Fatalf("copilot model entries = %#v, want %#v\n%s", pairs, want, copilotText)
+	}
+
+	cursorText := bridgeProxyConfig(t, "cursor-composer", catalog)
+	for _, pair := range proxyModelPairs(cursorText) {
+		if pair[0] != pair[1] {
+			t.Fatalf("cursor bridge registered alias %q for %q:\n%s", pair[1], pair[0], cursorText)
+		}
+		if strings.Contains(pair[0], "claude-opus-5-5") || pair[1] == "claude-opus-5-5" {
+			t.Fatalf("cursor bridge registered a dashed Claude alias:\n%s", cursorText)
+		}
+	}
+}
+
+func bridgeProxyConfig(t *testing.T, preset, catalog string) string {
+	t.Helper()
+	t.Setenv("DIALECT_HOME", t.TempDir())
+	const privateKey = "bridge-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+privateKey {
+			http.Error(response, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(catalog))
+	}))
+	t.Cleanup(server.Close)
+	_, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgePort, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialect := presets[preset]
+	dialect.Port = availablePortRange(t, 1)
+	dialect.BridgePort = bridgePort
+	dialect.APIKey = privateKey
+
+	path, err := writeProxyConfig("cc-"+preset, dialect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func proxyModelPairs(text string) [][2]string {
+	var pairs [][2]string
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "- name: ") || index+1 >= len(lines) {
+			continue
+		}
+		alias := strings.TrimSpace(lines[index+1])
+		if !strings.HasPrefix(alias, "alias: ") {
+			continue
+		}
+		pairs = append(pairs, [2]string{
+			strings.Trim(strings.TrimPrefix(trimmed, "- name: "), `"`),
+			strings.Trim(strings.TrimPrefix(alias, "alias: "), `"`),
+		})
+	}
+	return pairs
 }
 
 func TestLoadConfigReturnsDefaultsWithoutWriting(t *testing.T) {
