@@ -408,6 +408,8 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	if input.SubagentModel != "" {
 		dialect.SubagentModel = input.SubagentModel
 	}
+	// An empty subagent model follows the main model. "none" is a stored
+	// sentinel, not an empty one, and must not be replaced by that fill.
 	if dialect.SubagentModel == "" {
 		dialect.SubagentModel = dialect.Model
 	}

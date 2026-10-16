@@ -850,6 +850,18 @@ cc-dialect create cc-my-codex \
   --port 53170
 ```
 
+`--subagent-model` sets `CLAUDE_CODE_SUBAGENT_MODEL`, which forces every
+subagent onto that one model. Pass `--subagent-model none` to leave it unset,
+including a value inherited from the shell: each agent then uses its own
+`model` (`haiku`, `sonnet`, `opus`, or `inherit`), resolved through the
+dialect's `--opus-model`, `--sonnet-model`, and `--haiku-model` mapping, the
+same way plain Claude Code chooses. With `none`, set all three tiers
+explicitly; a tier left at `auto` on a Copilot preset lets Copilot pick any
+model for it. `none` is not itself a model, so it stays out of the proxy
+catalog and out of auth-provider derivation, and it does not drop a preset's
+context window. A `create` command printed by `cc-dialect doctor` restates
+`--subagent-model none`.
+
 For an Anthropic-compatible service such as Z.ai, route the upstream through
 the dialect's isolated embedded proxy:
 
@@ -987,7 +999,9 @@ The value must be a positive integer of at most 20,000,000 tokens.
 
 A capacity describes one specific set of models, so an existing stored value is
 kept only while that set is unchanged. Updating a port, concurrency, or effort
-keeps it; changing the primary model, a tier, or the upstream discards it. The
+keeps it; changing the primary model, a tier, or the upstream discards it.
+`--subagent-model none` adds no model of its own, so it keeps the window of a
+route whose subagent model is already one of the other models. The
 fully resolved route then adopts a built-in preset's reviewed window when every
 model, tier, and upstream field matches exactly; otherwise `create` warns that
 the dialect is uncalibrated unless you pass a new `--context-window`. Carrying
