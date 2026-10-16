@@ -841,8 +841,8 @@ usage-statistics-enabled: false
       - api-key: %q
     models:
 `, dialect.Bridge, fmt.Sprintf("http://127.0.0.1:%d/v1", dialect.BridgePort), dialect.APIKey)
-		for _, model := range models {
-			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
+		for _, entry := range proxyModelEntries(models, dialect.Bridge == "copilot") {
+			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", entry.name, entry.alias)
 		}
 	}
 	// CLIProxyAPI requires an absolute auth-dir string, but directory creation and
@@ -1168,6 +1168,57 @@ func dialectModels(dialect Dialect) []string {
 		}
 	}
 	return models
+}
+
+type proxyModelEntry struct {
+	name  string
+	alias string
+}
+
+// proxyModelEntries registers each catalog ID as both the client-facing alias
+// and the upstream name. CLIProxyAPI routes the alias the client sends to the
+// name it sends upstream, so a single entry whose alias replaced the dotted ID
+// would stop that dotted ID from resolving.
+//
+// On a Copilot catalog, Claude Code's built-in picker sends dashed IDs
+// (claude-opus-5-5) for models Copilot names with dots (claude-opus-5.5). Each
+// claude- ID that contains a dot therefore also gets a second entry: the
+// upstream name stays dotted and the alias is the dashed form. The extra entry
+// is skipped when that dashed ID is already in the catalog. Other bridges and
+// non-Claude IDs are unchanged.
+func proxyModelEntries(models []string, copilotDashedAliases bool) []proxyModelEntry {
+	seen := map[string]bool{}
+	var entries []proxyModelEntry
+	for _, model := range models {
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		entries = append(entries, proxyModelEntry{name: model, alias: model})
+	}
+	if !copilotDashedAliases {
+		return entries
+	}
+	for _, model := range models {
+		dashed := dashedClaudeModelID(model)
+		if dashed == "" || seen[dashed] {
+			continue
+		}
+		seen[dashed] = true
+		entries = append(entries, proxyModelEntry{name: model, alias: dashed})
+	}
+	return entries
+}
+
+func dashedClaudeModelID(model string) string {
+	if !strings.HasPrefix(model, "claude-") || !strings.Contains(model, ".") {
+		return ""
+	}
+	dashed := strings.ReplaceAll(model, ".", "-")
+	if dashed == model {
+		return ""
+	}
+	return dashed
 }
 
 func mergeModels(groups ...[]string) []string {
