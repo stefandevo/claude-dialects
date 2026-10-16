@@ -258,6 +258,9 @@ func presetDriftValue(value string) string {
 // carry no route, which is why they neither clear the stamp nor enter it.
 // `--subagent-model none` is restated for the same reason: it is a behavior
 // flag, and `--preset` alone would put the preset's subagent model back.
+// `--claude-config-dir inherit` is restated the same way. An omitted flag keeps
+// a stored mode on the same name, and the printed command has to carry it so
+// the mode survives being copied.
 //
 // A dialect whose state the target preset cannot restate — ExtraEnv, which no
 // flag carries, or a bridge or auth provider the preset does not supply —
@@ -292,6 +295,9 @@ func presetDriftCommand(name string, dialect, preset Dialect, presetName string)
 	}
 	if dialect.SubagentModel == subagentModelNone && preset.SubagentModel != subagentModelNone {
 		command += " --subagent-model " + shellArg(subagentModelNone)
+	}
+	if storedClaudeConfigDir(dialect.ClaudeConfigDir) == claudeConfigDirInherit {
+		command += " --claude-config-dir " + claudeConfigDirInherit
 	}
 	return command
 }

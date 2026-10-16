@@ -63,7 +63,16 @@ type Dialect struct {
 	Bridge        string            `json:"bridge,omitempty"`
 	BridgePort    int               `json:"bridgePort,omitempty"`
 	ExtraEnv      map[string]string `json:"extraEnv,omitempty"`
+	// ClaudeConfigDir is isolated (empty) or inherit. inherit passes an
+	// exported CLAUDE_CONFIG_DIR through at launch and stays isolated when
+	// nothing is exported. Generated settings stay in the dialect directory.
+	ClaudeConfigDir string `json:"claudeConfigDir,omitempty"`
 }
+
+const (
+	claudeConfigDirIsolated = "isolated"
+	claudeConfigDirInherit  = "inherit"
+)
 
 var presets = map[string]Dialect{
 	// GPT-6 dropped Terra. Sol stays the session model; sonnet stays on Sol
