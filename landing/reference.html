@@ -89,6 +89,7 @@
 /effort max</code></pre>
         </div>
         <p>Each dialect maps <code>opus</code>, <code>sonnet</code>, and <code>haiku</code> to its own three configured model IDs. The <code>codex</code> preset maps them to Astra, Sol, and Luna; <code>codex-sol</code> maps opus and sonnet to Sol and haiku to Luna. Use <code>--opus-model</code>, <code>--sonnet-model</code>, and <code>--haiku-model</code> to change that mapping.</p>
+        <p>On a Copilot dialect, the picker's dashed Claude IDs (<code>claude-opus-5-5</code>, <code>claude-fable-5-1</code>) are registered as aliases of Copilot's dotted names (<code>claude-opus-5.5</code>). The alias is skipped when the dashed ID is already a catalog model. Other bridges are unchanged.</p>
         <p>Interactive choices are stored in the dialect's own configuration directory — changing <code>cc-codex</code> does not change regular <code>claude</code>, <code>cc-kimi</code>, or another dialect.</p>
         <p>List live models from an authenticated instance:</p>
         <div class="code-block">

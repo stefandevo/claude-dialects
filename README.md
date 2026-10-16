@@ -542,6 +542,13 @@ Available Copilot presets are:
 For example, replace `copilot-auto` with `copilot-mai` and name the dialect
 `cc-copilot-mai` to force Microsoft's Copilot-native MAI-Code-1.1-Flash model.
 
+Claude Code's built-in `/model` picker sends dashed IDs such as
+`claude-opus-5-5` and `claude-fable-5-1`. Copilot names those models with dots
+(`claude-opus-5.5`). A Copilot dialect registers both: the dotted ID stays the
+upstream name, and a second entry accepts the dashed ID unless that dashed ID
+is already in the catalog. Dotted IDs keep working. Non-Claude IDs and other
+bridges are left alone.
+
 The live SDK catalog remains authoritative. GitHub model availability depends
 on the Copilot plan and organization policy, and models may be added, replaced,
 or retired. Use any currently enabled model without waiting for a new preset:
@@ -1104,6 +1111,11 @@ Claude Code 2.x supports live switching without losing the conversation:
 /effort xhigh
 /effort max
 ```
+
+On a Copilot dialect, the picker's dashed Claude IDs (`claude-opus-5-5`,
+`claude-fable-5-1`) are registered as aliases of Copilot's dotted names
+(`claude-opus-5.5`). The alias is skipped when the dashed ID is already a
+catalog model. Other bridges are unchanged.
 
 Each dialect maps the standard `opus`, `sonnet`, and `haiku` choices to its own
 three configured model IDs. The `codex` preset maps them to Astra, Sol, and Luna;
