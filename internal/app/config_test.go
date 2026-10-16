@@ -261,7 +261,28 @@ func TestWriteProxyConfigAddsDashedClaudeAliasesForCopilot(t *testing.T) {
 	}
 }
 
-func bridgeProxyConfig(t *testing.T, preset, catalog string) string {
+// A dialect configured with the dashed ID must still send that ID to the
+// dotted live model. The dashed ID is not in the live catalog, so it must not
+// be treated as an upstream name that blocks the alias.
+func TestWriteProxyConfigMapsConfiguredDashedIDToLiveDottedModel(t *testing.T) {
+	const catalog = `{"data":[{"id":"claude-opus-5.5"}]}`
+	text := bridgeProxyConfig(t, "copilot-claude", catalog, func(dialect *Dialect) {
+		dialect.OpusModel = "claude-opus-5-5"
+	})
+	pairs := proxyModelPairs(text)
+	want := [][2]string{
+		{"claude-opus-5.5", "claude-opus-5.5"},
+		{"claude-sonnet-5", "claude-sonnet-5"},
+		{"claude-haiku-4.5", "claude-haiku-4.5"},
+		{"claude-opus-5.5", "claude-opus-5-5"},
+		{"claude-haiku-4.5", "claude-haiku-4-5"},
+	}
+	if !reflect.DeepEqual(pairs, want) {
+		t.Fatalf("model entries = %#v, want %#v\n%s", pairs, want, text)
+	}
+}
+
+func bridgeProxyConfig(t *testing.T, preset, catalog string, mutate ...func(*Dialect)) string {
 	t.Helper()
 	t.Setenv("DIALECT_HOME", t.TempDir())
 	const privateKey = "bridge-secret"
@@ -283,6 +304,9 @@ func bridgeProxyConfig(t *testing.T, preset, catalog string) string {
 		t.Fatal(err)
 	}
 	dialect := presets[preset]
+	for _, change := range mutate {
+		change(&dialect)
+	}
 	dialect.Port = availablePortRange(t, 1)
 	dialect.BridgePort = bridgePort
 	dialect.APIKey = privateKey
