@@ -2382,7 +2382,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## npm:@radix-ui/primitive 1.1.7
+## npm:@radix-ui/primitive 1.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2414,7 +2414,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-alert-dialog 1.1.24
+## npm:@radix-ui/react-alert-dialog 1.2.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2446,7 +2446,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-arrow 1.1.16
+## npm:@radix-ui/react-arrow 1.1.17
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2478,7 +2478,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-collection 1.1.16
+## npm:@radix-ui/react-collection 1.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2542,7 +2542,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-context 1.2.2
+## npm:@radix-ui/react-context 1.3.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2574,7 +2574,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-dialog 1.2.0
+## npm:@radix-ui/react-dialog 1.3.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2606,7 +2606,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-direction 1.1.5
+## npm:@radix-ui/react-direction 1.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2638,7 +2638,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-dismissable-layer 1.1.20
+## npm:@radix-ui/react-dismissable-layer 1.2.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2670,7 +2670,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-dropdown-menu 2.1.25
+## npm:@radix-ui/react-dropdown-menu 2.2.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2702,7 +2702,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-focus-guards 1.1.6
+## npm:@radix-ui/react-focus-guards 1.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2734,7 +2734,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-focus-scope 1.2.0
+## npm:@radix-ui/react-focus-scope 1.3.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2798,7 +2798,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-label 2.1.16
+## npm:@radix-ui/react-label 2.1.17
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2830,7 +2830,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-menu 2.1.25
+## npm:@radix-ui/react-menu 2.2.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2862,7 +2862,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-popper 1.3.8
+## npm:@radix-ui/react-popper 1.4.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2894,7 +2894,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-portal 1.1.18
+## npm:@radix-ui/react-portal 1.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2958,7 +2958,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-primitive 2.1.11
+## npm:@radix-ui/react-primitive 2.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -2990,7 +2990,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-roving-focus 1.1.20
+## npm:@radix-ui/react-roving-focus 1.2.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3022,7 +3022,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-separator 1.1.16
+## npm:@radix-ui/react-separator 1.2.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3054,7 +3054,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-slot 1.4.0
+## npm:@radix-ui/react-slot 1.5.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3086,7 +3086,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-switch 1.3.8
+## npm:@radix-ui/react-switch 1.4.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3118,7 +3118,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-tooltip 1.3.0
+## npm:@radix-ui/react-tooltip 1.4.1
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3150,7 +3150,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-use-callback-ref 1.1.4
+## npm:@radix-ui/react-use-callback-ref 1.1.5
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3182,7 +3182,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-use-controllable-state 1.2.6
+## npm:@radix-ui/react-use-controllable-state 1.3.0
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3374,7 +3374,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:@radix-ui/react-visually-hidden 1.2.12
+## npm:@radix-ui/react-visually-hidden 1.2.13
 
 Source: https://github.com/radix-ui/primitives
 
@@ -3826,7 +3826,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.52.0
+## npm:lucide-react 1.56.0
 
 Source: https://github.com/lucide-icons/lucide
 
