@@ -295,7 +295,7 @@ cld</code></pre>
         <h2>Security</h2>
         <p>Proxy servers and SDK bridges bind only to <code>127.0.0.1</code>. The dashboard accepts numeric loopback listeners only and requires the exact bound Host on every request; mutations also require the exact Origin and a per-process CSRF token. It is designed for one trusted local user, not remote or reverse-proxy exposure.</p>
         <ul>
-          <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation</li>
+          <li>Per-dialect <code>CLAUDE_CONFIG_DIR</code> isolation, with an opt-in <code>--claude-config-dir inherit</code></li>
           <li>Per-dialect file I/O <em>performed by the CLI itself</em> confined to that dialect's own directory by the operating system, so a planted symlink cannot redirect a read, write or removal outside the tree or into another dialect — with four stated limits: removal unlinks a tampered directory rather than refusing; credentials written by the embedded proxy during OAuth are verified by file identity after the write rather than confined during it; launched processes (Claude Code, the Cursor and Copilot bridges) receive absolute paths and resolve them as ordinary programs do; and the embedded proxy's long-lived config watcher re-reads <code>proxy.yaml</code> by path after the initial rooted read</li>
           <li>Ownership of a running proxy or bridge decided by the PID record under the dialect's own directory rather than by the health check, so <code>cc-dialect start</code> refuses a runtime already serving the dialect's port that the dialect holds no live record of owning, instead of adopting a process a later <code>stop</code> or <code>remove</code> could not find</li>
           <li>Secret-safe dashboard API responses omit keys, tokens, credential contents, and extra environment values</li>
@@ -307,6 +307,17 @@ cld</code></pre>
         <div class="callout callout--info">
           <div class="callout__title">ℹ Project-level config still works</div>
           <p>The dialect's private <code>claude/</code> directory is supplied via <code>CLAUDE_CONFIG_DIR</code>. Project-level <code>.claude/</code> files in the repository you are working in continue to work normally.</p>
+        </div>
+        <p><code>--claude-config-dir isolated|inherit</code> chooses that directory per dialect. <code>isolated</code> is the default. <code>inherit</code> passes an exported <code>CLAUDE_CONFIG_DIR</code> through for that launch, and stays isolated when nothing is exported:</p>
+        <div class="code-block">
+          <pre><code>cc-dialect create cc-copilot --preset copilot-auto --claude-config-dir inherit
+CLAUDE_CONFIG_DIR=~/.claude cc-copilot
+cc-copilot</code></pre>
+        </div>
+        <p>Omitting the flag on a later <code>create</code> for the same name keeps the stored mode. A <code>create</code> command printed by <code>cc-dialect doctor</code> restates <code>--claude-config-dir inherit</code>. The generated statusline and attribution opt-out stay in the dialect's own <code>claude/</code> directory.</p>
+        <div class="callout callout--warn">
+          <div class="callout__title">⚠ Shared /model and /effort</div>
+          <p>In <code>inherit</code> mode, <code>/model</code> and <code>/effort</code> changes are stored in the shared directory and then affect plain <code>claude</code> as well.</p>
         </div>
       </section>
 
