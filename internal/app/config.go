@@ -829,11 +829,10 @@ usage-statistics-enabled: false
 		}
 	}
 	if dialect.Bridge != "" {
-		models, modelsErr := fetchBridgeModels(dialect)
+		liveModels, modelsErr := fetchBridgeModels(dialect)
 		if modelsErr != nil {
-			models = nil
+			liveModels = nil
 		}
-		models = mergeModels(models, dialectModels(dialect))
 		content += fmt.Sprintf(`openai-compatibility:
   - name: %q
     base-url: %q
@@ -841,8 +840,8 @@ usage-statistics-enabled: false
       - api-key: %q
     models:
 `, dialect.Bridge, fmt.Sprintf("http://127.0.0.1:%d/v1", dialect.BridgePort), dialect.APIKey)
-		for _, model := range models {
-			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
+		for _, entry := range proxyModelEntries(liveModels, dialectModels(dialect), dialect.Bridge == "copilot") {
+			content += fmt.Sprintf("      - name: %q\n        alias: %q\n", entry.name, entry.alias)
 		}
 	}
 	// CLIProxyAPI requires an absolute auth-dir string, but directory creation and
@@ -1170,18 +1169,89 @@ func dialectModels(dialect Dialect) []string {
 	return models
 }
 
-func mergeModels(groups ...[]string) []string {
-	seen := map[string]bool{}
-	var models []string
-	for _, group := range groups {
-		for _, model := range group {
-			if model != "" && !seen[model] {
-				seen[model] = true
-				models = append(models, model)
+type proxyModelEntry struct {
+	name  string
+	alias string
+}
+
+// proxyModelEntries registers each model ID as both the client-facing alias
+// and the upstream name. CLIProxyAPI routes the alias the client sends to the
+// name it sends upstream, and it keeps the first entry when an alias repeats.
+// A configured dashed ID must not be registered ahead of the alias that sends
+// that ID to the dotted upstream name, or the dashed name goes upstream.
+//
+// live is the bridge catalog. configured is the dialect's own model list.
+// On a Copilot catalog, Claude Code's picker sends dashed IDs
+// (claude-opus-5-5) for models Copilot names with dots (claude-opus-5.5). Each
+// claude- ID that contains a dot also gets a second entry: the upstream name
+// stays dotted and the alias is the dashed form. That alias is skipped only
+// when the dashed ID is already in the live catalog. A dashed ID that appears
+// only because the dialect was configured with it is an alias, not an upstream
+// model. Other bridges and non-Claude IDs are unchanged.
+func proxyModelEntries(live, configured []string, copilotDashedAliases bool) []proxyModelEntry {
+	liveIDs := map[string]bool{}
+	for _, model := range live {
+		if model != "" {
+			liveIDs[model] = true
+		}
+	}
+	// A configured dashed spelling of a live dotted model is not itself a
+	// catalog model. Deciding "already exists" from the merged list would mark
+	// it seen and then skip the alias.
+	aliasOnly := map[string]bool{}
+	if copilotDashedAliases {
+		for model := range liveIDs {
+			dashed := dashedClaudeModelID(model)
+			if dashed != "" && !liveIDs[dashed] {
+				aliasOnly[dashed] = true
 			}
 		}
 	}
-	return models
+
+	seen := map[string]bool{}
+	var entries []proxyModelEntry
+	addIdentity := func(model string) {
+		if model == "" || seen[model] || aliasOnly[model] {
+			return
+		}
+		seen[model] = true
+		entries = append(entries, proxyModelEntry{name: model, alias: model})
+	}
+	for _, model := range live {
+		addIdentity(model)
+	}
+	for _, model := range configured {
+		addIdentity(model)
+	}
+	if !copilotDashedAliases {
+		return entries
+	}
+	addAlias := func(model string) {
+		dashed := dashedClaudeModelID(model)
+		if dashed == "" || liveIDs[dashed] || seen[dashed] {
+			return
+		}
+		seen[dashed] = true
+		entries = append(entries, proxyModelEntry{name: model, alias: dashed})
+	}
+	for _, model := range live {
+		addAlias(model)
+	}
+	for _, model := range configured {
+		addAlias(model)
+	}
+	return entries
+}
+
+func dashedClaudeModelID(model string) string {
+	if !strings.HasPrefix(model, "claude-") || !strings.Contains(model, ".") {
+		return ""
+	}
+	dashed := strings.ReplaceAll(model, ".", "-")
+	if dashed == model {
+		return ""
+	}
+	return dashed
 }
 
 func validName(name string) bool {
