@@ -26,6 +26,26 @@ func TestClaudeEnvironmentOverridesInheritedContextWindow(t *testing.T) {
 	}
 }
 
+// With subagent model "none", an ambient value must not leak in either: each
+// agent's own model choice has to resolve through the dialect's slots.
+func TestClaudeEnvironmentLeavesSubagentModelUnsetForNone(t *testing.T) {
+	dialect := presets["copilot-auto"]
+	dialect.Port = 43170
+	dialect.APIKey = "local-secret"
+	dialect.SubagentModel = subagentModelNone
+
+	env := claudeEnvironment([]string{"CLAUDE_CODE_SUBAGENT_MODEL=gpt-6-sol"}, "/tmp/claude", dialect)
+
+	if count := countEnv(env, "CLAUDE_CODE_SUBAGENT_MODEL"); count != 0 {
+		t.Fatalf("CLAUDE_CODE_SUBAGENT_MODEL appears %d times, want it unset", count)
+	}
+	for _, model := range dialectModels(dialect) {
+		if model == subagentModelNone {
+			t.Fatalf("dialectModels routes the %q sentinel as a model", subagentModelNone)
+		}
+	}
+}
+
 // Every preset must hand Claude Code a denominator through both chains,
 // otherwise the route it cannot recognize is left uncalibrated exactly as issue
 // #44 describes, or reports its fill level against the 200,000-token default.
