@@ -436,9 +436,15 @@ func persistContextWindowBackfill() ([]string, error) {
 // applies that map last, so it can replace the base URL, the model variables, or
 // the auto-compact window itself, and the stored fields then no longer describe
 // what the dialect actually talks to.
+//
+// subagent model "none" is not a model. It leaves the variable unset so each
+// agent resolves through the opus, sonnet, and haiku tiers already on the route,
+// and it shares that route when the other side's subagent model is already one
+// of those models. A subagent model that is not already on the route still
+// diverges, because it can be the smallest window.
 func sharesContextRoute(dialect, other Dialect) bool {
 	return dialect.Model == other.Model &&
-		dialect.SubagentModel == other.SubagentModel &&
+		subagentModelsShareRoute(dialect, other) &&
 		dialect.OpusModel == other.OpusModel &&
 		dialect.SonnetModel == other.SonnetModel &&
 		dialect.HaikuModel == other.HaikuModel &&
@@ -815,7 +821,7 @@ usage-statistics-enabled: false
     models:
 `, token, dialect.BaseURL)
 		seen := map[string]bool{}
-		for _, model := range []string{dialect.Model, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel, dialect.SubagentModel} {
+		for _, model := range []string{dialect.Model, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel, routedSubagentModel(dialect)} {
 			if model != "" && !seen[model] {
 				content += fmt.Sprintf("      - name: %q\n        alias: %q\n", model, model)
 				seen[model] = true
@@ -1065,7 +1071,7 @@ func expectedAuthProviders(dialect Dialect) []string {
 	}
 	seen := map[string]bool{}
 	var providers []string
-	for _, model := range []string{dialect.Model, dialect.SubagentModel, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel} {
+	for _, model := range []string{dialect.Model, routedSubagentModel(dialect), dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel} {
 		if provider := providerForModel(model); provider != "" && !seen[provider] {
 			seen[provider] = true
 			providers = append(providers, provider)
@@ -1117,10 +1123,45 @@ func providerForDialect(dialect Dialect) string {
 	}
 }
 
+// subagentModelNone leaves CLAUDE_CODE_SUBAGENT_MODEL unset, so each agent's own
+// model (haiku, sonnet, opus, or inherit) resolves through the dialect's slots
+// as it would in plain Claude Code, instead of every subagent being forced onto
+// one model. It is not registered as a proxy model and does not select an auth
+// provider.
+const subagentModelNone = "none"
+
+func routedSubagentModel(dialect Dialect) string {
+	if dialect.SubagentModel == subagentModelNone {
+		return ""
+	}
+	return dialect.SubagentModel
+}
+
+// subagentModelsShareRoute reports whether two subagent settings select the
+// same models. "none" adds nothing beyond the models already named by the main
+// model and the three tiers.
+func subagentModelsShareRoute(dialect, other Dialect) bool {
+	if dialect.SubagentModel == other.SubagentModel {
+		return true
+	}
+	if dialect.SubagentModel == subagentModelNone {
+		return modelAlreadyOnRoute(other.SubagentModel, dialect)
+	}
+	if other.SubagentModel == subagentModelNone {
+		return modelAlreadyOnRoute(dialect.SubagentModel, other)
+	}
+	return false
+}
+
+func modelAlreadyOnRoute(model string, dialect Dialect) bool {
+	return model != "" && (model == dialect.Model || model == dialect.OpusModel ||
+		model == dialect.SonnetModel || model == dialect.HaikuModel)
+}
+
 func dialectModels(dialect Dialect) []string {
 	seen := map[string]bool{}
 	var models []string
-	for _, model := range []string{dialect.Model, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel, dialect.SubagentModel} {
+	for _, model := range []string{dialect.Model, dialect.OpusModel, dialect.SonnetModel, dialect.HaikuModel, routedSubagentModel(dialect)} {
 		if model != "" && !seen[model] {
 			seen[model] = true
 			models = append(models, model)

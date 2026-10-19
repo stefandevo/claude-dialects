@@ -256,6 +256,8 @@ func presetDriftValue(value string) string {
 // preset's values, so any the dialect changed is restated as a flag —
 // otherwise adopting the models would silently change behavior. Those fields
 // carry no route, which is why they neither clear the stamp nor enter it.
+// `--subagent-model none` is restated for the same reason: it is a behavior
+// flag, and `--preset` alone would put the preset's subagent model back.
 //
 // A dialect whose state the target preset cannot restate — ExtraEnv, which no
 // flag carries, or a bridge or auth provider the preset does not supply —
@@ -287,6 +289,9 @@ func presetDriftCommand(name string, dialect, preset Dialect, presetName string)
 	}
 	if dialect.ToolSearch {
 		command += " --tool-search=true"
+	}
+	if dialect.SubagentModel == subagentModelNone && preset.SubagentModel != subagentModelNone {
+		command += " --subagent-model " + shellArg(subagentModelNone)
 	}
 	return command
 }
