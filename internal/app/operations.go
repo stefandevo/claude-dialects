@@ -47,13 +47,14 @@ type DialectInput struct {
 	Concurrency   int
 	// ContextWindow declares the route's capacity in tokens. Zero leaves the
 	// resolved value to the preset or, on update, to the stored value.
-	ContextWindow int
-	Port          int
-	BridgePort    int
-	BaseURL       string
-	AuthTokenEnv  string
-	Effort        bool
-	ToolSearch    bool
+	ContextWindow   int
+	Port            int
+	BridgePort      int
+	BaseURL         string
+	AuthTokenEnv    string
+	Effort          bool
+	ToolSearch      bool
+	ClaudeConfigDir string
 }
 
 type DialectView struct {
@@ -84,6 +85,7 @@ type DialectView struct {
 	Bridge                   string         `json:"bridge,omitempty"`
 	BridgePort               int            `json:"bridgePort,omitempty"`
 	ExtraEnvKeys             []string       `json:"extraEnvKeys,omitempty"`
+	ClaudeConfigDir          string         `json:"claudeConfigDir,omitempty"`
 	Status                   *RuntimeStatus `json:"status,omitempty"`
 	// PresetDrift reports read-only preset revision drift for configured
 	// dialects. Omitted when the dialect matches its preset or cannot be judged.
@@ -209,6 +211,7 @@ func safeDialectView(name string, dialect Dialect) DialectView {
 		AuthTokenEnv: dialect.AuthTokenEnv, AuthProvider: dialect.AuthProvider,
 		AuthProviders: expectedAuthProviders(dialect),
 		Bridge:        dialect.Bridge, BridgePort: dialect.BridgePort, ExtraEnvKeys: extraEnvKeys,
+		ClaudeConfigDir: storedClaudeConfigDir(dialect.ClaudeConfigDir),
 	}
 }
 
@@ -430,6 +433,18 @@ func prepareDialect(cfg *Config, input DialectInput, existing Dialect, exists bo
 	}
 	if dialect.HaikuModel == "" {
 		dialect.HaikuModel = dialect.Model
+	}
+	switch input.ClaudeConfigDir {
+	case "":
+		if exists {
+			dialect.ClaudeConfigDir = storedClaudeConfigDir(existing.ClaudeConfigDir)
+		}
+	case claudeConfigDirIsolated:
+		dialect.ClaudeConfigDir = ""
+	case claudeConfigDirInherit:
+		dialect.ClaudeConfigDir = claudeConfigDirInherit
+	default:
+		return Dialect{}, operationError(ErrorInvalidInput, "--claude-config-dir must be %s or %s", claudeConfigDirIsolated, claudeConfigDirInherit)
 	}
 	if input.EffortLevel != "" {
 		dialect.EffortLevel = input.EffortLevel
