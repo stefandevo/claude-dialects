@@ -597,7 +597,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## github.com/klauspost/compress v1.17.4
+## github.com/klauspost/compress v1.18.7
 
 Source: https://github.com/klauspost/compress
 
