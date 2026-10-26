@@ -3826,7 +3826,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.56.0
+## npm:lucide-react 1.60.0
 
 Source: https://github.com/lucide-icons/lucide
 
@@ -3880,7 +3880,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:react 19.3.0
+## npm:react 19.3.1
 
 Source: https://github.com/react/react
 
@@ -3912,7 +3912,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:react-dom 19.3.0
+## npm:react-dom 19.3.1
 
 Source: https://github.com/react/react
 
@@ -4010,7 +4010,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:react-router 8.4.0
+## npm:react-router 8.5.0
 
 Source: https://github.com/remix-run/react-router
 
