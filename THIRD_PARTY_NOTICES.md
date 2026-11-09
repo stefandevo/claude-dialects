@@ -215,7 +215,7 @@ Source: https://cloud.google.com/go/compute/metadata
 
 ```
 
-## github.com/andybalholm/brotli v1.0.6
+## github.com/andybalholm/brotli v1.2.7
 
 Source: https://github.com/andybalholm/brotli
 
@@ -597,7 +597,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## github.com/klauspost/compress v1.18.7
+## github.com/klauspost/compress v1.20.2
 
 Source: https://github.com/klauspost/compress
 
@@ -3826,7 +3826,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.62.0
+## npm:lucide-react 1.67.0
 
 Source: https://github.com/lucide-icons/lucide
 
