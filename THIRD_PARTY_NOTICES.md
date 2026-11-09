@@ -3826,7 +3826,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.62.0
+## npm:lucide-react 1.67.0
 
 Source: https://github.com/lucide-icons/lucide
 
