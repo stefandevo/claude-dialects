@@ -2001,7 +2001,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## golang.org/x/sys v0.49.0
+## golang.org/x/sys v0.50.0
 
 Source: https://golang.org/x/sys
 
@@ -3826,7 +3826,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.67.0
+## npm:lucide-react 1.71.0
 
 Source: https://github.com/lucide-icons/lucide
 
