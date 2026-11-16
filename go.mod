@@ -1,10 +1,10 @@
 module github.com/stefandevo/claude-dialects
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/router-for-me/CLIProxyAPI/v7 v7.3.20
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
