@@ -565,7 +565,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
-## github.com/gorilla/websocket v1.5.3
+## github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 
 Source: https://github.com/gorilla/websocket
 
@@ -3826,7 +3826,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## npm:lucide-react 1.71.0
+## npm:lucide-react 1.74.0
 
 Source: https://github.com/lucide-icons/lucide
 
